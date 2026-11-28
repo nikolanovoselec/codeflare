@@ -1,4 +1,5 @@
 import { Component, Show, createMemo, createSignal, createEffect, onMount, onCleanup } from 'solid-js';
+import PiWorkspaceMode, { type PiWorkspaceModeBinding } from './PiWorkspaceMode';
 import {
   mdiCogOutline,
   mdiShieldAccount,
@@ -22,11 +23,13 @@ import OperatorActivityButton from './OperatorActivityButton';
 
 import { terminalStore } from '../stores/terminal';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
-import { isTouchDevice } from '../lib/mobile';
+import { isMobile, isTouchDevice } from '../lib/mobile';
+import { measureHeaderActions, measureProfileMenu, type OverflowHeaderAction } from '../lib/header-fit';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import '../styles/header.css';
 
 interface HeaderProps {
+  workspaceMode?: PiWorkspaceModeBinding;
   userName?: string;
   onSettingsClick?: () => void;
   onStoragePanelToggle?: () => void;
@@ -56,6 +59,8 @@ interface HeaderProps {
  */
 const Header: Component<HeaderProps> = (props) => {
   const [showUserMenu, setShowUserMenu] = createSignal(false);
+  const [profileEmail, setProfileEmail] = createSignal<HTMLDivElement>();
+  const [userMenuPos, setUserMenuPos] = createSignal({ top: 0, right: 0, sheet: false });
   const [gravatarOk, setGravatarOk] = createSignal(false);
   // Probe Gravatar existence once via fetch (no <img onError> console noise).
   createEffect(() => {
@@ -65,7 +70,47 @@ const Header: Component<HeaderProps> = (props) => {
   });
   const [showTimerDropdown, setShowTimerDropdown] = createSignal(false);
   let userMenuRef: HTMLDivElement | undefined;
+  let userButtonRef: HTMLButtonElement | undefined;
+  createEffect(() => {
+    if (!showUserMenu()) return;
+    const email = profileEmail();
+    const update = () => {
+      const emailHeight = email?.parentElement
+        ? email.offsetHeight + (Number.parseFloat(getComputedStyle(email.parentElement).rowGap) || 0) : 0;
+      if (userMenuRef) setUserMenuPos(measureProfileMenu(userMenuRef, emailHeight));
+    };
+    update();
+    window.addEventListener('resize', update);
+    const observer = email && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : undefined;
+    if (email) observer?.observe(email);
+    onCleanup(() => {
+      window.removeEventListener('resize', update);
+      observer?.disconnect();
+    });
+  });
+  const [operatorProfileMount, setOperatorProfileMount] = createSignal<HTMLDivElement>();
   let timerMenuRef: HTMLDivElement | undefined;
+  let headerRef!: HTMLElement;
+  let actionsRef!: HTMLDivElement;
+  const [overflow, setOverflow] = createSignal<OverflowHeaderAction[]>([]);
+  const [headerFits, setHeaderFits] = createSignal(true);
+  const inProfile = (action: OverflowHeaderAction) => overflow().includes(action);
+
+  const measureHeader = () => {
+    if (!isMobile() || !headerRef.clientWidth) {
+      setOverflow(previous => previous.length ? [] : previous);
+      setHeaderFits(true);
+      return;
+    }
+    const eligible: OverflowHeaderAction[] = [];
+    if (props.onVscodeOpen) eligible.push('vscode');
+    if (sessionStore.enterpriseMode) eligible.push('operators');
+    if (props.onVaultOpen) eligible.push('vault');
+    const next = measureHeaderActions(headerRef, actionsRef, eligible);
+    setOverflow(previous => previous.join() === next.overflow.join() ? previous : next.overflow);
+    setHeaderFits(next.fits);
+  };
+
 
   const activeSession = createMemo(() =>
     props.sessions.find(s => s.id === props.activeSessionId)
@@ -95,6 +140,11 @@ const Header: Component<HeaderProps> = (props) => {
 
   onMount(() => {
     document.addEventListener('mousedown', handleClickOutside);
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureHeader);
+    observer?.observe(headerRef);
+    observer?.observe(actionsRef);
+    measureHeader();
+    onCleanup(() => observer?.disconnect());
   });
 
   onCleanup(() => {
@@ -102,15 +152,24 @@ const Header: Component<HeaderProps> = (props) => {
   });
 
   return (
-    <header class="header animate-fadeInUp">
+    <header ref={headerRef} class="header animate-fadeInUp" classList={{ 'header-with-workspace-mode': !!props.workspaceMode }} data-header-fits={headerFits()}>
+      <div classList={{ 'header-navigation': !!props.workspaceMode, 'header-navigation--contents': !props.workspaceMode }}>
       {/* Logo */}
       <div
         class={`header-logo ${props.onLogoClick ? 'header-logo--clickable' : ''}`}
+        classList={{ 'session-switcher--mobile': isMobile() }}
         data-testid="header-logo"
         onClick={() => props.onLogoClick?.()}
         role={props.onLogoClick ? 'button' : undefined}
+        aria-label={props.onLogoClick ? 'Dashboard' : undefined}
+        tabIndex={props.onLogoClick ? 0 : undefined}
+        onKeyDown={event => {
+          if (!props.onLogoClick || event.repeat || (event.key !== 'Enter' && event.key !== ' ')) return;
+          event.preventDefault();
+          props.onLogoClick();
+        }}
       >
-        <Icon path={mdiViewDashboardOutline} size={22} class="header-logo-icon" />
+        <Icon path={mdiViewDashboardOutline} size={22} class="header-logo-icon" aria-hidden="true" />
       </div>
 
       {/* Session Switcher */}
@@ -125,11 +184,14 @@ const Header: Component<HeaderProps> = (props) => {
         onCloseMultiView={props.onCloseMultiView}
       />
 
+      </div>
+
       {/* Spacer for flex layout */}
       <div class="header-spacer" />
 
+
       {/* Right side - User menu, settings, and dashboard */}
-      <div class="header-actions">
+      <div class="header-actions" ref={actionsRef}>
         {/* Auth URL button (shown when auth URL detected in terminal) */}
         <Show when={!isTouchDevice() && terminalStore.authUrl}>
           <button
@@ -146,81 +208,6 @@ const Header: Component<HeaderProps> = (props) => {
           </button>
         </Show>
 
-        {/* The account menu is available in every mode. Enterprise keeps the
-            read-only Usage action while self-service billing, onboarding, and
-            logout remain suppressed. */}
-        <div class="header-user-wrapper" ref={userMenuRef}>
-          <button
-            type="button"
-            class="header-user-menu"
-            data-testid="header-user-menu"
-            title="User menu"
-            onClick={() => setShowUserMenu(!showUserMenu())}
-          >
-            <Show when={props.userName && gravatarOk()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
-              <img
-                src={getGravatarUrl(props.userName!, 48)}
-                alt="Avatar"
-                class="header-user-avatar-img"
-                width={24} height={24}
-              />
-            </Show>
-            <Show when={props.userName}>
-              <span class="header-user-name">{props.userName}</span>
-            </Show>
-          </button>
-          {/* Profile and Guided Setup use plain <a> tags — SolidJS Router's
-              top-level DOM listener intercepts clicks for client-side navigation.
-              No onClick handlers = no touch event race conditions on mobile. */}
-          <Show when={showUserMenu()}>
-            <div class="header-user-dropdown" data-testid="header-user-dropdown">
-              <Show when={sessionStore.saasMode}>
-                <a
-                  href="/app/subscribe"
-                  class="header-user-dropdown-item"
-                  data-testid="header-user-dropdown-profile"
-                >
-                  <Icon path={mdiAccountOutline} size={16} />
-                  <span>Subscription</span>
-                </a>
-              </Show>
-              <a
-                href="/app/usage"
-                class="header-user-dropdown-item"
-                data-testid="header-user-dropdown-usage"
-              >
-                <Icon path={mdiChartBar} size={16} />
-                <span>Usage</span>
-                <UsageInlineBadge />
-              </a>
-              <Show when={!sessionStore.enterpriseMode}>
-                <a
-                  href="/app/onboarding"
-                  class="header-user-dropdown-item"
-                  data-testid="header-user-dropdown-onboarding"
-                >
-                  <Icon path={mdiRocketLaunchOutline} size={16} />
-                  <span>Guided Setup</span>
-                </a>
-                <button
-                  type="button"
-                  class="header-user-dropdown-item header-user-dropdown-item--danger"
-                  data-testid="header-user-dropdown-logout"
-                  onClick={() => { window.location.href = '/auth/logout'; }}
-                >
-                  <Icon path={mdiLogout} size={16} />
-                  <span>Logout</span>
-                </button>
-              </Show>
-            </div>
-          </Show>
-        </div>
-
-        {/* Dashboard: enterprise operator activity stays adjacent to account identity. */}
-        <Show when={!props.onVscodeOpen}>
-          <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
-        </Show>
-
         {/* Sleep timer dropdown */}
         <Show when={timerInfo()}>
           {(info) => (
@@ -228,6 +215,7 @@ const Header: Component<HeaderProps> = (props) => {
               <button
                 type="button"
                 class={`header-timer-button header-timer-button--${info().severity}`}
+                classList={{ 'session-switcher--mobile': isMobile() }}
                 data-testid="header-timer-button"
                 title={info().bucket}
                 onClick={() => setShowTimerDropdown(!showTimerDropdown())}
@@ -246,18 +234,104 @@ const Header: Component<HeaderProps> = (props) => {
           )}
         </Show>
 
+        <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} fitContainer />}</Show>
+        {/* The account menu is available in every mode. Enterprise keeps the
+            read-only Usage action while self-service billing, onboarding, and
+            logout remain suppressed. */}
+        <div class="header-user-wrapper" ref={userMenuRef}>
+          <button
+            type="button"
+            ref={userButtonRef}
+            class="header-user-menu"
+            data-testid="header-user-menu"
+            aria-label="User menu"
+            title="User menu"
+            onClick={() => setShowUserMenu(!showUserMenu())}
+          >
+            <Show when={props.userName && gravatarOk()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
+              <img
+                src={getGravatarUrl(props.userName!, 48)}
+                alt="Avatar"
+                class="header-user-avatar-img"
+                width={24} height={24}
+              />
+            </Show>
+          </button>
+          {/* Profile and Guided Setup use plain <a> tags — SolidJS Router's
+              top-level DOM listener intercepts clicks for client-side navigation.
+              No onClick handlers = no touch event race conditions on mobile. */}
+          <Show when={showUserMenu()}>
+            <div class="header-user-dropdown header-user-dropdown--profile" data-testid="header-user-dropdown"
+              classList={{ 'header-user-dropdown--sheet': userMenuPos().sheet }}
+              style={{ '--profile-menu-top': `${userMenuPos().top}px`, '--profile-menu-right': `${userMenuPos().right}px` }}>
+              <Show when={props.userName}>{email => (
+                <div class="header-user-email" ref={element => {
+                  setProfileEmail(element);
+                  onCleanup(() => setProfileEmail(current => current === element ? undefined : current));
+                }}><span title={email()}>{email()}</span></div>
+              )}</Show>
+              <div class="header-user-profile-actions" role="group" aria-label="Account actions">
+                <Show when={inProfile('vscode') && props.onVscodeOpen}>{onOpen =>
+                  <button type="button" class="header-user-dropdown-item" onClick={() => { setShowUserMenu(false); onOpen()(); }}>
+                    <Icon path={mdiMicrosoftVisualStudioCode} size={20} /><span>Open editor (VS Code)</span>
+                  </button>}
+                </Show>
+                <Show when={inProfile('operators')}><div ref={setOperatorProfileMount} /></Show>
+                <Show when={inProfile('vault') && props.onVaultOpen}>{onOpen =>
+                  <VaultButton status={props.vaultStatus ?? (props.vaultReady ? 'ready' : 'prewarming')} onOpen={onOpen()} inProfile />}
+                </Show>
+                <Show when={sessionStore.saasMode}>
+                  <a
+                    href="/app/subscribe"
+                    class="header-user-dropdown-item"
+                    data-testid="header-user-dropdown-profile"
+                  >
+                    <Icon path={mdiAccountOutline} size={16} />
+                    <span>Subscription</span>
+                  </a>
+                </Show>
+                <a
+                  href="/app/usage"
+                  class="header-user-dropdown-item"
+                  data-testid="header-user-dropdown-usage"
+                >
+                  <Icon path={mdiChartBar} size={16} />
+                  <span>Usage</span>
+                  <UsageInlineBadge />
+                </a>
+                <Show when={!sessionStore.enterpriseMode}>
+                  <a
+                    href="/app/onboarding"
+                    class="header-user-dropdown-item"
+                    data-testid="header-user-dropdown-onboarding"
+                  >
+                    <Icon path={mdiRocketLaunchOutline} size={16} />
+                    <span>Guided Setup</span>
+                  </a>
+                  <button
+                    type="button"
+                    class="header-user-dropdown-item header-user-dropdown-item--danger"
+                    data-testid="header-user-dropdown-logout"
+                    onClick={() => { window.location.href = '/auth/logout'; }}
+                  >
+                    <Icon path={mdiLogout} size={16} />
+                    <span>Logout</span>
+                  </button>
+                </Show>
+              </div>
+            </div>
+          </Show>
+        </div>
+
         {/* Vault button — opens the persistent SilverBullet vault in a new tab.
             Rendered only when the parent passes onVaultOpen (terminal-view +
             active advanced session present). The button remains disabled until
             browser-side prewarm has completed the real SilverBullet boot and
             object-index readiness, not just server reachability. */}
-        <Show when={props.onVaultOpen}>
-          {(onOpen) => (
-            <VaultButton
-              status={props.vaultStatus ?? (props.vaultReady ? 'ready' : 'prewarming')}
-              onOpen={onOpen()}
-            />
-          )}
+        <Show when={!inProfile('vault') && props.onVaultOpen}>
+          {(onOpen) => <div data-overflow-action="vault">
+            <VaultButton status={props.vaultStatus ?? (props.vaultReady ? 'ready' : 'prewarming')} onOpen={onOpen()} />
+          </div>}
         </Show>
 
         {/* Browser IDE button — opens the per-session OpenVSCode editor in a new
@@ -266,10 +340,10 @@ const Header: Component<HeaderProps> = (props) => {
             session's editor is isolated (REQ-IDE-001, REQ-IDE-002); no client-side
             readiness gate is needed — the host lazily starts the server and
             returns a warming state until it is up. */}
-        <Show when={props.onVscodeOpen}>
+        <Show when={!inProfile('vscode') && props.onVscodeOpen}>
           {(onOpen) => (
             <button
-              class="header-vscode-button"
+              data-overflow-action="vscode" class="header-vscode-button"
               data-testid="header-vscode-button"
               title="Open editor (VS Code)"
               type="button"
@@ -280,9 +354,12 @@ const Header: Component<HeaderProps> = (props) => {
           )}
         </Show>
 
-        {/* Terminal: keep operator activity with the session tools, between VS Code and Storage. */}
-        <Show when={props.onVscodeOpen}>
-          <OperatorActivityButton enabled={sessionStore.enterpriseMode} />
+        <Show when={sessionStore.enterpriseMode}>
+          <div data-overflow-action="operators" hidden={inProfile('operators')}>
+            <OperatorActivityButton enabled compact={isMobile()} inProfile={inProfile('operators')}
+              profileMount={() => showUserMenu() ? operatorProfileMount() : undefined}
+              onOpenFromProfile={() => setShowUserMenu(false)} returnFocus={() => userButtonRef?.focus()} />
+          </div>
         </Show>
 
         {/* Storage button */}

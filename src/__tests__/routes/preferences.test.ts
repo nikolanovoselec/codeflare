@@ -159,6 +159,22 @@ describe('Preferences Routes', () => {
 
   // REQ-SESSION-014 (PATCH merges into KV; rejects invalid types with VALIDATION_ERROR)
   describe('PATCH /preferences', () => {
+    it.each(['chat', 'terminal'])('persists the Pi surface default %s independently of workspace and Herdr settings', async defaultPiSurface => {
+      mockKV._set('user-prefs:codeflare-test-user', { defaultWorkspace: 'vscode', herdrEnabled: true });
+      const app = createTestApp();
+      const patch = (body: object) => app.request('/preferences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const accepted = await patch({ defaultPiSurface });
+      expect(accepted.status).toBe(200);
+      expect(await accepted.json()).toMatchObject({ defaultPiSurface, defaultWorkspace: 'vscode', herdrEnabled: true });
+      expect((await patch({ fastStartEnabled: true })).status).toBe(200);
+      expect((await patch({ defaultPiSurface: 'vscode' })).status).toBe(400);
+      expect(await (await app.request('/preferences')).json()).toMatchObject({
+        defaultPiSurface, defaultWorkspace: 'vscode', herdrEnabled: true, fastStartEnabled: true,
+      });
+    });
+
     it('updates workspaceSyncEnabled and keeps existing fields', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         lastAgentType: 'antigravity',

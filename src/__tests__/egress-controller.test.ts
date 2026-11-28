@@ -55,6 +55,7 @@ function makeController(
     pathsDigest?: string;
     r2SseDisabled?: boolean;
     strict?: boolean;
+    hermesUpload?: { sessionId: string; generation: number };
     operatorPolicy?: OperatorPolicy;
     operatorDispatcherNative?: { activityId: string; generation: number; profileDigest: string };
     operatorNative?: PersonalPiProps['operatorNative'];
@@ -94,6 +95,33 @@ function makeController(
   } as unknown as ExecutionContext;
   return { controller: new EgressController(ctx, env), egressFetch };
 }
+
+it.each([false, true])('REQ-MEM-042 AC6: scoped Hermes upload uses the writer fence (strict %s)', async strict => {
+  const owner = 'bucket';
+  const writer = { sessionId: 'session1234', generation: 2 };
+  const ownKey = `Vault/Memory/Sessions/${writer.sessionId}/global/MEMORY.md`;
+  let writes = 0;
+  const { controller } = makeController({ R2_ACCOUNT_ID: 'acc', CONTAINER: {
+    idFromName: (name: string) => name,
+    get: (name: string) => ({ putHermesObject: async (_bucket: string, context: typeof writer, request: Request) => {
+      expect(name).toBe(`bucket-owner:${owner}`);
+      expect(context).toEqual(writer);
+      expect(request.url).toBe(`https://acc.r2.cloudflarestorage.com/${owner}/${ownKey}`);
+      expect(request.headers.get('authorization')).toContain('Credential=user-r2-key/');
+      expect(await request.text()).toBe('Late local edit');
+      writes++;
+      return new Response(null, { status: 410 });
+    } }),
+  } as unknown as Env['CONTAINER'] }, { accountId: 'acc', strict, hermesUpload: writer });
+  const put = (key: string, query = '') => controller.fetch(new Request(`https://hermes-r2.internal/${owner}/${key}${query}`, {
+    method: 'PUT', body: 'Late local edit',
+  }));
+  expect((await put(ownKey)).status).toBe(410);
+  expect((await put('Vault/Memory/MEMORY.md')).status).toBe(403);
+  expect((await put(ownKey.replace(writer.sessionId, 'session5678'))).status).toBe(403);
+  expect((await put(ownKey, '?partNumber=1&uploadId=other')).status).toBe(403);
+  expect(writes).toBe(1);
+});
 
 beforeEach(() => {
   policyLogs.debug.mockClear();
@@ -750,6 +778,50 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     expect(auth).toContain('x-amz-server-side-encryption-customer-key');
     expect(auth).toContain('x-amz-server-side-encryption-customer-key-md5');
     fetchSpy.mockRestore();
+  });
+
+  it('REQ-MEM-041 AC2: strict egress relays only verified zero-byte Hermes fallback reads', async () => {
+    const seen: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const request = input as Request;
+      seen.push(request);
+      const withSse = request.headers.has('x-amz-server-side-encryption-customer-key');
+      return withSse ? new Response(null, { status: 400 })
+        : new Response(request.method === 'HEAD' ? null : new Uint8Array(), { headers: { 'content-length': '0' } });
+    });
+    try {
+      const { controller } = makeController({ ENCRYPTION_KEY: btoa('a'.repeat(32)) }, { accountId: 'acc' });
+      const request = (key: string, method = 'GET', range?: string) => controller.fetch(new Request(`https://acc.r2.cloudflarestorage.com/bucket/${key}`, {
+        method,
+        headers: { 'x-codeflare-hermes-empty-read': '1', ...(range ? { range } : {}) },
+      }));
+      const markdown = 'Vault/Memory/Sessions/sessionaa/global/USER.md';
+      const valid = await request(`${markdown}?x-id=GetObject`);
+      expect(valid.status).toBe(200);
+      expect(await valid.text()).toBe('');
+      expect(seen[0].headers.has('x-amz-server-side-encryption-customer-key')).toBe(false);
+      expect(seen[0].headers.get('authorization')).toContain('Credential=user-r2-key/');
+      expect(seen[0].headers.has('x-codeflare-hermes-empty-read')).toBe(false);
+      expect((await request('Vault/Memory/USER.md')).status).toBe(200);
+      expect(seen.at(-1)?.headers.has('x-amz-server-side-encryption-customer-key')).toBe(false);
+      const head = await request(`${markdown}?x-id=HeadObject`, 'HEAD');
+      expect(head.status).toBe(200);
+      expect(head.body).toBeNull();
+      expect(head.headers.get('content-length')).toBe('0');
+      expect(seen.at(-1)?.headers.has('x-amz-server-side-encryption-customer-key')).toBe(false);
+      for (const key of ['Vault/Notes/not-hermes.md', 'Vault/Memory/Masters/retired-revision/global/USER.md', `${markdown}?x-id=GetObject&versionId=unverified`]) {
+        expect((await request(key)).status).toBe(400);
+        expect(seen.at(-1)?.headers.has('x-amz-server-side-encryption-customer-key')).toBe(true);
+      }
+      expect((await request(markdown, 'GET', 'bytes=0-0')).status).toBe(400);
+      expect(seen.at(-1)?.headers.has('x-amz-server-side-encryption-customer-key')).toBe(true);
+      fetchSpy.mockResolvedValueOnce(new Response('nonempty', { headers: { 'content-length': '0' } }));
+      const invalid = await request(markdown);
+      expect(invalid.ok).toBe(false);
+      expect(await invalid.text()).not.toContain('nonempty');
+      fetchSpy.mockResolvedValueOnce(new Response(null, { headers: { 'content-length': '8' } }));
+      expect((await request(markdown, 'HEAD')).ok).toBe(false);
+    } finally { fetchSpy.mockRestore(); }
   });
 
   it('accepts the bound bucket in virtual-hosted R2 form and signs with its scoped key', async () => {

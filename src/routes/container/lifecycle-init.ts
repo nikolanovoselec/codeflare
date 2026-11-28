@@ -78,6 +78,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     managedResourcePathsDigest: params.managedResourcePathsDigest ?? null,
     sessionMode: params.sessionMode,
     sessionWorkspace: params.sessionWorkspace,
+    surface: params.surface,
     sleepAfter: params.sleepAfter,
     // REQ-ENTERPRISE-004: forward the user's matched Access groups so the
     // LlmInterceptor stamps one cf-aig-metadata tag per group for the gateway.

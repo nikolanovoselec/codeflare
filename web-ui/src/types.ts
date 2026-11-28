@@ -15,6 +15,7 @@ export interface TabConfig {
 /** User preferences persisted across sessions */
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
+export type PiSurface = 'chat' | 'terminal';
 export type TerminalMode = z.infer<typeof TerminalModeSchema>;
 
 export type AdministrationMode = 'default' | 'onboarding' | 'saas' | 'enterprise';
@@ -276,6 +277,7 @@ export interface UserPreferences {
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
   defaultWorkspace?: SessionWorkspace;
+  defaultPiSurface?: PiSurface;
   sleepAfter?: SleepAfterOption | '5m';
   /** REQ-MEM-001 AC4: user's IANA timezone captured from the browser. */
   userTimezone?: string;
@@ -289,6 +291,8 @@ export interface UserPreferences {
   };
 }
 
+export type ShutdownPhase = 'queued' | 'saving' | 'consolidating' | 'finishing' | 'memory-not-merged';
+
 /** Mirrors backend Session type (see src/types.ts). Keep in sync manually. */
 export interface Session {
   id: string;
@@ -301,6 +305,11 @@ export interface Session {
   generation?: number;
   revision?: number;
   unreachableDeadlineMs?: number;
+  shutdownPhase?: ShutdownPhase;
+  pendingDelete?: boolean;
+  /** A headless memory retry is queued or in progress. */
+  retryingMemory?: boolean;
+  snapshotUnavailable?: boolean;
   agentType?: AgentType;
   workspace?: SessionWorkspace;
   terminalMode?: TerminalMode;
@@ -318,6 +327,9 @@ export type SessionStatus = 'stopped' | 'starting' | 'running' | 'unreachable' |
 
 export interface SessionWithStatus extends Omit<Session, 'status'> {
   status: SessionStatus;
+  /** Card-only state; never used to release a terminal workspace. */
+  cardStoppedGeneration?: number;
+  cardMisses?: number;
   /** Whether the session PTY is currently active (derived from batch-status; frontend-only) */
   ptyActive?: boolean;
   /** Container init stage (derived from batch-status; 'ready' means daemons are up) */
@@ -349,6 +361,7 @@ export type RepositoryRestoreStatus = 'pending' | 'restoring' | 'complete' | 'is
 
 export interface InitProgress {
   repositoryRestore?: RepositoryRestoreStatus;
+  repositoryRestoreRepos?: string[];
   stage: InitStage;
   progress: number;
   message: string;
@@ -360,6 +373,7 @@ export interface InitProgress {
 export interface StartupStatusResponse {
   stage: InitStage;
   confirmedStopped?: true;
+  revision?: number;
   generation?: number;
   progress: number;
   message: string;
@@ -374,6 +388,7 @@ export interface StartupStatusResponse {
     healthServerOk?: boolean;
     terminalServerOk?: boolean;
     repositoryRestore?: RepositoryRestoreStatus;
+    repositoryRestoreRepos?: string[];
     editorReady?: boolean;
     // System metrics from health server
     cpu?: string;

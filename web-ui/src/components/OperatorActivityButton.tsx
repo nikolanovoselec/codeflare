@@ -11,7 +11,14 @@ import { acknowledgeOperatorActivities, cancelOperatorActivity, getOperatorActiv
 import { formatOperatorTime, formatOperatorTimestamp } from '../lib/operator-time';
 import '../styles/operator-dropdown.css';
 
-interface Props { enabled: boolean }
+interface Props {
+  enabled: boolean;
+  inProfile?: boolean;
+  compact?: boolean;
+  profileMount?: () => HTMLElement | undefined;
+  onOpenFromProfile?: () => void;
+  returnFocus?: () => void;
+}
 const workingStates = new Set(['queued', 'running', 'waiting', 'cancel-requested', 'unknown']);
 const nativeSelection = (selection: OperatorActivityDetail['inferenceSelection']) => selection?.source === 'pi-native' ? selection : undefined;
 const reasoningLabel = (level: string | null) => level === null ? 'Provider default' : level.charAt(0).toUpperCase() + level.slice(1);
@@ -59,7 +66,6 @@ const OperatorActivityButton: Component<Props> = props => {
   const operators = createMemo(() => [...new Map((activities()?.items ?? []).map(item => [item.operatorId, item.operatorName || item.operatorId])).entries()]);
   const working = createMemo(() => activities()?.workingCount ?? 0);
   const unread = createMemo(() => activities()?.unreadCount ?? 0);
-  let control: HTMLDivElement | undefined;
   let trigger: HTMLButtonElement | undefined;
   let panel: HTMLElement | undefined;
   const [position, setPosition] = createSignal({ top: 0, right: 0 });
@@ -70,11 +76,14 @@ const OperatorActivityButton: Component<Props> = props => {
     const held = !!panel && !!document.activeElement && panel.contains(document.activeElement);
     setOpen(false); select(null); setCursor(null); setPrevious([]); setSearch(''); setOperator('');
     setSegment('Runs'); setInstalledVisited(false);
-    if (held) trigger?.focus();
+    if (held) {
+      if (trigger?.isConnected) trigger.focus();
+      else props.returnFocus?.();
+    }
   };
   const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape' && open()) close(); };
   const clickOutside = (event: MouseEvent) => {
-    if (open() && event.target instanceof Node && !control?.contains(event.target) && !panel?.contains(event.target)) close();
+    if (open() && event.target instanceof Node && !trigger?.contains(event.target) && !panel?.contains(event.target)) close();
   };
   const toggle = () => {
     if (open()) { close(); return; }
@@ -83,6 +92,7 @@ const OperatorActivityButton: Component<Props> = props => {
       setPosition({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
     }
     openedWidth = window.innerWidth; setOpen(true);
+    if (props.inProfile) props.onOpenFromProfile?.();
     queueMicrotask(() => panel?.focus());
     void (async () => {
       const page = await refetch();
@@ -126,11 +136,20 @@ const OperatorActivityButton: Component<Props> = props => {
     try { await navigator.clipboard.writeText(id); setActionMessage('Activity ID copied.'); }
     catch { setActionMessage('Copy unavailable. Select the full activity ID to copy it.'); }
   };
-  return <Show when={props.enabled}>
-    <div ref={control} class="operator-activity-control">
-      <button ref={trigger} type="button" class="header-icon-button operator-activity-trigger" aria-label="Operator activity" aria-expanded={open()} onClick={toggle}>
-        <Icon path={mdiDeveloperBoard} size={22} /><Show when={unread() > 0}><span class="operator-activity-badge">{unread()}</span></Show>
+  const renderTrigger = () => (
+      <button ref={trigger} type="button" class={props.inProfile ? 'header-user-dropdown-item operator-activity-trigger' : 'header-icon-button operator-activity-trigger'}
+        classList={{ 'session-switcher--mobile': props.compact && !props.inProfile }}
+        aria-label="Operator activity" aria-expanded={open()} onClick={toggle}>
+        <Icon path={mdiDeveloperBoard} size={22} />
+        <Show when={props.inProfile}><span>Operators</span></Show>
+        <Show when={unread() > 0}><span class="operator-activity-badge">{unread()}</span></Show>
       </button>
+  );
+  return <Show when={props.enabled}>
+    <div class="operator-activity-control">
+      <Show when={props.inProfile && props.profileMount} fallback={renderTrigger()}>{mount =>
+        <Show when={mount()()} keyed>{target => <Portal mount={target}>{renderTrigger()}</Portal>}</Show>}
+      </Show>
       <Portal><Show when={open()}>
         <section ref={panel} class="operator-activity-panel operator-activity-panel--portal operator-dropdown" classList={{
           'operator-activity-panel--active': segment() === 'Installed' || working() > 0 || (activities()?.items.length ?? 0) > 1 || !!selected(),

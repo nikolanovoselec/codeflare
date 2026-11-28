@@ -17,9 +17,17 @@ export interface OperatorLoggingContext {
   loggingEnabled: boolean;
 }
 
+export interface PiWebReadAuthority {
+  bucket: string;
+  sessionId: string;
+  email: string;
+  generation: number;
+}
+
 /** Narrow authenticated DO RPC to an already-existing container port. */
 interface ContainerStubWithState extends DurableObjectStub {
   forwardExisting(request: Request, loggingContext?: OperatorLoggingContext): Promise<Response>;
+  forwardPiWebRead(request: Request, authority: PiWebReadAuthority): Promise<Response>;
   getPersonalPiSession(reference: { bucket: string; sessionId: string; email: string }, ordinaryOnly?: boolean): Promise<{
     generation: number; groups: string[];
   }>;
@@ -29,6 +37,10 @@ interface ContainerStubWithState extends DurableObjectStub {
 export function getPersonalPiSession(container: DurableObjectStub,
   reference: { bucket: string; sessionId: string; email: string }, ordinaryOnly = false) {
   return (container as ContainerStubWithState).getPersonalPiSession(reference, ordinaryOnly);
+}
+
+export function forwardPiWebRead(container: DurableObjectStub, request: Request, authority: PiWebReadAuthority): Promise<Response> {
+  return (container as ContainerStubWithState).forwardPiWebRead(request, authority);
 }
 
 export function forwardExisting(container: DurableObjectStub, request: Request, loggingContext?: OperatorLoggingContext): Promise<Response> {
@@ -78,6 +90,7 @@ export interface HealthData {
   editorReadyTimedOut?: boolean;
   startupPolicyError?: 'failed' | 'timeout';
   repositoryRestore?: 'pending' | 'restoring' | 'complete' | 'issues';
+  repositoryRestoreRepos?: string[];
   cpu?: string;
   mem?: string;
   hdd?: string;

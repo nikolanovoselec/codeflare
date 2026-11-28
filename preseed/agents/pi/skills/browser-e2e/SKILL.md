@@ -9,7 +9,7 @@ Verify your **own** deployed app the way a person would: open it in a real brows
 
 This is the **semantic** half of e2e. A scripted test in CI proves a fixed invariant (`expect(price).toBe('$9')`) and breaks when the copy changes; this proves *"does the thing actually work and look right?"* and survives wording/layout changes. Use both: deterministic invariants belong in CI; judgment ("the login flows seamlessly from the landing", "this caption is clipped mid-word on mobile", "the empty state reads wrong") belongs here.
 
-Only available in Pro (advanced) sessions with a Cloudflare API token carrying the **Browser Rendering – Edit** scope. If explicit native `mcp` connection cannot reach the configured `chrome-devtools` server, browser e2e is not enabled — you can still do a **read-only** check with the native `browser_markdown` (judge rendered content/structure), but you cannot drive a flow; otherwise fall back to reasoning over the code and CI.
+Interactive testing requires an Advanced session with Cloudflare Browser Run configured and **Browser Rendering – Edit** access. If the interactive preflight cannot establish a usable browser, report the blocked check. A read-only `browser_markdown` check is not interactive acceptance.
 
 ## Two depths — pick by what the acceptance criterion needs
 
@@ -18,7 +18,7 @@ Only available in Pro (advanced) sessions with a Cloudflare API token carrying t
 
 ## How to use (interactive direct tools)
 
-Read the `pi-mcp-adapter` skill, activate native `mcp` and connect with `{"connect":"chrome-devtools"}`, then search/describe its live tools or discover and activate verified deferred tools through `capability`. Invoke proxy calls with `tool`/`args`, or direct wrappers with their own arguments. Never guess names:
+**Required first:** read `browser-run/SKILL.md` from the sibling skill directory and follow its **Interactive preflight and recovery** before resizing, navigating, or signing in. Use the live page ID and keep the same tab through login and testing. For a protected Codeflare test, verify the expected disposable identity and bucket before making changes.
 
 1. `resize_page` to a mobile viewport (e.g. `390 x 844`) — or `emulate` — when verifying responsive behavior. **Check mobile first.**
 2. `navigate_page` to the deployed URL with an explicit 120000 ms timeout supported by the live schema. For JS-heavy pages, let it settle (wait for network idle) before reading.
@@ -34,6 +34,7 @@ Example task: *"e2e test the integration deployment from a mobile device viewpor
 - **Public / deployed URLs only.** Browser Run is remote (Cloudflare's edge), so it **cannot reach `localhost`, private IPs, or container-internal ports** — point it at the deployed preview/integration URL, not a local dev server.
 - Your **own** application under test (or a target you're authorized to drive). This is not for crawling third-party sites — that's the `browser-run` fetch fallback.
 - Prefer non-destructive paths. If a flow mutates state, use disposable/test data and say so.
+- For a Codeflare terminal check, if the startup overlay is shown, wait for **Ready** and click **Open**. Once the terminal input is ready, focus it. Submit with `chrome-devtools_type_text` and `submitKey: "Enter"`. Wait for the expected tool result before Stop or Delete; a prompt visible on screen is not proof it ran.
 
 ## Notes
 

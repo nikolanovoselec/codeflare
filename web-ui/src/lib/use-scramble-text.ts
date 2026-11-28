@@ -12,7 +12,7 @@ type FourPhase = 'hold' | 'scramble' | 'decrypt' | 'swap';
 export function useScrambleText(
   text: Accessor<string>,
   enabled: Accessor<boolean> = () => true,
-  opts?: { animateOnMount?: boolean; fourPhase?: boolean },
+  opts?: { animateOnMount?: boolean; fourPhase?: boolean; skipInitialHold?: boolean },
 ): Accessor<string> {
   const [display, setDisplay] = createSignal(opts?.animateOnMount ? '' : text());
   let isFirst = !opts?.animateOnMount;
@@ -36,7 +36,7 @@ export function useScrambleText(
           return;
         }
 
-        let phase: FourPhase = 'hold';
+        let phase: FourPhase = opts.skipInitialHold ? 'scramble' : 'hold';
         let frame = 0;
         let current = next.split('');
 

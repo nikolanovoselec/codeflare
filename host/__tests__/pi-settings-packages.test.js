@@ -115,7 +115,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     assert.ok(sources.includes('npm:some-user-package@1.0.0'), 'unrelated existing packages must be preserved');
   });
 
-  it('loads stock Todo Loop once and drops restored managed Goal registrations', () => {
+  it('REQ-AGENT-111 / REQ-AGENT-293: loads stock Todo Loop and managed Goal once in both Pi modes', () => {
     for (const mode of ['default', 'advanced']) {
       const settings = runAssembly(JSON.stringify({ packages: [
         { source: 'npm:@narumitw/pi-goal@0.55.1', extensions: [] },
@@ -123,7 +123,8 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       ] }), 2, false, mode);
       const sources = settings.packages.map(sourceOf);
       assert.deepEqual(sources.filter(source => source.includes('pi-todo-loop')), ['npm:@dumbmice/pi-todo-loop@0.4.0']);
-      assert.equal(sources.some(source => /^npm:@narumitw\/pi-goal(?:@|$)/.test(source)), false);
+      assert.deepEqual(settings.packages.filter(entry => /^npm:@narumitw\/pi-goal(?:@|$)/.test(sourceOf(entry))),
+        ['npm:@narumitw/pi-goal@0.55.5']);
       assert.ok(sources.includes('npm:user-addon@1.0.0'));
     }
   });
@@ -443,6 +444,20 @@ it('REQ-AGENT-069 / REQ-AGENT-217: restored managed MCP registrations converge t
   assert.deepEqual(first.packages.find(entry => sourceOf(entry) === custom.source), custom);
   assert.deepEqual(first.auth, initial.auth);
   assert.deepEqual(first.customPreference, initial.customPreference);
+});
+
+it('REQ-AGENT-281: startup retires the exact bundled Pi Web MCP Manager registration', () => {
+  const bundled = '/opt/codeflare/pi-web/node_modules/@jmfederico/pi-web/dist/pi-packages/mcp-manager';
+  const custom = { source: './tools/mcp-manager', extensions: ['keep.ts'] };
+  for (const registration of [bundled, { source: bundled, extensions: ['index.ts'] }]) {
+    const similarPath = `${bundled}@custom`;
+    const settings = runAssembly(JSON.stringify({ packages: [registration, custom, similarPath] }), 2);
+    assert.ok(!settings.packages.some(entry => sourceOf(entry) === bundled));
+    assert.ok(settings.packages.includes(similarPath));
+    assert.deepEqual(settings.packages.find(entry => sourceOf(entry) === custom.source), custom);
+    assert.deepEqual(settings.packages.map(sourceOf).filter(source => /^npm:pi-mcp-adapter(?:@|$)/.test(source)),
+      [`npm:pi-mcp-adapter@${piPackage.dependencies['pi-mcp-adapter']}`]);
+  }
 });
 
 for (const form of ['absolute', 'relative']) {

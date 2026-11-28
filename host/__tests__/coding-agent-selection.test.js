@@ -381,8 +381,9 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     }
   });
 
-  it('REQ-AGENT-211 AC2: complete-image smoke rejects Pi missing-session warnings for a seeded Classic ID', async () => {
+  it('REQ-AGENT-211 AC2: complete-image smoke requires Pi to open the exact seeded Classic transcript', async () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-classic-smoke-'));
+    const stateScript = join(ROOT, 'image/pi-web/classic-session-state.mjs');
     let inspectedHeader;
     let inspectedHome;
     const run = (_path, args, options) => {
@@ -392,34 +393,40 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       const sessionFile = join(sessionDir, readdirSync(sessionDir)[0]);
       inspectedHeader = JSON.parse(readFileSync(sessionFile, 'utf8'));
       assert.equal(options.cwd, join(options.env.HOME, 'workspace'));
-      assert.deepEqual(args.slice(0, 2), ['--session-id', inspectedHeader.id]);
-      return { status: 1, signal: null, stderr: 'Error: No models available\n' };
+      assert.deepEqual(args, ['--session', sessionFile, '--mode', 'rpc']);
+      assert.deepEqual(JSON.parse(options.input), { type: 'get_state' });
+      assert.equal(readFileSync(join(inspectedHome, '.codeflare/classic/sessions/cf-classic211/agent-session-id'), 'utf8'),
+        `${inspectedHeader.id}\n`);
+      return { status: 0, signal: null, stdout: JSON.stringify({ type: 'response', command: 'get_state', success: true, data: { sessionId: inspectedHeader.id, sessionFile } }) + '\n' };
     };
 
     try {
-      await verifyPiClassicSessionStartup({ temporaryRoot: root, piPath: '/agents/pi', run });
+      const id = await verifyPiClassicSessionStartup({ temporaryRoot: root, piPath: '/agents/pi', stateScript, run });
+      assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
       assert.deepEqual(
         { ...inspectedHeader, timestamp: undefined },
         {
           type: 'session',
           version: 3,
-          id: '00000000-0000-4000-8000-000000000211',
+          id,
           timestamp: undefined,
           cwd: join(inspectedHome, 'workspace'),
         },
       );
-      await assert.rejects(
-        verifyPiClassicSessionStartup({
-          temporaryRoot: root,
-          piPath: '/agents/pi',
-          run: () => ({
-            status: 1,
-            signal: null,
-            stderr: "Warning: No project session found with id '00000000-0000-4000-8000-000000000211'; creating a new session with that id.\n",
-          }),
-        }),
-        /must discover the seeded Classic session without a missing-session warning/,
-      );
+      await assert.rejects(verifyPiClassicSessionStartup({
+        temporaryRoot: root, stateScript,
+        run: () => ({ status: 1, signal: null, stderr: 'Error: could not open transcript' }),
+      }), /must exit successfully/);
+      for (const wrongField of ['sessionId', 'sessionFile']) {
+        await assert.rejects(verifyPiClassicSessionStartup({
+          temporaryRoot: root, stateScript,
+          run: (_path, [, sessionFile]) => {
+            const { id: sessionId } = JSON.parse(readFileSync(sessionFile, 'utf8'));
+            const data = { sessionId, sessionFile, [wrongField]: 'wrong' };
+            return { status: 0, signal: null, stdout: JSON.stringify({ type: 'response', command: 'get_state', success: true, data }) + '\n' };
+          },
+        }), /must open the seeded Classic transcript/, `must reject a mismatched ${wrongField} independently`);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

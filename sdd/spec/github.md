@@ -36,14 +36,14 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. `Connect GitHub` starts the selected provider's authorization flow in link mode. <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (redirects to the provider authorize URL with a signed state + connect callback) -->
 2. Token storage uses configured at-rest encryption or the accepted [AD32](../../documentation/decisions/README.md#ad32-encryption_key-is-optional) plaintext JSON fallback. <!-- @impl: src/lib/github-token.ts::storeGithubConnection --> <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/lib/github-token.test.ts (encrypts the token at rest when ENCRYPTION_KEY is set, and round-trips on read) -->
 3. The stored token is never returned to the browser. <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports connected with login + source when a token exists) --> <!-- @impl: src/lib/github-token.ts::storeGithubConnection --> <!-- @test: src/__tests__/lib/github-token.test.ts (github-token storage & status) -->
-4. GitHub App tokens carry an expiry and refresh token; resolving a token returns a currently-valid one, refreshing within the skew window and **failing closed** (returning none) when an expired App token cannot be refreshed — never a stale token. <!-- @impl: src/lib/github-token.ts::getValidGithubToken --> <!-- @test: src/__tests__/lib/github-token.test.ts (returns a fresh App token without refreshing) --> <!-- @test: src/__tests__/lib/github-token.test.ts (refreshes a near-expiry App token, persists the rotated token+expiry, preserves login) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails closed (null) when an expired App token has no refresh token) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails closed (null) when the refresh call fails — never returns the stale token) -->
+4. A GitHub App token with a recorded expiry needs refresh metadata only once renewal is due. Within the renewal window, the resolver renews the token or **fails closed** without returning the expiring or expired token. <!-- @impl: src/lib/github-token.ts::resolveGithubToken --> <!-- @impl: src/lib/github-token.ts::getValidGithubToken --> <!-- @test: src/__tests__/lib/github-token.test.ts (returns a fresh App token without refreshing) --> <!-- @test: src/__tests__/lib/github-token.test.ts (refreshes a near-expiry App token, persists the rotated token+expiry, preserves login) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails closed (null) when an expired App token has no refresh token) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails closed (null) when the refresh call fails — never returns the stale token) -->
 5. In every mode, prefer Setup KV's selected App or OAuth provider; only unavailable or incomplete Setup permits deploy-env fallback, preferring GitHub App over OAuth App. With neither source supplying a usable provider, the integration is unavailable. <!-- @impl: src/lib/github-token.ts::getGithubProvider --> <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/lib/github-token.test.ts (getGithubProvider) -->
 6. Outside Enterprise, a manually pasted fine-grained deploy PAT coexists as source `'pat'` and never goes to App/OAuth refresh or revoke endpoints. In Enterprise, [REQ-ENTERPRISE-306](security.md#req-enterprise-306-enterprise-direct-deploy-credential-boundary) governs direct denial and preserves both managed GitHub connections. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/lib/github-token.test.ts (getValidGithubToken) -->
 7. The link callback exchanges the code and saves the token and its source in the existing deploy-credential record, not a second record. <!-- @impl: src/lib/github-token.ts::connectGithub --> <!-- @test: src/__tests__/routes/github-auth.test.ts (connects when the state is bound to the session bucket) --> <!-- @test: src/__tests__/lib/github-token.test.ts (App exchange stores token + refresh + expiry + login) --> <!-- @test: src/__tests__/lib/github-token.test.ts (OAuth exchange stores a long-lived token with no refresh/expiry) -->
 
 **Constraints:**
 
-- Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo gist read:org workflow`; see [REQ-GITHUB-317](#req-github-317-additive-github-connection-and-scope-contract) AC4 and [REQ-GITHUB-013](#req-github-013-connected-github-tokens-grant-gist-access)); the GitHub App's equivalent permissions are fixed at registration and ignore the tier.
+- Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo gist read:org workflow read:user`; see [REQ-GITHUB-317](#req-github-317-additive-github-connection-and-scope-contract) AC4 and [REQ-GITHUB-013](#req-github-013-connected-github-tokens-grant-gist-access)); the GitHub App's equivalent permissions are fixed at registration and ignore the tier.
 - Enterprise GitHub Apps must be **internal** to the customer's enterprise.
 - GitHub connection controls use OAuth without manual token paste on the dashboard ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)); Settings → Integrations manages owner Cloudflare connections independently of administrator Browser Run credentials ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 - Keep non-Enterprise deploy-key PAT behavior; Enterprise direct-credential denial changes neither provider resolution nor legacy handling.
@@ -53,6 +53,28 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Dependencies:** [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [CON-GH-001](constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container)
 
 **Verification:** Automated: [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts), [github.test.ts](../../src/__tests__/routes/github.test.ts), [github-auth.test.ts](../../src/__tests__/routes/github-auth.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-333: GitHub App tokens without recorded expiry
+
+**Intent:** Keep stored GitHub App credentials usable when no expiry was supplied.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A GitHub App token without a recorded expiry is used without renewal. <!-- @impl: src/lib/github-token.ts::resolveGithubToken --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
+
+**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts)
 
 **Status:** Implemented
 
@@ -70,13 +92,15 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 2. The server fetches repository pages with the stored token, including accessible personal and organization repositories. The client filters loaded pages only; clear a zero-match filter to reveal Load more. The token never reaches the browser. <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002 AC2: lists accessible organization repositories across provider pages) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-002 AC2: clearing zero matches restores Load more and appends organization rows inside the same panel) --> <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
 3. GitHub and Storage share the dashboard's right-column panel area under [REQ-GITHUB-012](#req-github-012-responsive-github-and-storage-panel-allocation). The backend and no-tier dashboard gates belong to [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise). <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
 4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. Controls must follow the [shared primitive contract](../../documentation/lanes/terminal-and-ide.md#github-and-storage-workspace). <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
-5. On narrow/mobile layouts, the panel shows one flippable GitHub or storage face at a time. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
+5. In the narrow Code Dashboard, the panel shows one flippable GitHub or storage face at a time. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
 6. The owner/login label and each repo name link to GitHub in a new tab; repo-name clicks do not trigger clone. <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (repo name links to the repo on GitHub in a new tab) --> <!-- @manual -->
 7. Dashboard returns reuse loaded repositories and search. The first page refreshes quietly at most once per five minutes on return, never replacing accumulated pages. Manual reload and connection changes bypass the window. <!-- @impl: web-ui/src/stores/github.ts::loadStatus --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-002 AC7: reuses fresh repositories and quietly refreshes stale results without clearing search) --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-002 AC7: preserves loaded pages until manual reload or account change) -->
 
 **Constraints:**
 
+- The repository list returns `503 GITHUB_REFRESH_UNAVAILABLE` on temporary App token refresh failures, without forwarding an expired token. <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: retries repositories after a transient App token refresh failure (%s)) -->
 - `/repos` and `/connect` are rate-limited; repo responses never include the token.
+- If a signed-in user has no usable GitHub credential, repository listing reports a GitHub connection error without redirecting the Dashboard to Codeflare sign-in. <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports a connection conflict for an expired App connection after switching to OAuth) --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: rejects malformed App refresh JSON without forwarding a repository request) --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-GITHUB-002: reports the GitHub connection error without navigating away from the Dashboard) -->
 - The panel is available in every mode and renders whenever GitHub is enabled — there is no session-tier gate; it is the default right-column face on every session (connected or not); See [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise).
 
 **Priority:** P1
@@ -99,7 +123,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 1. `github.com`, `api.github.com`, and Copilot's remote GitHub MCP host `api.githubcopilot.com` are registered for outbound HTTPS interception and handled by a GitHub interceptor; AI hosts continue to route to the LLM interceptor. <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003 AC1: registered GitHub destinations dispatch to GitHub while the AI destination reaches the LLM gateway) --> <!-- @impl: src/container/container-interception.ts::github --> <!-- @impl: src/github-interceptor.ts::interceptedGithubHosts --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-GITHUB-003: wires the GitHubInterceptor for the github hosts with the per-session user + bucket props) -->
 2. Each mediated git/REST/MCP request decrypts the bound user's token, strips supplied auth, then stamps git Basic, REST bearer plus API version, or Copilot MCP bearer without API version so remote MCP authenticates. <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003: REST API credential injection) --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003: git Smart-HTTP credential injection) --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003: Copilot remote GitHub MCP credential injection) -->
-3. When no valid mediated GitHub token exists, git/REST/MCP fails closed with a clear error and performs no upstream request. <!-- @test: src/__tests__/github-interceptor.test.ts (%s token denies git and MCP without upstream I/O) --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003: fail closed) -->
+3. When no valid mediated GitHub token exists, git/REST/MCP fails closed with a clear error and performs no upstream request. <!-- @test: src/__tests__/github-interceptor.test.ts (%s token denies git and MCP without upstream I/O) --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003: fail closed) --> <!-- @test: src/__tests__/github-interceptor.test.ts (fails closed on interrupted App renewal and retries on a later intercepted request) -->
 4. Each session can inject only its own user's token, identified solely by the per-session interceptor binding, never the request. <!-- @test: src/__tests__/github-interceptor.test.ts (injects the BOUND bucket token regardless of a real token the request tries to pass through) --> <!-- @impl: src/container/container-interception.ts::github --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-GITHUB-003: wires the GitHubInterceptor for the github hosts with the per-session user + bucket props) -->
 5. In ordinary non-enterprise human sessions the token reaches the container through the unchanged deploy-credential environment transport; restricted operators retain placeholder transport in every mode (see [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode) -->
 6. Internal REST metadata lookups send a valid User-Agent. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/operators/review-boundary-egress.test.ts (REQ-OPERATOR-053: $name when GitHub requires User-Agent, without staging on check) -->
@@ -135,6 +159,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 4. Both live-session and new-session clone actions omit a ref and clone the repository's default branch. <!-- @test: web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx (REQ-GITHUB-004 AC4: choosing a new-session agent sends the eventual creation request without a ref) --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-004 AC4: ${owner} clone checks out the local remote default branch without an explicit ref) --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (selecting a running session clones with {repo, sessionId} and NO ref) --> <!-- @impl: host/src/git-clone.ts::buildCloneArgs -->
 5. The cloned working tree is ephemeral by default and participates in workspace sync when the user has it enabled. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @manual -->
 6. The clone panel displays the repository's default branch without offering a branch picker. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @manual -->
+7. If Stop cancels a new-session Start before readiness, the launch does not report success. <!-- @impl: web-ui/src/stores/session.ts::createSessionWithClone --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not report a successful repository launch when Stop cancels Start) -->
 
 **Constraints:**
 
@@ -142,11 +167,63 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 - Enterprise egress injection and non-Enterprise human token transport retain the [GitHub credential boundaries](#req-github-006-other-mode-container-transport), including restricted-Operator placeholder isolation.
 - Backend clone transport accepts a supplied ref separately; that capability is not a branch-selection control in the panel.
 
+
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Automated: [git-clone.test.js](../../host/__tests__/git-clone.test.js), [github.test.ts](../../src/__tests__/routes/github.test.ts), [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [GitHubCloneFlow.test.tsx](../../web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx); Manual: [GitHub clone acceptance](../../documentation/lanes/architecture.md#github-clone-acceptance)
+**Verification:** Automated: [git-clone.test.js](../../host/__tests__/git-clone.test.js), [github.test.ts](../../src/__tests__/routes/github.test.ts), [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [GitHubCloneFlow.test.tsx](../../web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [GitHub clone acceptance](../../documentation/lanes/architecture.md#github-clone-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-322: Clone launch recovery
+
+**Intent:** Explain an incomplete new-session launch and let the user start the saved session.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When a new-session Start cancelled by Stop settles, the clone picker shows failure without closing if it is still open. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (disables controls while launching and keeps the picker open after a cancelled repository launch) -->
+2. After a saved clone session fails to start, **Retry Start** starts that session without creating another. Retry stays unavailable while Stop or Kill owns confirmation, or while the session is absent from the list. <!-- @impl: web-ui/src/stores/session.ts::retryCloneStart --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (retries Start on the saved session rather than creating another session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (retains the clone session ID after Start fails and can start that same session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not report a successful repository launch when Stop cancels Start) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (disables controls while launching and keeps the picker open after a cancelled repository launch) --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (stops the replacement while the superseded Stop response is pending) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (keeps a failed Start that settles while closed, even across catalog omissions) -->
+3. Reopening the picker for the same repository retains its pending Start or the failed session available for retry. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (focuses Close and preserves the pending launch across dismissal and reopen) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (keeps a failed Start that settles while closed, even across catalog omissions) -->
+4. Confirmed deletion clears saved recovery. A late Start result cannot restore it. <!-- @impl: web-ui/src/stores/session.ts::deleteSession --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (clears the saved pending clone when Delete settles before Start) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (offers new sessions on reopen after deletion despite a late Start result) -->
+5. An accepted Running state clears failed recovery. A catalog Running row superseded by newer Stopped status does not. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (retires recovery when the catalog alone confirms Running) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (preserves recovery when batch Stopped supersedes catalog Running (%s)) -->
+6. A Vibe clone does not replace saved Code recovery for the same repository. <!-- @impl: web-ui/src/stores/clone-attempts.ts::setCloneAttempt --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (preserves the saved Code retry after a successful Vibe clone of the same repository) -->
+7. A retry starts the saved session on its originally requested surface, even if the picker is reopened in another mode. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @impl: web-ui/src/stores/session.ts::retryCloneStart --> <!-- @test: web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx (retries a saved Vibe clone from Code on its original Chat surface) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (retries the original Chat surface from Code after a failed Vibe clone) -->
+
+**Constraints:** Vibe shows only saved Vibe recovery; Code can also retry a saved Vibe launch when no Code recovery is pending.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
+
+**Verification:** Automated: [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [session store](../../web-ui/src/__tests__/stores/session.test.ts), [Kill confirmation](../../web-ui/src/__tests__/stores/session-kill.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-328: Clone picker focus and dismissal
+
+**Intent:** Keep the shared Clone picker operable without a pointer.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Opening the picker moves focus inside. Tab and Shift+Tab stay inside; Escape or Close dismisses it and returns focus to the trigger if still present. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/RepoRow.test.tsx (keeps keyboard focus in the clone dialog and returns it on Escape) -->
+2. While Start is pending, focus moves to Close, which remains usable. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (focuses Close and preserves the pending launch across dismissal and reopen) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
+
+**Verification:** Automated: [RepoRow](../../web-ui/src/__tests__/components/RepoRow.test.tsx), [ClonePicker](../../web-ui/src/__tests__/components/ClonePicker.test.tsx)
 
 **Status:** Implemented
 
@@ -282,7 +359,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. Terminal Open becomes available after normal terminal readiness, even while repository restore runs. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-GITHUB-320: Ready carries a nonblocking repository restore state) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome) -->
+1. Terminal Open becomes available after normal terminal readiness, even while repository restore runs. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-GITHUB-320: Ready carries a nonblocking repository restore state and repository names (%s)) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-GITHUB-320: enables Open while restoration runs and shows its later partial outcome) -->
 2. The startup restore reports an aggregate success or issues result. Failed or aborted work reports issues. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-320: publishes successful and partial restore outcomes) -->
 3. A floating notice follows the current restore without shifting the Dashboard metrics or requiring an open view. Success clears automatically; no notice appears when no clone is needed. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: shows restore progress on the Dashboard and dismisses a partial outcome) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: places restore notice after the open session tabs and dismisses it while restoring) --> <!-- @manual --> <!-- @impl: web-ui/src/stores/session.ts::watchRepositoryRestore -->
 4. On touch layouts, the notice sits below the open session’s tab bar without intercepting tab controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: places restore notice after the open session tabs and dismisses it while restoring) --> <!-- @manual -->
@@ -303,6 +380,29 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Verification:** Automated: [git-clone.test.js](../../host/__tests__/git-clone.test.js), [container-status.test.ts](../../src/__tests__/routes/container-status.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx); Manual: [Repository restore notice](../../documentation/lanes/terminal-and-ide.md#repository-restore-notice)
 
 **Status:** Implemented
+
+---
+
+### REQ-GITHUB-326: Repository names in resume notices
+
+**Intent:** Identify the repositories associated with the current restore notice.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The resume notice lists repository names from the observed launch’s restore targets when available; otherwise it shows the session name. <!-- @impl: host/src/metrics.ts::getRepositoryRestoreRepos --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-320 AC2: health withholds workspace inventory during the actual restore loop and publishes it after completion) --> <!-- @impl: src/routes/container/status.ts::app --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: lists repositories instead of the session name when available) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-320: shows restore progress on the Dashboard and dismisses a partial outcome) --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-GITHUB-320: Ready carries a nonblocking repository restore state and repository names (%s)) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (should trigger container start and send initial progress) -->
+2. An overflowing repository list can be scrolled by touch and keyboard while Dismiss remains visible. <!-- @manual: documentation/lanes/terminal-and-ide.md#repository-restore-notice -->
+
+**Constraints:** The list is not a per-repository outcome. Manual clone notices and restore timing are unchanged.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-320](#req-github-320-nonblocking-terminal-repository-restore-notice)
+
+**Verification:** Automated: [Host restore](../../host/__tests__/git-clone.test.js), [Startup status](../../src/__tests__/routes/container-status.test.ts), [Start client](../../web-ui/src/__tests__/api/client.test.ts), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Repository restore notice](../../documentation/lanes/terminal-and-ide.md#repository-restore-notice)
+
+**Status:** Planned
 
 ---
 
@@ -370,9 +470,9 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. The panel backend is available in every mode. <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-007: reports enabled outside enterprise too (panel available in every mode)) --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports enabled + not connected in enterprise with no token) --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-007: is reachable in non-enterprise (panel no longer enterprise-gated) — 401 when not connected) -->
-2. The frontend dashboard renders the GitHub panel face whenever GitHub is enabled with **no session-tier entitlement** — GitHub is the default right-column face on every session, connected or not. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (renders nothing when status.enabled is false) -->
-3. Onboarding, default, SaaS, and enterprise dashboards share panel labels and flip behavior; enabled GitHub leads regardless of session mode, while disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+1. The panel backend is available in every mode. <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-007: reports enabled outside enterprise too (panel available in every mode)) --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports enabled + not connected in enterprise with no token) --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-007: reports the same connection conflict in non-enterprise) -->
+2. GitHub has **no session-tier entitlement**. When enabled it leads the Code Dashboard, connected or not. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (renders nothing when status.enabled is false) -->
+3. Code uses panel flipping across deployment modes. Vibe follows [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure); disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
 
 **Constraints:** None.
 
@@ -398,6 +498,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 2. Dashboard, Guided Setup, and Settings use the same OAuth connect/disconnect interaction contract while retaining surface-specific visual chrome; the reusable card accepts surface styling without changing navigation or disconnect behavior. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (OAuthConnectCard) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
 3. GitHub uses additive OAuth and existing per-user token transport; enterprise retains egress injection ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-317 AC1+AC3: %s nonadvanced connection is additive and authentication guards every connection action) --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-317 AC3: restricted Operator keeps GitHub credentials mediated in enterprise=%s) --> <!-- @impl: src/lib/github-token.ts::connectGithub --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 4. The connect URL carries a scope `tier` (minimal/recommended/advanced); the server maps the tier to the OAuth-App `scope` parameter from a backend scope catalog (the GitHub App path's fixed permissions ignore it). <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @test: src/__tests__/routes/github.test.ts (feeds the scope tier into the OAuth-App authorize scope param) -->
+5. Every OAuth App connection tier requests `read:user` so GitHub can return account-owned repository counters. Existing grants are not modified automatically. <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-317 AC5: requests read:user for the %s OAuth-App connection) -->
 
 **Constraints:**
 
@@ -482,7 +583,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. A connected account with zero repositories shows the repository-panel empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: shows the no-repositories empty state only when the account has no repos) -->
 2. Search with no matching repositories shows the search-empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: keeps search-empty results distinct from the no-repositories empty state) -->
 3. The repo list renders every fetched repository inside a scroll container. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: renders every repo inside the scroll container (the row cap is a CSS viewport, not truncation)) -->
-4. The repo list flexes to the height its panel is allotted by the adaptive GitHub/Storage split and scrolls the overflow, rather than capping at a fixed per-breakpoint row count. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe rendered allocation and scrolling. --> <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+4. The repo list flexes to the height its panel is allotted by the adaptive GitHub/Storage split and scrolls the overflow, rather than capping at a fixed per-breakpoint row count. <!-- @manual: documentation/lanes/terminal-and-ide.md#github-panel-geometry-acceptance --> <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 
 **Constraints:**
 
@@ -498,6 +599,28 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ---
 
+### REQ-GITHUB-329: Recent update label in repository browser
+
+**Intent:** Summarize recent repository updates in the browser list.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Browser rows label updates under one day old `today`. <!-- @impl: web-ui/src/components/github/RepoRow.tsx::RepoRow --> <!-- @test: web-ui/src/__tests__/components/RepoRow.test.tsx (keeps a recent update labeled today in the repository browser) -->
+
+**Constraints:** Applies to browser rows, not Vibe shortcuts.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing)
+
+**Verification:** Automated: [RepoRow](../../web-ui/src/__tests__/components/RepoRow.test.tsx)
+
+**Status:** Implemented
+
+---
+
 ### REQ-GITHUB-010: Mobile GitHub and storage face switching
 
 **Intent:** GitHub leads the right column on every breakpoint. On mobile it is the single default face with a flip control to the R2 storage browser (and back); on tablet/desktop both stack as an anchoring split with no flip needed.
@@ -506,10 +629,11 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. On mobile, GitHub is the default right-column face and the header flip control swaps to the R2 storage browser (and back) in place whenever GitHub is enabled. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used) -->
-2. The single-panel flip control is hidden while the column is in split mode and appears only when the column collapses to one panel. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe control visibility across split and single-face layouts. --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
+1. In mobile Code, GitHub is the default right-column face and the header flip control swaps to the R2 storage browser (and back) in place whenever GitHub is enabled. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used) -->
+2. Flip controls appear only in the mobile layout. Desktop and tablet show both browsers without flip controls. <!-- @manual: documentation/lanes/terminal-and-ide.md#github-workspace-manual-acceptance --> <!-- @impl: web-ui/src/components/Dashboard.tsx::flipBrowsers --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: keeps both Code browsers without flip controls on %s) -->
 3. If GitHub is disabled, R2 storage is the sole right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2) -->
-4. When GitHub is enabled, the storage face carries a matching header and flip-back control. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled) -->
+4. In Code, when GitHub is enabled, the storage panel carries a matching header. The flip-back control appears only on mobile. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled) -->
+5. In mobile Code, flipping either way moves keyboard focus to the incoming panel’s flip control. <!-- @impl: web-ui/src/components/Dashboard.tsx::flipTo --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used) -->
 
 **Constraints:**
 
@@ -525,16 +649,163 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ---
 
-### REQ-GITHUB-012: Responsive GitHub and storage panel allocation
+### REQ-GITHUB-321: Vibe Dashboard browser disclosure
 
-**Intent:** GitHub and storage share the dashboard's right column as an anchored split when space permits and collapse to one independently content-sized face when the viewport is narrow or short.
+**Intent:** Keep the Vibe Dashboard focused on sessions until the user asks to browse GitHub or Storage.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. On desktop and tablet both panels stack as an anchoring split: GitHub anchored to the top, Storage to the bottom. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureNatural --> <!-- @manual: On the protected integration deployment, use browser-e2e at tablet and desktop viewports; confirm GitHub is top-anchored and Storage bottom-anchored in the simultaneously visible stacked right column. -->
-2. Use one panel with a flip control when measured viewport width is between 0 and 600px (exclusive), or when viewport width is positive and measured column height is between 0 and 600px (exclusive). Otherwise retain split mode. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
+1. Vibe starts with the GitHub and Storage browsers hidden and unavailable to keyboard navigation. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) -->
+2. One labeled grip opens and closes the browsers. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (discloses the existing GitHub and Storage browsers together in Vibe on %s) -->
+3. Escape from within the drawer closes it and returns focus to its control. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (closes the Vibe drawer from a focused browser and returns focus to the pull) -->
+4. Vibe GitHub Details reports account-owned counts from the matching authenticated profile. When the profile omits the private count, show only the public count. Use the [empty-list exception](#req-github-327-vibe-repository-shortcuts) once its conditions are met. <!-- @impl: src/routes/github.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/github.test.ts (returns only account-owned totals from the authenticated profile) --> <!-- @test: src/__tests__/routes/github.test.ts (returns public counts without inventing private totals for GitHub App profiles) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows authoritative owned totals for a connected GitHub App account) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows a verified public zero and omits unknown private and total counts) -->
+5. Vibe GitHub Details opens the connected `@username` profile in a new tab. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-321: shows the connected account and external profile without verified counts (%#)) -->
+6. Opening or closing the Vibe browsers leaves Profile icon-only and the email inside its menu. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows the Profile email only at the top of the open Dashboard menu in %s) -->
+7. On desktop and tablet, a transparent double-chevron control sits on the summary’s right edge when closed and the browsers’ far right edge when open. It points right when closed and left when open, with a slow horizontal bounce unless reduced motion is enabled. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+
+**Constraints:** The desktop and tablet grip is 150px long with a 44px cross-axis hit target. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance --> Code mode retains standard panel allocation. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps the existing browser controls without a drawer pull in Code mode) -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-012](#req-github-012-responsive-github-and-storage-panel-allocation)
+
+**Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHub route tests](../../src/__tests__/routes/github.test.ts); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-323: Responsive Vibe Dashboard layout
+
+**Intent:** Keep both browsers available without crowding the Vibe summary.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On desktop and tablet, the open drawer stacks GitHub above Storage beside the summary. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+2. On mobile, only the active browser is visible and keyboard-reachable. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+3. On mobile, flipping moves focus to the destination face’s flip control. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (uses the existing single-face GitHub and Storage controls in the mobile Vibe drawer) -->
+4. Mobile face changes use the existing flip animation, except with reduced motion enabled. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+5. The closed desktop and tablet card is capped at 390 CSS px. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+6. GitHub Details, when present, sits directly above Storage Usage in the closed desktop and tablet summary. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+7. In both Vibe and Code, on desktop, tablet and mobile, the padding below New Session equals half the button's rendered height. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (adds half a New Session button height in both modes on %s) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure)
+
+**Verification:** Automated: [Dashboard component tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-334: Recent Sessions in the Vibe summary
+
+**Intent:** Keep session cards usable without letting a long list dominate the Dashboard.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In the closed Vibe summary, the column scrolls to GitHub and Storage below Recent Sessions instead of squeezing the cards. <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
+2. Up to three session cards render at full height without an inner scrollbar. <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
+3. With four or more cards, the list initially shows three complete cards and the top 30% of the fourth. Scroll within the list to reach later cards. <!-- @impl: web-ui/src/components/Dashboard.tsx::setSessionListLimit --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (sizes the Recent Sessions preview from the first four rendered cards) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance -->
+
+**Constraints:** Preserve the open drawer and Code Dashboard layouts.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-323](#req-github-323-responsive-vibe-dashboard-layout)
+
+**Verification:** Manual: [Recent Sessions acceptance](../../documentation/lanes/terminal-and-ide.md#recent-sessions-acceptance)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-331: Vibe drawer motion
+
+**Intent:** Keep the New Session control steady as the Vibe browser drawer moves.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On desktop and tablet, closing the Vibe browser drawer reverses the opening motion, without a vertical jump of New Session in either direction. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-wrapper--disclosure --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+
+**Constraints:** Reduced motion skips the transition. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+
+**Priority:** P2
+
+**Dependencies:** [REQ-GITHUB-323](#req-github-323-responsive-vibe-dashboard-layout)
+
+**Verification:** Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-324: Dashboard repository loading during GitHub App renewal
+
+**Intent:** Keep optional profile counts from competing with repository renewal.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When the App grant needs renewal, optional owned counts report unavailable without starting an exchange; a repository request can renew the grant and later counts can use it. <!-- @impl: src/lib/github-token.ts::readGithubProfileGrant --> <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-324: counts do not renew an expiring App grant; repositories can renew it) -->
+
+**Constraints:** Never send an expiring grant to fetch optional counts.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
+
+**Verification:** Automated: [GitHub route tests](../../src/__tests__/routes/github.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-325: Mobile Vibe browser disclosure gestures
+
+**Intent:** Open GitHub and Storage on phones without the desktop drawer trim.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A white double chevron toggles the mobile browsers from below the Dashboard column. It has no visible button background, points down when closed and up when open, and bounces slowly vertically unless reduced motion is enabled. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+2. An upward pull from the bottom opens the browsers. A downward pull from the top closes them. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (only lets mobile Vibe pull the browsers open and closed (%s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+
+**Constraints:** Ordinary scroll and horizontal or multi-touch gestures must not toggle the browsers.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure)
+
+**Verification:** Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-012: Responsive GitHub and storage panel allocation
+
+**Intent:** In the standard Dashboard layout, GitHub and storage share the right column as an anchored split on desktop and tablet. Code uses one independently content-sized face only on mobile. The Vibe drawer has a separate disclosure contract.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In the desktop and tablet split, GitHub anchors to the top and Storage to the bottom. Both size to content, letting the longer list use spare height, including inside the open Vibe drawer. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (updates the open Vibe browser split as content changes on %s) --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureNatural --> <!-- @manual: documentation/lanes/terminal-and-ide.md#github-panel-geometry-acceptance -->
+2. In Code, use one browser face with a flip control on mobile. Desktop and tablet stay in split mode regardless of column height. Vibe follows [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure). <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: keeps both Code browsers without flip controls on %s) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
 3. In single-panel mobile/flip mode, the active face uses its own content height up to the current viewport cap, so short content stays compact. <!-- @impl: web-ui/src/components/Dashboard.tsx::activeFlipHeight --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
 4. Flipping between unequal GitHub and Storage faces recomputes the used height from the newly active face. <!-- @impl: web-ui/src/components/Dashboard.tsx::activeFlipHeight --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
 5. Resizing the viewport recomputes the active face's cap without requiring a face or content change. <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
@@ -547,7 +818,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-010](#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [panel-allocation.test.ts](../../web-ui/src/__tests__/lib/panel-allocation.test.ts); Manual: [GitHub panel geometry acceptance](../../documentation/lanes/terminal-and-ide.md#github-panel-geometry-acceptance)
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [GitHub panel geometry acceptance](../../documentation/lanes/terminal-and-ide.md#github-panel-geometry-acceptance)
 
 **Status:** Implemented
 
@@ -602,7 +873,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Constraints:**
 
-- The existing tier-specific repository, organization, workflow, hook, and user scopes remain unchanged.
+- The existing tier-specific repository, organization, workflow, and hook scopes remain unchanged; `read:user` applies to all tiers under [REQ-GITHUB-317](#req-github-317-additive-github-connection-and-scope-contract) AC5.
 - GitHub App permissions remain fixed at registration and do not receive an OAuth `scope` parameter.
 - Direct GitHub login remains an identity-only flow and does not own connection capabilities.
 
@@ -613,5 +884,91 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-GITHUB-327: Vibe repository shortcuts
+
+**Intent:** Keep GitHub Details useful when owned repository counts are unavailable.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Once the owned-count request settles unavailable, GitHub Details shows up to three loaded accessible repositories with valid update timestamps, newest first, with their relative update ages. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: shows the three latest valid repository shortcuts with their relative ages and no Start Chat action) -->
+2. A repository link opens that repository on GitHub without starting a session. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: shows the three latest valid repository shortcuts with their relative ages and no Start Chat action) -->
+3. With no eligible running Pi session, the repository age control creates a fresh Vibe Chat session with that repository selected for cloning. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-GITHUB-327: the age control starts a fresh Vibe session with the selected clone target) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+4. With an eligible Pi session running, the age control opens the existing Clone picker. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: the age action offers live and new sessions and clones into the selected live session) -->
+5. Keyboard focus visibly outlines the repository age control. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+6. When the loaded repository list is confirmed empty and no verified count is positive, show **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines instead of a zero count. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: only a settled empty repository list shows both empty-state lines (%#)) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: retries an unavailable list after Dashboard return and restores both empty lines) -->
+7. Hover highlights only the enabled repository age pill, not the surrounding card. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+
+**Constraints:**
+
+- Shortcuts reuse the loaded list without fetching repositories or inferring an owned count.
+- The age control is labeled **Clone into a session**; a successful fresh shortcut clone checks out the default branch. <!-- @impl: entrypoint.sh::restore_startup_repositories --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+- Links show only the repository name while using the owner-qualified name for the tooltip and accessible name. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: shows the three latest valid repository shortcuts with their relative ages and no Start Chat action) -->
+- Connected GitHub Details keeps the Storage Usage card’s dimensions and styling for repository and empty states. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-321](#req-github-321-vibe-dashboard-browser-disclosure), [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session), [REQ-AGENT-275](agents.md#req-agent-275-classic-pi-chat-startup)
+
+**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vibe drawer and clone acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-332: Vibe repository list recovery
+
+**Intent:** Explain list failures without presenting them as empty accounts.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. With no counts or shortcuts to show, a transient initial-list failure and its pending retries show **CONNECTION TO GITHUB** and **FAILED. RETRYING.** on two centered lines in the empty-card style. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: retries an unavailable list after Dashboard return and restores both empty lines) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance -->
+2. While Vibe Dashboard is open, transient initial-list failures retry automatically. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/stores/github.ts::retryInitialRepos --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: retries an unavailable list after Dashboard return and restores both empty lines) -->
+3. A list response requiring reconnection offers the existing GitHub connection action and stops automatic list retry. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-332: offers reconnection instead of retrying a disconnected repository list) --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-332: preserves reconnect-required status without retrying the list) -->
+4. A failed continuation retains already loaded pages. <!-- @impl: web-ui/src/stores/github.ts::loadMore --> <!-- @test: web-ui/src/__tests__/stores/github.test.ts (REQ-GITHUB-332: a failed continuation keeps already loaded pages on automatic retry) -->
+5. With no counts or shortcuts to show, a failure that is neither retryable nor reconnect-required shows **Repository shortcuts unavailable.** <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-332: shows unavailable for a non-retryable list failure) -->
+6. With no counts or shortcuts to show, the card shows loading while the initial request is pending. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-327: retries an unavailable list after Dashboard return and restores both empty lines) -->
+
+**Constraints:** Never infer an empty account from a failed or pending request.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-327](#req-github-327-vibe-repository-shortcuts)
+
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [github.test.ts](../../web-ui/src/__tests__/stores/github.test.ts); Manual: [Vibe drawer and clone acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-330: Workspace mode clone destinations
+
+**Intent:** Offer clone destinations that match the active workspace mode.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Both Vibe clone entry points offer only compatible running Pi sessions. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (Vibe offers only Pi destinations and never retries a non-Pi Code clone) -->
+2. The Vibe picker offers exactly one new Pi destination only when the authenticated profile enables Pi. <!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx::ClonePickerNewSession --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (Vibe offers only Pi destinations and never retries a non-Pi Code clone) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (offers no new Vibe destination when the profile excludes Pi) -->
+3. Code retains the authenticated profile’s enabled-agent choices for a new clone. <!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx::agentOptions --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders only the wizard-activated agents delivered by /api/user in enterprise mode) -->
+4. A failed or cancelled Vibe clone that returns to Dashboard restores the Dashboard URL only if it still owns the current route. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (navigates to the new Vibe clone from the %s picker (%s)) -->
+5. Selecting the new Vibe destination starts the clone in Chat at its session URL. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (navigates to the new Vibe clone from the %s picker (%s)) --> <!-- @test: web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx (Vibe creates and starts a Pi Chat clone without choosing an agent) -->
+
+**Constraints:** Saved launch recovery follows [REQ-GITHUB-322](#req-github-322-clone-launch-recovery).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
+
+**Verification:** Automated: [ClonePicker](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [GitHub clone flow](../../web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
+
+**Status:** Planned
 
 ---

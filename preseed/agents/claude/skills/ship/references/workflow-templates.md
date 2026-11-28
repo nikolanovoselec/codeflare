@@ -83,7 +83,7 @@ jobs:
 
 ## CI & Deploy (Cloudflare Workers)
 
-Combined CI and deploy workflow. Installs dependencies and deploys to Cloudflare Workers. Uses a scoped API token from the "Edit Cloudflare Workers" template. Does not include a test step by default — add one before the deploy step only if the project has real tests.
+Use this deployment template only when the user requests GitHub Actions deployment setup and has a suitable scoped Cloudflare API token for the repository's Actions secrets. Otherwise recommend direct deployment through their Cloudflare connection. Keep required checks, including any real test suite, ahead of deployment.
 
 ```yaml
 name: CI & Deploy
@@ -119,7 +119,7 @@ jobs:
 
 ## Adding Deploy Step to Existing CI Workflow
 
-When the `/ship` skill needs to add deployment to an existing `ci.yml`, append this step after the last existing step and rename the workflow from "CI" to "CI & Deploy":
+Only for a requested Actions deployment, add the deploy step after required checks in the appropriate job or gate a separate deploy job on them. Preserve the repository's intended triggers and environment:
 
 ```yaml
       - name: Deploy to Cloudflare Workers

@@ -35,23 +35,24 @@ const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
     const rect = props.anchorRef.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
 
+    const dialogHeight = DIALOG_ESTIMATED_HEIGHT;
     const spaceBelow = viewportHeight - rect.bottom - GAP;
     const spaceAbove = rect.top - GAP;
 
     let top: number;
-    if (spaceBelow >= DIALOG_ESTIMATED_HEIGHT) {
+    if (spaceBelow >= dialogHeight) {
       // Enough room below — open downward
       top = rect.bottom + GAP;
-    } else if (spaceAbove >= DIALOG_ESTIMATED_HEIGHT) {
+    } else if (spaceAbove >= dialogHeight) {
       // Not enough room below but enough above — open upward
-      top = rect.top - GAP - DIALOG_ESTIMATED_HEIGHT;
+      top = rect.top - GAP - dialogHeight;
     } else {
       // Neither direction has full room — pick the side with more space
       // and clamp so the dialog stays within viewport
       if (spaceBelow >= spaceAbove) {
         top = rect.bottom + GAP;
       } else {
-        top = Math.max(GAP, rect.top - GAP - DIALOG_ESTIMATED_HEIGHT);
+        top = Math.max(GAP, rect.top - GAP - dialogHeight);
       }
     }
 
@@ -119,7 +120,7 @@ const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
           </div>
           <div class="csd-agents">
             <For each={agentOptions()}>
-              {(agent) => (
+              {(agent) => (<>
                 <button
                   type="button"
                   class={`csd-agent-btn ${lastAgentType() === agent.type ? 'csd-agent-btn--last-used' : ''}`}
@@ -137,7 +138,7 @@ const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
                     <span class="csd-agent-desc">{agent.description}</span>
                   </div>
                 </button>
-              )}
+              </>)}
             </For>
           </div>
         </div>

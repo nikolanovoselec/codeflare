@@ -124,6 +124,7 @@ class MockResizeObserver {
 
 Object.defineProperty(globalThis, 'ResizeObserver', {
   value: MockResizeObserver,
+  configurable: true,
   writable: true,
 });
 

@@ -127,7 +127,7 @@ describe('terminal experience preference', () => {
     expect(screen.getByTestId('settings-herdr-icon').querySelector('path')).toHaveAttribute('d', mdiConsoleLine);
     expect(screen.getByTestId('settings-herdr-beta')).toHaveTextContent('beta');
     expect(screen.getByTestId('settings-herdr-hint')).toHaveTextContent(
-      'Use Herdr for terminal workspaces, splits, panes, and built-in agent status. Leave off to use Codeflare’s standard terminal tabs and tiling. Applies to new sessions.',
+      'Use Herdr for terminal workspaces, splits, panes, and built-in agent status. Leave off to use Codeflare’s standard terminal tabs and tiling. Enabling Herdr disables Vibe mode and applies only to newly started sessions.',
     );
   });
 });
@@ -187,15 +187,15 @@ describe('REQ-AGENT-004 AC3: mode selection in Settings session-defaults', () =>
 describe('default workspace selection', () => {
   afterEach(() => cleanup());
 
-  it('renders Terminal and VS Code controls for Advanced mode with Terminal selected by default', () => {
+  it('offers Agent and VS Code in Advanced mode, with Agent selected by default', () => {
     renderSection({ currentSessionMode: 'advanced' });
 
     const icon = screen.getByTestId('default-workspace-icon');
     expect(icon.querySelector('path')).toHaveAttribute('d', mdiFileTree);
     const control = screen.getByTestId('default-workspace-control');
     expect(control).toHaveAttribute('role', 'radiogroup');
-    expect(screen.getByTestId('default-workspace-terminal')).toBeChecked();
-    expect(screen.getByTestId('default-workspace-vscode')).not.toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Agent' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'VS Code' })).not.toBeChecked();
   });
 
   it('hides workspace controls in Standard mode', () => {

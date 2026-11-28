@@ -73,8 +73,10 @@
         .header-user-menu {
           display: flex;
           align-items: center;
-          gap: var(--space-2);
-          padding: var(--space-1) var(--space-2);
+          justify-content: center;
+          width: 44px;
+          height: 44px;
+          padding: 0;
           border-radius: var(--radius-md);
           color: var(--color-text-secondary);
           cursor: pointer;
@@ -194,6 +196,27 @@
           animation: header-bookmark-slide-in 150ms ease-out;
         }
 
+        .header-user-dropdown.header-user-dropdown--profile {
+          max-block-size: calc(100dvh - var(--profile-menu-top, 0px) - 8px);
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-1);
+          padding: 0;
+          background: transparent;
+          border: 0;
+          box-shadow: none;
+        }
+
+        .header-user-profile-actions {
+          min-block-size: 0;
+          overflow-y: auto;
+          padding: var(--space-1);
+          background: var(--color-bg-elevated);
+          border: 1px solid var(--color-border-default);
+          border-radius: var(--radius-lg);
+          box-shadow: var(--shadow-lg);
+        }
+
         .header-user-dropdown-item {
           display: flex;
           align-items: center;
@@ -237,6 +260,24 @@
           animation: header-bookmark-slide-in 150ms ease-out;
         }
 
+        @media (width > 640px) {
+          .header-user-dropdown--sheet {
+            position: fixed;
+            inset: auto 0 0;
+            max-block-size: calc(100dvh - 8px);
+            border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+            animation: header-user-dropdown-slide-up 200ms ease-out;
+          }
+        }
+
+        .header-user-dropdown.header-user-dropdown--profile.header-user-dropdown--sheet {
+          max-block-size: calc(100dvh - 8px);
+        }
+
+        .header-user-dropdown--sheet > .header-user-profile-actions {
+          border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+        }
+
         @keyframes header-user-dropdown-slide-up {
           from {
             opacity: 0;
@@ -261,16 +302,31 @@
           display: none;
         }
 
-        .header-user-name {
-          font-size: var(--text-sm);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+        .header-user-email {
+          /* The label can extend left without setting the action panel width. */
+          contain: inline-size;
+          display: flex;
+          justify-content: flex-end;
+          flex: none;
         }
 
-        @media (max-width: 599px) {
-          .header-user-name {
-            max-width: 150px;
+        .header-user-email > span {
+          flex: none;
+          box-sizing: border-box;
+          max-inline-size: 90dvw;
+          padding: var(--space-1) var(--space-2);
+          background: #000;
+          color: #fff;
+          font: var(--font-semibold) var(--text-sm) / 1.125 var(--font-mono);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        @media (width > 640px) {
+          .header-user-dropdown--profile:not(.header-user-dropdown--sheet) .header-user-email > span {
+            /* Shift a wide badge right only after it reaches the left margin. */
+            translate: clamp(0px, calc(100% + var(--profile-menu-right) + 8px - 100dvw), var(--profile-menu-right));
           }
         }
 
@@ -486,15 +542,26 @@
             width: 100%;
           }
 
+          .header-user-profile-actions {
+            border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+            padding: var(--space-3);
+          }
+
+          .header-user-email {
+            margin-inline: var(--space-3);
+          }
+
+          .header-user-email > span,
           .header-user-dropdown-item,
           .header-user-dropdown--portal .header-user-dropdown-item {
-            padding: 14px 16px;
             font-size: 16px;
           }
 
-          .header-user-name {
-            display: none;
+          .header-user-dropdown-item,
+          .header-user-dropdown--portal .header-user-dropdown-item {
+            padding: 14px 16px;
           }
+
         }
 
 .operator-activity-control { position: relative; }
@@ -538,3 +605,69 @@
   .operator-activity-panel--active { height: min(60vh, calc(100vh - 84px)); max-height: min(60vh, calc(100vh - 84px)); }
 }
 @media (prefers-reduced-motion: reduce) { .operator-activity-panel { animation: none; } }
+
+.workspace-mode-label-measure {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  inline-size: max-content;
+  white-space: nowrap;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Keep a full icon slot between navigation and utilities. */
+.header-navigation--contents { display: contents; }
+.header-navigation { display: flex; align-items: center; gap: var(--space-4); width: max-content; }
+.header-with-workspace-mode > .header-spacer { min-width: calc(44px - 2 * var(--space-4)); }
+@media (max-width: 640px) {
+  .header-with-workspace-mode .header-logo--clickable { margin-inline: 0; }
+  .header .session-switcher--mobile,
+  .dashboard-panel-header .session-switcher--mobile { flex-shrink: 0; padding: 0; }
+}
+
+@media (max-width: 440px) {
+  .header.header-with-workspace-mode { padding-inline: var(--space-1); column-gap: 2px; }
+  .header.header-with-workspace-mode > .header-navigation,
+  .header.header-with-workspace-mode > .header-actions { column-gap: 2px; }
+  .header.header-with-workspace-mode > .header-spacer { min-width: calc(44px - 2 * 2px); }
+  .header.header-with-workspace-mode[data-header-fits="false"] {
+    flex-wrap: wrap;
+    height: auto;
+    row-gap: var(--space-1);
+  }
+  .header.header-with-workspace-mode[data-header-fits="false"] > .header-actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+}
+
+.workspace-mode-announcement {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.workspace-mode-choice-label {
+  position: relative;
+  white-space: nowrap;
+}
+
+.workspace-mode-choice-label::before {
+  content: attr(data-label);
+  visibility: hidden;
+}
+
+.workspace-mode-choice-label > span {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.header-user-dropdown-item.header-workspace-mode-choice[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}

@@ -12,17 +12,28 @@ const stageKeys: InitStage[] = ['creating', 'starting', 'syncing', 'verifying', 
 export function useStageTimings(
   stage: () => InitStage | undefined,
   progress: () => { stage: string; startedAt?: number } | null,
+  preparingChat: () => boolean = () => false,
 ) {
   const [stageTimes, setStageTimes] = createSignal<Record<string, StageTime>>({});
   const [currentTime, setCurrentTime] = createSignal(Date.now());
   const [startTime, setStartTime] = createSignal<number>(0);
   const [totalTime, setTotalTime] = createSignal<number | null>(null);
+  const [completedChatTime, setCompletedChatTime] = createSignal<number | null>(null);
+  let chatStartedAt: number | undefined;
 
   // Update current time every 100ms for live elapsed display
   let timerInterval: number | undefined;
   createEffect(() => {
     const currentStage = stage();
-    if (!currentStage || currentStage === 'ready' || currentStage === 'error') {
+    const loadingChat = preparingChat();
+    if (loadingChat) {
+      chatStartedAt ??= Date.now();
+      setCompletedChatTime(null);
+    } else if (chatStartedAt !== undefined) {
+      if (currentStage === 'ready') setCompletedChatTime((Date.now() - chatStartedAt) / 1000);
+      chatStartedAt = undefined;
+    }
+    if (!currentStage || (currentStage === 'ready' && !loadingChat) || currentStage === 'error') {
       if (timerInterval) {
         clearInterval(timerInterval);
         timerInterval = undefined;
@@ -85,7 +96,10 @@ export function useStageTimings(
   });
 
   const getElapsedTime = (stageKey: InitStage, getStatus: (key: InitStage) => string): string => {
-    if (stageKey === 'ready') return '';
+    if (stageKey === 'ready' && !preparingChat()) {
+      const elapsed = completedChatTime();
+      return stage() === 'ready' && elapsed !== null ? `${elapsed.toFixed(1)}s` : '';
+    }
 
     const times = stageTimes();
     const stageTime = times[stageKey];
@@ -96,7 +110,8 @@ export function useStageTimings(
       return `${stageTime.elapsed.toFixed(1)}s`;
     }
     if (status === 'active') {
-      const elapsed = (currentTime() - stageTime.start) / 1000;
+      const startedAt = stageKey === 'ready' ? chatStartedAt ?? stageTime.start : stageTime.start;
+      const elapsed = Math.max(0, currentTime() - startedAt) / 1000;
       return `${elapsed.toFixed(1)}s`;
     }
     return '';
@@ -114,6 +129,7 @@ export function useStageTimings(
     startTime,
     totalTime,
     getElapsedTime,
+    completedChatTime,
     formatTotalTime,
   };
 }

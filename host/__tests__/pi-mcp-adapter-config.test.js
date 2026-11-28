@@ -120,6 +120,38 @@ for (const exclusion of [
   });
 }
 
+test('REQ-AGENT-217: entrypoint profile selects managed MCP on fresh and restored starts', async t => {
+  const f = await fixture(t);
+  const settings = join(f.directory, 'settings.json');
+  const entrypoint = readFileSync(new URL('../../entrypoint.sh', import.meta.url), 'utf8');
+  const start = entrypoint.indexOf('\nconfigure_pi_packages_and_review_inventory() {');
+  const end = entrypoint.indexOf('\nwarm_pi_npm_dependencies() {', start);
+  assert.ok(start >= 0 && end > start);
+  rmSync(settings);
+  for (const restored of [false, true]) {
+    if (restored) {
+      const profile = JSON.parse(readFileSync(settings, 'utf8'));
+      profile.extensions.push('-extensions/mcp-portal-oauth.ts');
+      writeFileSync(settings, JSON.stringify(profile));
+    }
+    const result = spawnSync('bash', ['-e', '-c', `${entrypoint.slice(start, end)}\nconfigure_pi_packages_and_review_inventory`], {
+      encoding: 'utf8', env: { ...process.env, USER_HOME: f.home, PI_SETTINGS_FILE: settings, SESSION_MODE: 'advanced' },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(JSON.parse(readFileSync(settings, 'utf8')).extensions.includes('-builtin:mcp'));
+    rmSync(f.legacy, { force: true });
+    rmSync(f.target, { force: true });
+    const warnings = [];
+    f.load({ on: (event, handler) => {
+      if (event === 'session_start') handler({}, { ui: { notify: message => warnings.push(message) } });
+    } });
+    assert.deepEqual(JSON.parse(readFileSync(f.legacy, 'utf8')),
+      { settings: { requestTimeoutMs: 360000, deferWithMissingMetadata: true } });
+    assert.equal(existsSync(f.target), false);
+    assert.deepEqual(warnings, [], restored ? 'restored profile' : 'fresh profile');
+  }
+});
+
 test('REQ-AGENT-217: exact relative retired companion exclusion does not disable stock handoff', async t => {
   const f = await fixture(t);
   writeFileSync(join(f.directory, 'settings.json'), JSON.stringify({ packages: [stock], extensions: ['-extensions/mcp-portal-oauth.ts'] }));

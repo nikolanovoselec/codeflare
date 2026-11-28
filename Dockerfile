@@ -21,6 +21,15 @@ COPY scripts/ci/prune-npm-platform-artifacts.mjs /tmp/prune-npm-platform-artifac
 RUN npm prune --omit=dev && \
     node /tmp/prune-npm-platform-artifacts.mjs node_modules
 
+# Stock pi-web uses Codeflare's selected Pi SDK, not a second runtime.
+ARG CODEFLARE_CODING_AGENTS=claude-code,codex,copilot,antigravity,opencode,pi
+COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs /tmp/
+COPY image/pi-web/package.json image/pi-web/package-lock.json /opt/codeflare/pi-web/
+RUN if node /tmp/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" pi; then \
+      cd /opt/codeflare/pi-web && npm ci --omit=dev --omit=peer --no-audit --no-fund && \
+      node /tmp/prune-npm-platform-artifacts.mjs node_modules; \
+    fi
+
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
@@ -262,6 +271,12 @@ RUN apt-get -o Acquire::Retries=0 update && apt-get -o Acquire::Retries=0 upgrad
     slirp4netns \
     iptables \
     # REQ-SEC-011: require fixed Debian security builds and invalidate stale apt layers.
+    # CVE-2025-6020: check all four installed binary packages from Debian's PAM source package.
+    && for pkg in libpam-modules libpam-modules-bin libpam-runtime libpam0g; do \
+         dpkg --compare-versions "$(dpkg-query -W -f='${Version}' "$pkg")" ge '1.5.2-6+deb12u3' || exit 1; \
+       done \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' librsvg2-2)" ge '2.54.7+dfsg-1~deb12u2' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' librsvg2-bin)" ge '2.54.7+dfsg-1~deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge '1.0.9-2+deb12u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.42-1+deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge '2.5.0-1+deb12u5' \
@@ -615,7 +630,7 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-pi-codex-prompt-cache.mjs scripts/patch-pi-subagents-notifications.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs /opt/codeflare/scripts/
+COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-todo-loop-default-pause.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-pi-codex-prompt-cache.mjs scripts/patch-pi-subagents-notifications.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs /opt/codeflare/scripts/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
@@ -631,7 +646,11 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     apt-get update && \
     apt-get install -y --no-install-recommends make gcc g++ && \
     npm ci --omit=dev --no-audit --no-fund && \
+    node /opt/codeflare/scripts/patch-pi-todo-loop-default-pause.mjs ./node_modules/@dumbmice/pi-todo-loop && \
     node /opt/codeflare/scripts/patch-pi-subagents-notifications.mjs ./node_modules/@gotgenes/pi-subagents && \
+    GOAL_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-goal"]')" && \
+    node /opt/codeflare/scripts/patch-pi-goal-review-control.mjs \
+      "$GOAL_VERSION" ./node_modules/@narumitw/pi-goal && \
     PLAN_MODE_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-plan-mode"]')" && \
     node /opt/codeflare/scripts/patch-pi-plan-mode-tool-policy.mjs \
       "$PLAN_MODE_VERSION" ./node_modules/@narumitw/pi-plan-mode && \
@@ -799,9 +818,12 @@ apt-get install -y --no-install-recommends gcc g++ python3-dev
 # CVE-2026-126190: patched Soup Sieve requires a newer 3.11 patch than Bookworm.
 # Keep this interpreter isolated to Graphify; leave the system Python unchanged.
 uv tool install --python 3.11.18 --with "soupsieve==4.1" "graphifyy[mcp,sql,pdf]==$VER"
-# Update pip in this image-owned interpreter, not Bookworm's protected Python.
+# CVE-2025-47273: pip 26.3 vendors setuptools 70.3.0. Graphify uses uv,
+# not pip. Remove pip and its bootstrap wheel only from this private Python.
 GRAPHIFY_PYTHON=$(uv python find --managed-python 3.11.18)
-uv pip install --break-system-packages --python "$GRAPHIFY_PYTHON" "pip==26.3"
+GRAPHIFY_STDLIB=$("$GRAPHIFY_PYTHON" -c 'import sysconfig; print(sysconfig.get_path("stdlib"))')
+uv pip uninstall --break-system-packages --python "$GRAPHIFY_PYTHON" pip
+rm -f "$GRAPHIFY_STDLIB"/ensurepip/_bundled/pip-*.whl
 apt-get purge -y gcc g++ python3-dev
 apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*
@@ -822,7 +844,9 @@ ln -sf /root/.local/share/uv/tools/graphifyy/bin/graphify /usr/local/bin/graphif
 # A regression in either (e.g. missing tree-sitter wheel, broken entry-point)
 # surfaces at build time rather than at first user invocation.
 graphify --version
-"$GRAPHIFY_PYTHON" -c "from importlib.metadata import version; assert version('pip') == '26.3', 'Managed Python pip security pin differs'"
+"$GRAPHIFY_PYTHON" -c "from importlib.util import find_spec; assert find_spec('pip') is None, 'Private Python still ships pip'"
+PIP_BOOTSTRAP_WHEEL=$(find "$GRAPHIFY_STDLIB/ensurepip/_bundled" -name 'pip-*.whl' -print -quit)
+test -z "$PIP_BOOTSTRAP_WHEEL"
 uv tool run --from graphifyy python3 -c "import graphify.serve; from importlib.metadata import version; assert version('soupsieve') == '4.1', 'Graphify Soup Sieve security pin differs'" \
   || (echo "[Dockerfile] FATAL: Graphify MCP import or security pin verification failed" >&2 && exit 1)
 
@@ -920,12 +944,14 @@ COPY scripts/merge-pi-mcp-portals.mjs /opt/codeflare/merge-pi-mcp-portals.mjs
 #   misses (including dependencies) in a second fresh Pi process. Native JS uses
 #   Node's compile cache; require its native-import trace, not a JITI artifact.
 #   Verify exact local path hashes before deleting the temporary warm home.
+COPY --chmod=0444 image/pi-web/handoff-extension.ts image/pi-web/classic-session-state.mjs /opt/codeflare/pi-web/
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     ln -s /opt/codeflare/pi-agent/npm /home/user/.pi/agent/npm && \
     cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \
     PI_WARM_PACKAGES="$(node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>n==="pi-open-tui"?{source:`npm:${n}@${v}`,extensions:[]}:`npm:${n}@${v}`)}))')" && \
     printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
     todo_loop_source="/opt/codeflare/pi-agent/npm/node_modules/@dumbmice/pi-todo-loop/src/index.ts" && \
+    goal_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts" && \
     plan_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-plan-mode/dist/index.ts" && \
     open_tui_source="/opt/codeflare/pi-agent/npm/node_modules/pi-open-tui/extensions/open-tui/index.ts" && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
@@ -940,15 +966,17 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     context_source="/opt/codeflare/pi-agent/npm/node_modules/context-mode/pi/index.js" && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
-      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$todo_loop_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$codex_fast_source" "$subagents_source" "$mcp_source" \
+      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$todo_loop_source" "$goal_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$codex_fast_source" "$subagents_source" "$mcp_source" \
       "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$smart_compact_source" "$context_source" /home/user/.pi/agent/extensions/*.ts \
+      /opt/codeflare/pi-web/handoff-extension.ts \
       --dependencies /home/user/.pi/agent/extensions/transcript-trim/engine.mjs && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
-    for ext in /home/user/.pi/agent/extensions/*.ts; do \
+    for ext in /home/user/.pi/agent/extensions/*.ts /opt/codeflare/pi-web/handoff-extension.ts; do \
         node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$ext" /opt/codeflare/jiti-cache || exit 1; \
     done && \
     todo_loop_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$todo_loop_source" /opt/codeflare/jiti-cache)" && \
+    goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$goal_source" /opt/codeflare/jiti-cache)" && \
     plan_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$plan_source" /opt/codeflare/jiti-cache)" && \
     open_tui_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$open_tui_source" /opt/codeflare/jiti-cache)" && \
     evaluate_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$evaluate_source" /opt/codeflare/jiti-cache)" && \
@@ -1042,6 +1070,17 @@ RUN mkdir -p /app/host
 COPY --from=builder /app/host/node_modules /app/host/node_modules
 COPY --from=builder /app/host/dist /app/host/dist
 COPY host/package.json /app/host/
+COPY --from=builder /opt/codeflare/pi-web /opt/codeflare/pi-web
+COPY --chmod=0555 image/pi-web/codeflare-chrome/ /opt/codeflare/pi-web/codeflare-chrome/
+COPY --chmod=0555 image/pi-web/codeflare-pi /usr/local/bin/codeflare-terminal-writer
+COPY --chmod=0444 image/pi-web/native-preflight.mjs image/pi-web/warm-compile-cache.mjs scripts/ci/smoke-pi-web-handoff.mjs /opt/codeflare/pi-web/
+# The read-only file COPY above also sets the destination directory mode.
+# Restore directory traversal without changing any installed file's permissions.
+# Bake the installed stock services at their runtime paths, without a user profile or writer.
+RUN --network=none chmod 0755 /opt/codeflare/pi-web && \
+    if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" pi; then \
+      node /opt/codeflare/pi-web/warm-compile-cache.mjs; \
+    fi
 
 # Copy entrypoint script and its phase-oriented Vault compaction helper.
 COPY entrypoint.sh /entrypoint.sh

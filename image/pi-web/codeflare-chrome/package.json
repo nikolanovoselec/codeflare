@@ -1,0 +1,13 @@
+{
+  "name": "codeflare-pi-web-chrome",
+  "private": true,
+  "type": "module",
+  "piWeb": {
+    "plugins": [{ "id": "codeflare-chrome", "browserRoot": "browser", "module": "browser/index.js", "machineSpecific": false, "themes": [{
+      "id": "graphite",
+      "name": "Codeflare",
+      "colorScheme": "dark",
+      "stylesheets": [{ "id": "palette", "path": "graphite.css" }]
+    }] }]
+  }
+}

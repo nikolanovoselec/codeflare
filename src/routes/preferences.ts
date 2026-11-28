@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { AgentTypeSchema, SessionModeSchema, SessionWorkspaceSchema, SleepAfterOptions, type Env, type UserPreferences } from '../types';
+import { AgentTypeSchema, PiSurfaceSchema, SessionModeSchema, SessionWorkspaceSchema, SleepAfterOptions, type Env, type UserPreferences } from '../types';
 import { getPreferencesKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError, BucketMigratingError, ManagedEnvironmentUpdatePendingError } from '../lib/error-types';
@@ -63,6 +63,7 @@ const UpdatePreferencesBody = z.object({
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
   defaultWorkspace: SessionWorkspaceSchema.optional(),
+  defaultPiSurface: PiSurfaceSchema.optional(),
   sleepAfter: z.enum(SleepAfterOptions as unknown as [string, ...string[]]).optional(),
   userTimezone: z.string().min(1).max(64).refine(isValidIanaTz, {
     message: 'Invalid IANA timezone',

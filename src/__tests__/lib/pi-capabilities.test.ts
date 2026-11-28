@@ -10,6 +10,7 @@ import capabilityHelpersExtension, {
   activateRegisteredTools,
   activationGroup,
   initialActiveTools,
+  registerInitialToolFilter,
   resolveAgentDir,
   searchCapabilities,
   type ToolActivationPi,
@@ -508,6 +509,31 @@ describe('REQ-AGENT-096: native Hermes tool discovery and activation', () => {
   });
 });
 
+it('REQ-AGENT-248: Goal wait is undiscoverable and exact activation reports the policy block', async () => {
+  const fixture = discoveryFixture({
+    active: ['read'],
+    tools: [
+      { name: 'read', description: 'Read files' },
+      { name: 'goal_wait', description: 'Wait for Goal progress' },
+      { name: 'todo_loop_block', description: 'Wait for Todo Loop progress' },
+    ],
+  });
+  toolExposureFinalizer(fixture.pi);
+  expect(identities(await fixture.search('tool:goal_wait'))).not.toContain('tool:goal_wait');
+  await expect(fixture.capability.execute('wait', { name: 'goal_wait' }))
+    .rejects.toThrow('goal_wait is disabled by Codeflare policy.');
+  expect(fixture.pi.getActiveTools()).toEqual(['read']);
+  await fixture.capability.execute('block', { name: 'todo_loop_block' });
+  expect(fixture.pi.getActiveTools()).toEqual(['read', 'todo_loop_block']);
+  expect(await fixture.handlers.get('tool_call')({ toolName: 'goal_wait' }, {})).toContainEqual({
+    block: true,
+    reason: 'goal_wait is disabled by Codeflare policy.',
+  });
+  expect(await fixture.handlers.get('tool_call')({ toolName: 'todo_loop_block' }, {})).not.toContainEqual(
+    expect.objectContaining({ block: true }),
+  );
+});
+
 describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
   it('REQ-AGENT-096 AC4: enabled foreground context tools stay deferred until exact capability activation', async () => {
     const tools = [
@@ -632,9 +658,12 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
   });
 
-  it('REQ-AGENT-152/158: preserves only a restored Plan workflow policy plus required helpers', () => {
+  it('REQ-AGENT-152/158: preserves only the restored Plan allowlist and helpers even with Goal visibility set to always', () => {
     const base = fakePi({
       tools: [
+        { name: 'goal_progress', description: 'Report Goal progress' },
+        { name: 'goal_blocked', description: 'Stop a blocked Goal' },
+        { name: 'goal_complete', description: 'Complete a Goal' },
         { name: 'read', description: 'Read files' },
         { name: 'bash', description: 'Run shell commands' },
         { name: 'edit', description: 'Edit files' },
@@ -651,37 +680,43 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         handlers.set(event, handler);
       },
     };
-    toolExposureFinalizer(pi);
-    const ctx = {
-      sessionManager: {
-        getBranch: () => [{
-          type: 'custom',
-          customType: 'plan-mode-state',
-          data: {
-            enabled: true,
-            workflowToolPolicy: { allowedNames: ['read', 'graphify_query'], resolved: true },
-          },
-        }],
-      },
-    };
-
-    handlers.get('before_agent_start')?.({}, ctx);
-
-    expect(pi.getActiveTools()).toEqual([
-      'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
-    ]);
+    registerInitialToolFilter(pi, () => 'always');
+    const allowedNames = ['read', 'graphify_query'];
+    for (const workflowToolPolicy of [
+      { kind: 'automatic', allowedNames, resolved: true },
+      { kind: 'explicit', desiredNames: [...allowedNames, 'bash'], allowedNames, resolved: true },
+    ]) {
+      pi.setActiveTools(['read', 'bash', 'edit', 'goal_progress']);
+      handlers.get('before_agent_start')({}, {
+        sessionManager: { getBranch: () => [{ type: 'custom', customType: 'plan-mode-state',
+          data: { enabled: true, workflowToolPolicy } }] },
+      });
+      expect(pi.getActiveTools(), workflowToolPolicy.kind).toEqual([
+        'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
+      ]);
+    }
   });
 
   it('REQ-AGENT-158: a malformed restored Plan policy keeps only bootstrap tools', () => {
-    const base = fakePi({ tools: ['read', 'bash', 'edit', 'write', 'capability', 'graphify_query', 'plan_mode_complete']
-      .map(name => ({ name, description: name })) });
+    const base = fakePi({ tools: ['read', 'bash', 'edit', 'write', 'capability', 'graphify_query', 'plan_mode_complete',
+      'goal_progress', 'goal_complete', 'goal_blocked'].map(name => ({ name, description: name })) });
     const handlers = new EventRegistry();
-    toolExposureFinalizer({ ...base, on: (name, handler) => handlers.set(name, handler) });
-    handlers.get('before_agent_start')?.({}, {
-      sessionManager: { getBranch: () => [{ type: 'custom', customType: 'plan-mode-state',
-        data: { enabled: true, workflowToolPolicy: { allowedNames: ['read', 42], resolved: true } } }] },
-    });
-    expect(base.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
+    registerInitialToolFilter({ ...base, on: (name, handler) => handlers.set(name, handler) }, () => 'always');
+    for (const workflowToolPolicy of [
+      undefined,
+      { kind: 'automatic', allowedNames: ['read', 42], resolved: true },
+      { allowedNames: ['graphify_query'], resolved: true },
+      { kind: 'other', allowedNames: ['graphify_query'], resolved: true },
+      { kind: 'automatic', allowedNames: ['graphify_query'], resolved: 'yes' },
+      { kind: 'explicit', allowedNames: ['graphify_query'], resolved: true },
+      { kind: 'explicit', desiredNames: [42], allowedNames: ['graphify_query'], resolved: true },
+    ]) {
+      handlers.get('before_agent_start')?.({}, {
+        sessionManager: { getBranch: () => [{ type: 'custom', customType: 'plan-mode-state',
+          data: { enabled: true, workflowToolPolicy } }] },
+      });
+      expect(base.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
+    }
   });
 
   it('searches registered inactive tools by name and description', () => {

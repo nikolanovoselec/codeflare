@@ -427,7 +427,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const summary = testWorkflow.jobs.summary as { needs?: string[]; steps?: Array<{ name?: string; run?: string; uses?: string }> };
     expect(summary.needs).toEqual(expect.arrayContaining([
-      'backend-tests', 'backend-node-tests', 'frontend-tests', 'host-tests', 'pi-prompt',
+      'backend-tests', 'backend-node-tests', 'frontend-tests', 'host-tests', 'pi-prompt', 'pi-web',
       'coverage-backend', 'coverage-frontend',
     ]));
     const names = summary.steps?.map((step) => step.name) ?? [];
@@ -445,18 +445,18 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const directWorkloads = [
       'quality', 'typecheck', 'workflow-audit', 'bundle-size',
-      'backend-tests', 'backend-node-tests', 'frontend-tests', 'landing-tests', 'pi-prompt', 'host-tests', 'browser-ide',
+      'backend-tests', 'backend-node-tests', 'frontend-tests', 'landing-tests', 'pi-prompt', 'pi-web', 'host-tests', 'browser-ide',
     ];
     for (const name of directWorkloads) expect(testWorkflow.jobs[name].needs).toBe('changes');
   });
 
   it('REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 13], ['backend-node-tests', 3], ['frontend-tests', 3], ['host-tests', 5]] as const) {
+    for (const name of ['backend-tests', 'backend-node-tests', 'frontend-tests', 'host-tests']) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;
-      expect(strategy?.matrix?.include).toHaveLength(expectedLegs);
+      expect(strategy?.matrix?.include?.length).toBeGreaterThan(0);
       expect(strategy?.['max-parallel']).toBe(strategy?.matrix?.include?.length);
     }
   });
@@ -481,7 +481,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     }
   });
 
-  it('balances backend files by measured weight and covers each native host partition once', () => {
+  it('balances backend files by measured weight and registers every Host and Pi Web leg', () => {
     const weightedFiles = ['a.test.ts', 'b.test.ts', 'c.test.ts', 'd.test.ts'];
     const weights = { 'a.test.ts': 100, 'b.test.ts': 1, 'c.test.ts': 1, 'd.test.ts': 1 };
     expect(assignWeightedFiles(weightedFiles, weights, 2)).toEqual([
@@ -505,8 +505,16 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     };
     const nodeFiles = new Set(NODE_SUITE_FILES);
     const expectedWorkers = collect(join(REPO, 'src')).filter((file) => !nodeFiles.has(file)).sort();
-    const groups = Array.from({ length: 13 }, (_, index) => {
-      const selected = spawnSync(process.execPath, [WEIGHTED_SELECTOR, `${index + 1}/13`], {
+    const { testWorkflow } = readCacheWorkflowContract();
+    const backend = testWorkflow.jobs['backend-tests'] as {
+      strategy: { matrix: { include: Array<Record<string, string>> } };
+    };
+    const backendLegs = backend.strategy.matrix.include;
+    const workerGroups = backendLegs.map((leg) => leg['balance-group']);
+    expect(workerGroups).toEqual(Array.from({ length: 11 }, (_, index) => `${index + 1}/11`));
+    expect(backendLegs.every((leg) => leg.script === 'test:worker' && leg['pre-run'] === '' && leg.coverage === 'true')).toBe(true);
+    const groups = workerGroups.map((group) => {
+      const selected = spawnSync(process.execPath, [WEIGHTED_SELECTOR, group], {
         cwd: REPO,
         encoding: 'utf8',
       });
@@ -520,15 +528,6 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(selectedWorkers.sort()).toEqual(expectedWorkers);
     expect(selectedWorkers.some((file) => nodeFiles.has(file))).toBe(false);
 
-    const { testWorkflow } = readCacheWorkflowContract();
-    const backend = testWorkflow.jobs['backend-tests'] as {
-      strategy: { matrix: { include: Array<Record<string, string>> } };
-    };
-    expect(backend.strategy.matrix.include.map((leg) => leg['balance-group'])).toEqual([
-      '1/13', '2/13', '3/13', '4/13', '5/13', '6/13',
-      '7/13', '8/13', '9/13', '10/13', '11/13', '12/13', '13/13',
-    ]);
-    expect(backend.strategy.matrix.include.every((leg) => leg.script === 'test:worker' && leg['pre-run'] === '')).toBe(true);
     const node = testWorkflow.jobs['backend-node-tests'] as {
       strategy: { matrix: { include: Array<Record<string, string>> } };
     };
@@ -548,21 +547,20 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(nodeGroups.flat().sort()).toEqual([...NODE_SUITE_FILES].sort());
     expect(new Set(nodeGroups.flat()).size).toBe(NODE_SUITE_FILES.length);
     expect(() => nodeSuiteFiles('unknown')).toThrow('Unsupported Node test group');
-    const backendCoverageLegs = backend.strategy.matrix.include.filter((leg) => leg.coverage === 'true').length;
     const coverageBackend = testWorkflow.jobs['coverage-backend'] as {
       steps: Array<{ uses?: string; with?: Record<string, string> }>;
     };
     const coverageMerge = coverageBackend.steps.find((step) => step.uses === '$/.github/actions/merge-coverage');
-    expect(coverageMerge?.with?.['expected-shards']).toBe(String(backendCoverageLegs));
+    expect(coverageMerge?.with?.['expected-shards']).toBe(String(workerGroups.length));
 
     const host = testWorkflow.jobs['host-tests'] as {
       strategy: { matrix: { include: Array<{ shards: string }> } };
     };
     expect(host.strategy.matrix.include.map((leg) => leg.shards)).toEqual([
-      '1/5', '2/5', '3/5', '4/5', '5/5',
+      '1/6', '2/6', '3/6', '4/6', '5/6', '6/6',
     ]);
-    const partitions = host.strategy.matrix.include.flatMap((leg) => leg.shards.split(' ')).sort();
-    expect(partitions).toEqual(['1/5', '2/5', '3/5', '4/5', '5/5']);
+    const piWeb = testWorkflow.jobs['pi-web'] as { strategy: { matrix: { lane: string[] } } };
+    expect(piWeb.strategy.matrix.lane).toEqual(['services', 'handoff', 'handoff-retry']);
 
     const action = parseYaml(readFileSync(join(REPO, '.github/actions/vitest-suite/action.yml'), 'utf8')) as {
       runs: { steps: Array<{ name?: string; run?: string }> };
@@ -578,11 +576,11 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
         DIR: '.',
         SCRIPT: 'test:worker',
         SHARD: '',
-        BALANCE_GROUP: '1/13',
+        BALANCE_GROUP: '1/11',
       },
     });
     expect(rendered.status, rendered.stderr).toBe(0);
-    expect(rendered.stdout).toContain('select-weighted-backend-tests.mjs 1/13');
+    expect(rendered.stdout).toContain('select-weighted-backend-tests.mjs 1/11');
     expect(rendered.stdout).toContain('npm run test:worker -- "${tests[@]}"');
 
     const frontend = testWorkflow.jobs['frontend-tests'] as { steps: CacheStep[] };

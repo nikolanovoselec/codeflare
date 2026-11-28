@@ -9,6 +9,8 @@ import sessionRoutes from './routes/session/index';
 import terminalRoutes, { validateWebSocketRoute, handleWebSocketUpgrade } from './routes/terminal';
 import vaultRoutes, { validateVaultRoute, handleVaultRequest } from './routes/vault';
 import { validateVscodeRoute, handleVscodeRequest } from './routes/vscode';
+import { handlePiWebRequest } from './routes/pi-web';
+import { isPiWebPath } from './container/pi-web';
 import usersRoutes from './routes/users';
 import setupRoutes from './routes/setup/index';
 import storageRoutes from './routes/storage';
@@ -81,7 +83,7 @@ const SECURITY_HEADERS: Record<string, string> = {
  */
 export function withSecurityHeaders(
   response: Response,
-  opts?: { csp?: boolean; frame?: 'deny' | 'sameorigin' },
+  opts?: { csp?: boolean | 'preserve'; frame?: 'deny' | 'sameorigin' },
 ): Response {
   if (response.status === 101) return response;
   const secured = new Response(response.body, response);
@@ -94,12 +96,19 @@ export function withSecurityHeaders(
     // `csp: false` to drop the restrictive script/style policy. When the
     // vault is prewarmed in a hidden same-origin iframe, keep framing locked
     // to this origin via X-Frame-Options plus a narrow frame-ancestors CSP.
+    if (key === 'Content-Security-Policy' && opts?.csp === 'preserve') {
+      // Keep restrictive stock policies on previews and other app responses.
+      secured.headers.append(key, frameMode === 'sameorigin' ? "frame-ancestors 'self'" : "frame-ancestors 'none'");
+      continue;
+    }
     if (key === 'Content-Security-Policy' && opts?.csp === false) {
       if (frameMode === 'sameorigin') secured.headers.set(key, "frame-ancestors 'self'");
       continue;
     }
     if (key === 'X-Frame-Options' && frameMode === 'sameorigin') {
-      secured.headers.set(key, 'SAMEORIGIN');
+      if (opts?.csp !== 'preserve' || secured.headers.get(key)?.toUpperCase() !== 'DENY') {
+        secured.headers.set(key, 'SAMEORIGIN');
+      }
       continue;
     }
     secured.headers.set(key, value);
@@ -444,6 +453,14 @@ const requestRouter = {
         csp: false,
         frame: 'sameorigin',
       });
+    }
+
+    if (isPiWebPath(url.pathname)) {
+      const response = await handlePiWebRequest(request, env);
+      if (!response.ok && !response.headers.has('Content-Security-Policy')) return withSecurityHeaders(response);
+      // Enforced CSP frame-ancestors supersedes X-Frame-Options in modern browsers.
+      const deny = !response.ok || response.headers.get('X-Frame-Options') === 'DENY';
+      return withSecurityHeaders(response, { csp: 'preserve', frame: deny ? 'deny' : 'sameorigin' });
     }
 
     // Route API and the fixed public webhook family through Hono.

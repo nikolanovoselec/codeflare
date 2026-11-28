@@ -408,6 +408,15 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
         --filter "+ /Vault/graphify-out/vault-extract-initialized"
         --filter "- Vault/graphify-out/**"
     )
+    if [ "${ENTERPRISE_MODE:-}" = active ]; then
+        VAULT_FILTER+=(--filter "- /Vault/Memory/Masters/**" --filter "- /Vault/Memory/Masters")
+        case "${CODEFLARE_HERMES_PERSISTENCE:-}" in
+            new|existing) VAULT_FILTER+=(
+                --filter "- /Vault/Memory/USER.md" --filter "- /Vault/Memory/MEMORY.md"
+                --filter "- /Vault/Memory/failures.md" --filter "- /Vault/Memory/Projects/workspace/MEMORY.md"
+            ) ;;
+        esac
+    fi
 else
     VAULT_FILTER=(--filter "- Vault/**")
 fi
@@ -633,12 +642,13 @@ RCLONE_FILTERS_COMMON=(
     --filter "+ /.codeflare/ide-ui-state.json"
     --filter "+ /.codeflare/ide-extensions.json"
     --filter "+ /.codeflare/managed-extensions.json"
-    # Classic persists only the current Codeflare session's native agent UUID;
+    # Classic persists the current session's native binding and Chat membership;
     # the agent-owned transcript follows its existing narrow sync policy.
     --filter "+ /.codeflare/classic/"
     --filter "+ /.codeflare/classic/sessions/"
     --filter "+ /.codeflare/classic/sessions/cf-${SESSION_ID:-unknown}/"
     --filter "+ /.codeflare/classic/sessions/cf-${SESSION_ID:-unknown}/agent-session-id"
+    --filter "+ /.codeflare/classic/sessions/cf-${SESSION_ID:-unknown}/pi-chat-history.json"
     --filter "- .codeflare/classic/**"
     # Herdr's structural snapshot restores workspaces, tabs, panes, layout,
     # cwd, focus, and native agent session references. Pane history and every
@@ -647,12 +657,17 @@ RCLONE_FILTERS_COMMON=(
     --filter "+ /.codeflare/herdr/sessions/"
     --filter "+ /.codeflare/herdr/sessions/cf-${SESSION_ID:-unknown}/"
     --filter "+ /.codeflare/herdr/sessions/cf-${SESSION_ID:-unknown}/session.json"
+    --filter "+ /.codeflare/herdr/sessions/cf-${SESSION_ID:-unknown}/agent-session-id"
     --filter "- .codeflare/herdr/**"
     --filter "+ /.codeflare/managed-paths.json"
     --filter "+ /.codeflare/review-state/"
     --filter "+ /.codeflare/review-state/v1/"
     --filter "+ /.codeflare/review-state/v1/**"
     --filter "- .codeflare/**"
+
+    # Image-only handoff extension discovery link is not user Pi state.
+    --filter "- /.pi/agent/extensions/codeflare-web-handoff.ts"
+    --filter "- /.pi/agent/extensions/codeflare-web-handoff.ts.rclonelink"
 
     # Root-anchored durable namespaces. New SDK files and user package source
     # are intentionally admitted; known transients above still take precedence.
@@ -878,16 +893,34 @@ transfer_pi_hermes_memory() {
             v197) files=("$prefix/checkpoint.json") ;;
             *) return 1 ;;
         esac
-        local filter expected listed
+        local filter expected listed baseline= required
+        if [ "$layout" = direct ] && [ "${ENTERPRISE_MODE:-}" = active ]; then
+            baseline="$prefix/baseline.json"
+        fi
         filter=$(mktemp "$CODEFLARE_RUNTIME_ROOT/sync/hermes-filter.XXXXXX") || return 1
         trap 'rm -f "$filter"' EXIT
         {
             cat "$MANAGED_RESOURCE_FILTER_FILE" "$RECOVERY_FILTER_FILE" &&
-            printf '+ /%s\n' "${files[@]}" && printf '%s\n' '- **'
+            printf '+ /%s\n' "${files[@]}" &&
+            { [ -z "$baseline" ] || printf '+ /%s\n' "$baseline"; } && printf '%s\n' '- **'
         } > "$filter" || return 1
         local -a args=(--config "$RCLONE_CONFIG" --filter-from "$filter" --contimeout 5s --timeout 15s --checkers 4)
-        expected=$(printf '%s\n' "${files[@]}" | LC_ALL=C sort)
+        required=$(printf '%s\n' "${files[@]}" | LC_ALL=C sort)
+        expected="$required"
         [ "$deadline" -gt "$SECONDS" ] || return 1
+        if [ -n "$baseline" ]; then
+            # Baselines are optional for old stores. Only a successful exact inventory can establish absence.
+            listed=$(timeout "$((deadline - SECONDS))" rclone lsf "$source" --recursive --files-only "${args[@]}") || return 1
+            if printf '%s\n' "$listed" | grep -Fxq -- "$baseline"; then
+                expected=$(printf '%s\n%s\n' "$required" "$baseline" | LC_ALL=C sort)
+            elif [ "$direction" = upload ] && [ -e "$USER_HOME/$baseline" ]; then
+                return 1  # A filter veto must not hide an authoritative local baseline.
+            elif [ "$direction" = restore ] && { [ -e "$USER_HOME/$baseline" ] || [ -L "$USER_HOME/$baseline" ]; }; then
+                return 1  # Never infer from a stale local baseline after a replacement restore.
+            fi
+            [ "$(printf '%s\n' "$listed" | LC_ALL=C sort)" = "$expected" ] || return 1
+            [ "$deadline" -gt "$SECONDS" ] || return 1
+        fi
         if [ "$layout:$direction" = direct:upload ]; then
             # SSE-C metadata cannot establish byte equality. Download-compare
             # the exact files, so a byte-identical object keeps its R2 timestamp.
@@ -923,6 +956,9 @@ transfer_pi_hermes_memory() {
             timeout "$((deadline - SECONDS))" rclone copy "$source" "$target" "${args[@]}"
             return $?
         fi
+        if [ "$direction" = upload ] && [ -n "${CODEFLARE_HERMES_UPLOAD_ENDPOINT:-}" ]; then
+            args+=(--s3-endpoint "$CODEFLARE_HERMES_UPLOAD_ENDPOINT" --s3-force-path-style)
+        fi
         # The source may change after inventory (e.g. a foreground atomic
         # rewrite). A successful copy that skipped a missing file is incomplete.
         local copied
@@ -932,14 +968,50 @@ transfer_pi_hermes_memory() {
     )
 }
 
+restore_pi_hermes_masters() {
+    (
+        local deadline="$1" require_all="${2:-false}" key listed target dir remote="r2:$R2_BUCKET_NAME/"
+        local -a args=(--config "$RCLONE_CONFIG" --contimeout 5s --timeout 15s --retries 1)
+        for dir in Vault Vault/Memory Vault/Memory/Projects Vault/Memory/Projects/workspace; do
+            [ ! -L "$USER_HOME/$dir" ] && mkdir -p -- "$USER_HOME/$dir" || return 1
+        done
+        for key in USER.md MEMORY.md failures.md Projects/workspace/MEMORY.md; do
+            target="$USER_HOME/Vault/Memory/$key"
+            [ ! -L "$target" ] && { [ ! -e "$target" ] || [ -f "$target" ]; } || return 1
+            [ "$deadline" -gt "$SECONDS" ] || return 1
+            listed=$(timeout "$((deadline - SECONDS))" rclone lsf "$remote" --recursive --files-only \
+                --include "/Vault/Memory/$key" "${args[@]}") || return 1
+            if [ -z "$listed" ]; then
+                [ "$require_all" = false ] && rm -f -- "$target" || return 1
+                continue
+            fi
+            [ "$listed" = "Vault/Memory/$key" ] && [ "$deadline" -gt "$SECONDS" ] || return 1
+            CODEFLARE_RCLONE_HERMES_EMPTY_READ=1 timeout "$((deadline - SECONDS))" rclone copyto \
+                "${remote}Vault/Memory/$key" "$target" --ignore-times "${args[@]}" || return 1
+            [ -f "$target" ] || return 1
+        done
+    )
+}
+
 prepare_pi_hermes_persistence() {
     local layout
     layout=$(configure_pi_hermes_memory "$USER_HOME" layout) || return 1
     case "${CODEFLARE_HERMES_PERSISTENCE:-}:$layout" in
-        new:direct|legacy:v196) ;;
+        new:direct)
+            if [ "${ENTERPRISE_MODE:-}" = active ]; then
+                restore_pi_hermes_masters "$HERMES_RESTORE_DEADLINE" || return 1
+            fi ;;
+        legacy:v196) ;;
         existing:direct|legacy:v197)
             configure_pi_hermes_memory "$USER_HOME" validate || return 1
-            transfer_pi_hermes_memory restore "$layout" "$HERMES_RESTORE_DEADLINE" || return 1 ;;
+            transfer_pi_hermes_memory restore "$layout" "$HERMES_RESTORE_DEADLINE" || return 1
+            if [ "$layout" = direct ] && [ "${ENTERPRISE_MODE:-}" = active ] && [ -n "${CODEFLARE_HERMES_MERGED_SNAPSHOT:-}" ]; then
+                local reseed
+                reseed=$(configure_pi_hermes_memory "$USER_HOME" receipt) || return 1
+                if [ "$reseed" = matched ]; then
+                    restore_pi_hermes_masters "$HERMES_RESTORE_DEADLINE" true || return 1
+                fi
+            fi ;;
         *) return 1 ;;
     esac
     configure_pi_hermes_memory
@@ -954,7 +1026,11 @@ persist_pi_hermes_memory() {
     case "${CODEFLARE_HERMES_PERSISTENCE:-}:$layout" in
         "new:direct:$SESSION_ID"|"existing:direct:$SESSION_ID")
             configure_pi_hermes_memory "$USER_HOME" check-direct || return 1
-            transfer_pi_hermes_memory upload direct "$((SECONDS + 30))" ;;
+            transfer_pi_hermes_memory upload direct "$((SECONDS + 30))" || return 1
+            local verified="$CODEFLARE_RUNTIME_ROOT/sync/hermes-restore-verified"
+            if [ -f "$verified" ]; then
+                mv -f -- "$verified" "$CODEFLARE_RUNTIME_ROOT/sync/hermes-restore-synced" || return 1
+            fi ;;
         "legacy:v197:$SESSION_ID")
             configure_pi_hermes_memory "$USER_HOME" checkpoint || return 1
             transfer_pi_hermes_memory upload v197 "$((SECONDS + 30))" ;;
@@ -1315,17 +1391,18 @@ establish_bisync_baseline() {
 cleanup_agent_transcripts() {
     local AGENT="$1"
     local ROOT="$2"
+    local KEEP_COUNT="$3"
     local SCRIPT="${TRANSCRIPT_RETENTION_SCRIPT:-/transcript-retention.mjs}"
 
-    node "$SCRIPT" "$AGENT" "$ROOT" 10 2>&1 | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+    node "$SCRIPT" "$AGENT" "$ROOT" "$KEEP_COUNT" 2>&1 | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 }
 
 cleanup_old_transcripts() {
-    cleanup_agent_transcripts "claude" "$USER_HOME/.claude/projects"
+    cleanup_agent_transcripts "claude" "$USER_HOME/.claude/projects" 10
 }
 
 cleanup_old_pi_transcripts() {
-    cleanup_agent_transcripts "pi" "$USER_HOME/.pi/agent/sessions"
+    cleanup_agent_transcripts "pi" "$USER_HOME/.pi/agent/sessions" 30
 }
 
 cleanup_main_transcripts() {
@@ -1542,12 +1619,25 @@ start_sync_daemon() {
             BISYNC_REQUESTED=0
             BISYNC_RERUN_REQUESTED=0
             BISYNC_IN_FLIGHT=
-            # shellcheck disable=SC2064
-            trap 'if [ -n "$BISYNC_IN_FLIGHT" ]; then BISYNC_RERUN_REQUESTED=1; else BISYNC_REQUESTED=1; fi' USR1
+            request_bisync() {
+                if [ -n "$BISYNC_IN_FLIGHT" ]; then
+                    BISYNC_RERUN_REQUESTED=1
+                else
+                    BISYNC_REQUESTED=1
+                    # A signal may arrive after the sleeper starts but before wait.
+                    if [ -n "${SYNC_SLEEP_PID:-}" ]; then
+                        kill "$SYNC_SLEEP_PID" 2>/dev/null || true
+                    fi
+                fi
+            }
             BISYNC_RECOVERY_REQUESTED=0
-            trap 'BISYNC_RECOVERY_REQUESTED=1; if [ -n "$BISYNC_IN_FLIGHT" ]; then BISYNC_RERUN_REQUESTED=1; else BISYNC_REQUESTED=1; fi' USR2
+            trap 'request_bisync' USR1
+            trap 'BISYNC_RECOVERY_REQUESTED=1; request_bisync' USR2
             CONSECUTIVE_FAILURES=0
             TRAP_INSTALLED=1
+            # Publish from the daemon only after both handlers can receive a signal.
+            printf '%s\n' "$BASHPID" > "$SYNC_RUNTIME_DIR/sync-daemon.pid.tmp"
+            mv -f "$SYNC_RUNTIME_DIR/sync-daemon.pid.tmp" "$SYNC_RUNTIME_DIR/sync-daemon.pid"
         fi
 
         # Interruptible sleep. CRITICAL: a foreground `sleep 900` does
@@ -1567,7 +1657,8 @@ start_sync_daemon() {
         if [ "$BISYNC_REQUESTED" = "0" ] && [ "$BISYNC_RERUN_REQUESTED" = "0" ]; then
             sleep $((CONSECUTIVE_FAILURES > 0 ? 120 : 900)) &
             SYNC_SLEEP_PID=$!
-            if wait "$SYNC_SLEEP_PID" 2>/dev/null; then
+            # A signal received before the sleeper PID was assigned is already latched.
+            if [ "$BISYNC_REQUESTED" = "0" ] && wait "$SYNC_SLEEP_PID" 2>/dev/null; then
                 # Only an uninterrupted cadence wait is natural. A USR1/USR2
                 # request, including one queued at the wait boundary, remains a
                 # manual cycle and cannot initiate compaction.
@@ -1712,8 +1803,7 @@ start_sync_daemon() {
     done &
 
     SYNC_DAEMON_PID=$!
-    echo "$SYNC_DAEMON_PID" > $CODEFLARE_RUNTIME_ROOT/sync/sync-daemon.pid
-    echo "[entrypoint] Bisync daemon started with PID $SYNC_DAEMON_PID"
+    echo "[entrypoint] Bisync daemon starting with PID $SYNC_DAEMON_PID"
 }
 
 # ============================================================================
@@ -2498,8 +2588,9 @@ configure_tab_autostart() {
     BASH_PROFILE="$USER_HOME/.bash_profile"
     AUTOSTART_MARKER="# terminal-autostart"
     local classic_agent_kind="" classic_agent_state="" classic_agent_id="" classic_agent_launch=""
+    local managed_pi_primary=0
     local classic_binding_dir classic_binding_file classic_binding_tmp configured_primary
-    local classic_pi_cwd classic_pi_session_dir classic_pi_session_file classic_pi_session_tmp classic_pi_timestamp
+    local classic_pi_state_script="${CLASSIC_PI_STATE_SCRIPT:-/opt/codeflare/pi-web/classic-session-state.mjs}"
 
     # A Classic session owns one native Pi/Claude conversation UUID. The UUID is
     # created only after initial restore and is scoped by the immutable Codeflare
@@ -2520,23 +2611,35 @@ configure_tab_autostart() {
             esac
         fi
 
-        if [ -n "$classic_agent_kind" ]; then
+        # REQ-AGENT-272: the selected writer creates the native conversation.
+        # A Chat-first boot must not allocate even a Classic CLI header or ID.
+        if [ "$classic_agent_kind" = pi ] \
+            && [[ "${CODEFLARE_PI_SURFACE:-}" =~ ^(chat|terminal)$ ]]; then
+            managed_pi_primary=1
+            if [ "${CODEFLARE_PI_SURFACE:-}" = chat ]; then
+                classic_agent_kind=""
+            fi
+        fi
+
+        if [ "$classic_agent_kind" = pi ]; then
+            # The empty native file must exist before its ID is published.
+            if ! node "$classic_pi_state_script" prepare "$USER_HOME" "$SESSION_ID"; then
+                echo "[entrypoint] WARNING: could not prepare the Classic Pi transcript" >&2
+            fi
+            # Resolve again in the PTY: retention may have removed the saved
+            # transcript since bootstrap. Pass an exact path, never an ID prefix
+            # or a fuzzy lookup. Native Pi can still create at that path if
+            # the file disappears after this check but before it opens.
+            printf -v classic_agent_launch 'if classic_pi_path=$(node %q resume %q %q) && [ -f "$classic_pi_path" ]; then pi --session "$classic_pi_path"; else printf "%%s\\n" "Codeflare: saved Classic agent transcript is unavailable; start or resume it manually." >&2; fi' \
+                "$classic_pi_state_script" "$USER_HOME" "$SESSION_ID"
+        elif [ "$classic_agent_kind" = claude ]; then
             classic_binding_dir="$USER_HOME/.codeflare/classic/sessions/cf-$SESSION_ID"
             classic_binding_file="$classic_binding_dir/agent-session-id"
             if [ -f "$classic_binding_file" ]; then
                 classic_agent_id=$(cat "$classic_binding_file" 2>/dev/null || true)
-                if { [ "$classic_agent_kind" = "pi" ] \
-                        && [[ "$classic_agent_id" =~ ^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$ ]]; } \
-                    || { [ "$classic_agent_kind" = "claude" ] \
-                        && [[ "$classic_agent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; }; then
-                    if { [ "$classic_agent_kind" = "pi" ] \
-                            && find "$USER_HOME/.pi/agent/sessions" -type f -name "*_${classic_agent_id}.jsonl" -print -quit 2>/dev/null | grep -q .; } \
-                        || { [ "$classic_agent_kind" = "claude" ] \
-                            && find "$USER_HOME/.claude/projects" -type f -name "${classic_agent_id}.jsonl" -print -quit 2>/dev/null | grep -q .; }; then
-                        classic_agent_state="resume"
-                    else
-                        classic_agent_state="unavailable"
-                    fi
+                if [[ "$classic_agent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
+                    && find "$USER_HOME/.claude/projects" -type f -name "${classic_agent_id}.jsonl" -print -quit 2>/dev/null | grep -q .; then
+                    classic_agent_state="resume"
                 else
                     classic_agent_state="unavailable"
                 fi
@@ -2551,35 +2654,10 @@ configure_tab_autostart() {
                     classic_agent_state="fresh"
                 fi
             fi
-
-            if [ "$classic_agent_kind:$classic_agent_state" = "pi:fresh" ]; then
-                # Pi's exact-ID option warns when the requested session does not yet
-                # exist. Seed the empty native v3 header that Pi itself opens so a
-                # deliberately fresh Classic session starts without a false warning.
-                classic_pi_cwd="$USER_HOME/workspace"
-                classic_pi_session_dir="${classic_pi_cwd#/}"
-                classic_pi_session_dir="${classic_pi_session_dir//\//-}"
-                classic_pi_session_dir="${classic_pi_session_dir//:/-}"
-                classic_pi_session_dir="$USER_HOME/.pi/agent/sessions/--${classic_pi_session_dir}--"
-                classic_pi_timestamp=$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')
-                classic_pi_session_file="$classic_pi_session_dir/${classic_pi_timestamp//[:.]/-}_${classic_agent_id}.jsonl"
-                install -d -m 0700 "$classic_pi_session_dir"
-                classic_pi_session_tmp=$(mktemp "$classic_pi_session_dir/.session.XXXXXX")
-                jq -cn --arg id "$classic_agent_id" --arg timestamp "$classic_pi_timestamp" --arg cwd "$classic_pi_cwd" \
-                    '{type:"session",version:3,id:$id,timestamp:$timestamp,cwd:$cwd}' > "$classic_pi_session_tmp"
-                chmod 0600 "$classic_pi_session_tmp"
-                mv -f "$classic_pi_session_tmp" "$classic_pi_session_file"
-            fi
-
-            case "$classic_agent_kind:$classic_agent_state" in
-                pi:fresh|pi:resume)
-                    # Evaluate the parent capability in the managed PTY, not now:
-                    # Host issues it only when that terminal is actually spawned.
-                    classic_agent_launch="pi --session-id $classic_agent_id"
-                    ;;
-                claude:fresh) classic_agent_launch="claude --dangerously-skip-permissions --session-id $classic_agent_id" ;;
-                claude:resume) classic_agent_launch="claude --dangerously-skip-permissions --resume $classic_agent_id" ;;
-                *:unavailable) classic_agent_launch="printf '%s\\n' 'Codeflare: saved Classic agent transcript is unavailable; start or resume it manually.' >&2" ;;
+            case "$classic_agent_state" in
+                fresh) classic_agent_launch="claude --dangerously-skip-permissions --session-id $classic_agent_id" ;;
+                resume) classic_agent_launch="claude --dangerously-skip-permissions --resume $classic_agent_id" ;;
+                unavailable) classic_agent_launch="printf '%s\\n' 'Codeflare: saved Classic agent transcript is unavailable; start or resume it manually.' >&2" ;;
             esac
         fi
     fi
@@ -2716,10 +2794,18 @@ CASE_EOF
 CASE_EOF
                     ;;
                 pi)
+                    local pi_launch=pi
+                    if [ "$key" = 1 ]; then
+                        if [ "$managed_pi_primary" = 1 ]; then
+                            pi_launch=/usr/local/bin/codeflare-terminal-writer
+                        else
+                            pi_launch="${classic_agent_launch:-pi}"
+                        fi
+                    fi
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # Pi (bash stays as session leader for TTY stability)
-            ${classic_agent_launch:-pi}
+            ${pi_launch}
             ;;
 CASE_EOF
                     ;;
@@ -3036,7 +3122,9 @@ init_sync_log
 # ============================================================================
 export CODEFLARE_INIT_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/init-complete
 export CODEFLARE_POLICY_STATUS_FILE=$CODEFLARE_RUNTIME_ROOT/services/managed-policy-status
-rm -f "$CODEFLARE_INIT_FLAG_FILE" "$CODEFLARE_POLICY_STATUS_FILE" "$SYNC_RUNTIME_DIR/hermes-ready"
+rm -f "$CODEFLARE_INIT_FLAG_FILE" "$CODEFLARE_POLICY_STATUS_FILE" "$SYNC_RUNTIME_DIR/hermes-ready" \
+    "$SYNC_RUNTIME_DIR/hermes-restore-verified" "$SYNC_RUNTIME_DIR/hermes-restore-synced" "$SYNC_RUNTIME_DIR/hermes-disabled-at-startup" \
+    "$SYNC_RUNTIME_DIR/sync-daemon.pid"
 
 # REQ-GITHUB-015 AC1: gates the /health workspace repository inventory so a
 # repository the restore below has not yet recreated is never reported as
@@ -3045,11 +3133,30 @@ export CODEFLARE_CLONE_RESTORE_FLAG_FILE=$CODEFLARE_RUNTIME_ROOT/services/clone-
 rm -f "$CODEFLARE_CLONE_RESTORE_FLAG_FILE" "$CODEFLARE_CLONE_RESTORE_FLAG_FILE.running"
 
 CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
+install_enterprise_system_ca() {
+    cp "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
+        && update-ca-certificates >/dev/null 2>&1
+}
+
 export_enterprise_ca_environment() {
     export NODE_EXTRA_CA_CERTS="$CF_CA_SRC"
     export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
     export REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
 }
+
+# A retry only serves the existing private merge operation. No workspace
+# restore, bisync daemon, editor or terminal is started for this runtime.
+if [ "${ENTERPRISE_MODE:-}" = active ] && [ -n "${CODEFLARE_HERMES_RETRY_SNAPSHOT:-}" ]; then
+    cd /app/host || exit 1
+    if [ -f "$CF_CA_SRC" ]; then
+        # Node's extra CA does not cover the rclone subprocess.
+        install_enterprise_system_ca \
+            || echo "[entrypoint] WARNING: could not install containers CA before Hermes Retry; strict-egress sync may fail TLS"
+        export_enterprise_ca_environment
+    fi
+    export HOME="$USER_HOME" TERMINAL_PORT=8080
+    exec node dist/server.js
+fi
 
 echo "[entrypoint] Starting terminal server on port 8080..."
 (
@@ -3110,6 +3217,7 @@ restore_operator_attachments() {
 # Note: Claude Code consent is pre-accepted via bypassPermissionsModeAccepted in .claude.json.
 
 run_initial_r2_restore() {
+    enterprise_ca_installed_before_restore=false
     # Validate explicit deployment selection before any restore or baseline can
     # reintroduce disabled-agent content.
     validate_coding_agent_selection || return 1
@@ -3118,14 +3226,14 @@ run_initial_r2_restore() {
         # TLS-terminated by the platform with the Cloudflare containers CA. Install that CA
         # into the system trust store BEFORE the initial R2 sync forks, so rclone (Go; reads
         # the system bundle at handshake) trusts the intercepted connection. Without this the
-        # first sync ("Syncing…") fails the TLS handshake. The enterprise CA block later in
-        # this script re-installs it idempotently and additionally wires the agent env/.bashrc.
-        if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
-            _CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
-            if [ -f "$_CF_CA_SRC" ]; then
-                cp "$_CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
+        # first sync ("Syncing…") fails the TLS handshake. The later Enterprise block
+        # verifies the trust store and wires the agent env/.bashrc.
+        if [ "${ENTERPRISE_MODE:-}" = "active" ] || [ -n "${CODEFLARE_HERMES_UPLOAD_ENDPOINT:-}" ]; then
+            if [ -f "$CF_CA_SRC" ]; then
+                cp "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
                     && update-ca-certificates >/dev/null 2>&1 \
-                    && echo "[entrypoint] Enterprise Mode: containers CA installed before R2 sync (rclone trusts intercepted TLS)" \
+                    && enterprise_ca_installed_before_restore=true \
+                    && echo "[entrypoint] Containers CA installed before R2 sync (rclone trusts intercepted TLS)" \
                     || echo "[entrypoint] WARNING: could not install containers CA before R2 sync; strict-egress sync may fail TLS"
             fi
         fi
@@ -3171,6 +3279,105 @@ try {
 } catch {
   process.exitCode = 1;
 }
+NODE
+}
+
+configure_pi_goal_defaults() {
+    local goal_config="$USER_HOME/.pi/agent/pi-goal.json"
+    PI_GOAL_STARTUP_CONFIG="$goal_config" node --input-type=commonjs <<'NODE'
+const { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require('node:fs');
+const { dirname } = require('node:path');
+
+const settingsPath = process.env.PI_GOAL_STARTUP_CONFIG;
+const hasOwn = (value, key) => Object.hasOwn(value, key);
+const ownRecord = (value) =>
+  value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+const validContinuationLimit = (value) =>
+  value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
+
+function validSettings(value) {
+  if (!ownRecord(value)) return false;
+  if (
+    hasOwn(value, 'toolVisibility') &&
+    value.toolVisibility !== 'always' &&
+    value.toolVisibility !== 'after-first-goal'
+  ) return false;
+  if (hasOwn(value, 'retryUsageLimits') && typeof value.retryUsageLimits !== 'boolean') return false;
+
+  if (hasOwn(value, 'experimental')) {
+    const experimental = ownRecord(value.experimental);
+    if (!experimental || (hasOwn(experimental, 'goals') && typeof experimental.goals !== 'boolean')) {
+      return false;
+    }
+  }
+  if (hasOwn(value, 'rpc')) {
+    const rpc = ownRecord(value.rpc);
+    if (!rpc || (hasOwn(rpc, 'enabled') && typeof rpc.enabled !== 'boolean')) return false;
+  }
+  if (hasOwn(value, 'continuationLimits')) {
+    const limits = ownRecord(value.continuationLimits);
+    if (!limits) return false;
+    if (hasOwn(limits, 'automaticTurns') && !validContinuationLimit(limits.automaticTurns)) {
+      return false;
+    }
+    if (hasOwn(limits, 'noProgressTurns') && !validContinuationLimit(limits.noProgressTurns)) {
+      return false;
+    }
+    if (
+      hasOwn(limits, 'minIntervalMs') &&
+      !(typeof limits.minIntervalMs === 'number' &&
+        Number.isSafeInteger(limits.minIntervalMs) &&
+        limits.minIntervalMs >= 0)
+    ) return false;
+  }
+  return true;
+} // validSettings
+
+function configure() {
+  let settings = {};
+  try {
+    settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      settings = {};
+    } else {
+      return;
+    }
+  }
+  if (!validSettings(settings)) return;
+
+  const limits = ownRecord(settings.continuationLimits) ?? {};
+  const missingVisibility = !hasOwn(settings, 'toolVisibility');
+  const missingAutomaticTurns = !hasOwn(limits, 'automaticTurns');
+  const minIntervalMs = Math.max(300_000, limits.minIntervalMs ?? 0);
+  const needsMinInterval = limits.minIntervalMs !== minIntervalMs;
+  const needsStallLimit = limits.noProgressTurns !== 5;
+  if (!missingVisibility && !missingAutomaticTurns && !needsMinInterval && !needsStallLimit) return;
+
+  const nextLimits = {
+    ...limits,
+    ...(missingAutomaticTurns ? { automaticTurns: null } : {}),
+    noProgressTurns: 5,
+    minIntervalMs,
+  };
+  const nextSettings = {
+    ...settings,
+    ...(missingVisibility ? { toolVisibility: 'after-first-goal' } : {}),
+    continuationLimits: nextLimits,
+  };
+
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  const temporaryPath = `${settingsPath}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(nextSettings, null, 2)}\n`, { flag: 'wx' });
+    renameSync(temporaryPath, settingsPath);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
+  console.log('[entrypoint] Pi Goal startup defaults configured');
+} // configure
+
+configure();
 NODE
 }
 
@@ -3225,19 +3432,21 @@ configure_pi_hermes_memory() {
     python3 - "$memory_home" "${SESSION_ID:-}" "${2:-prepare}" "${REMOTE_CURATION_ACTIVE:-false}" \
         "${CODEFLARE_HERMES_PERSISTENCE:-}" "$CODEFLARE_RUNTIME_ROOT/sync/hermes-ready" \
         "${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}/hermes-memory-runtime.ts" \
-        "${CODEFLARE_HERMES_GENERATION:-}" <<'PY'
+        "${CODEFLARE_HERMES_GENERATION:-}" "${R2_BUCKET_NAME:-}" <<'PY'
 import hashlib, json, os, re, stat, sys, tempfile, shutil
 from pathlib import Path
 
 home = Path(os.path.abspath(sys.argv[1]))
 session, phase, remote, persistence = sys.argv[2:6]
 ready, image_adapter = map(Path, sys.argv[6:8])
-generation = sys.argv[8]
+generation, bucket = sys.argv[8:10]
 local_generation = ready.with_name('hermes-generation')
 agent = home / '.pi/agent'
 vault = home / 'Vault/Memory'
 evidence = vault / 'Sessions' / session
 marker = evidence / 'session-id'
+baseline = evidence / 'baseline.json'
+enterprise = os.environ.get('ENTERPRISE_MODE') == 'active'
 checkpoint = evidence / 'checkpoint.json'
 cache = home / '.cache/pi-hermes-memory'
 work = cache / 'working'
@@ -3400,6 +3609,8 @@ def check_direct(required):
     for path in [marker, *(evidence / name for name in paths.values())]:
         if kind(path, stat.S_ISREG, required) and path.lstat().st_nlink != 1:
             raise ValueError('Hermes file is not independently owned')
+    if enterprise and kind(baseline, stat.S_ISREG) and baseline.lstat().st_nlink != 1:
+        raise ValueError('Hermes baseline is not independently owned')
     if required and read(marker) != session + '\n':
         raise ValueError('wrong Hermes store marker')
 
@@ -3412,6 +3623,61 @@ def replace_text(destination, content, staging):
         os.replace(temporary, destination)
     finally:
         Path(temporary).unlink(missing_ok=True)
+
+
+def read_hermes_baseline():
+    original = json.loads(read(baseline))
+    if not isinstance(original, dict) or original.keys() - {'_reseed'} != set(paths.values()) \
+            or not all(isinstance(original[rel], str) for rel in paths.values()):
+        raise ValueError('invalid Hermes baseline')
+    return original
+
+
+def merged_snapshot_matches():
+    # None means the restored store cannot prove either equality or inequality.
+    receipt = os.environ.get('CODEFLARE_HERMES_MERGED_SNAPSHOT', '')
+    if not enterprise or persistence != 'existing' or not re.fullmatch('[0-9a-f]{64}', receipt) or not kind(baseline, stat.S_ISREG):
+        return None
+    check_direct(True)
+    try:
+        original = read_hermes_baseline()
+    except ValueError:
+        return None  # Invalid baseline bytes cannot authorize replacing intact session files.
+    current = snapshot(evidence, paths)
+    contents = [[rel, digest_text(original[rel]), digest_text(current[name])] for name, rel in paths.items()]
+    return hashlib.sha256(json.dumps(contents, separators=(',', ':')).encode()).hexdigest() == receipt
+
+
+def digest_text(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def read_seed(require_all=False):
+    direct_directory(vault / 'Projects/workspace')
+    seed = {}
+    for name in paths:
+        master = vault / name
+        if kind(master, stat.S_ISREG, require_all):
+            if enterprise and master.stat().st_size > 4 * 1024 * 1024:
+                raise ValueError('oversized Hermes master')
+            seed[name] = read(master)
+        else:
+            seed[name] = ''
+    return seed
+
+
+def restored_replacement_matches(receipt):
+    # Never use mismatch alone: an interrupted upload can leave every name
+    # present while only some bytes (including the baseline) were replaced.
+    try:
+        original = read_hermes_baseline()
+        proof = original.get('_reseed')
+        if not isinstance(proof, dict) or (proof.get('owner'), proof.get('sessionId'), proof.get('snapshotId')) != (bucket, session, receipt):
+            return False
+        return proof.get('files') == {rel: digest_text(original[rel]) for rel in paths.values()} \
+            and snapshot(evidence, paths) == {name: original[rel] for name, rel in paths.items()}
+    except (OSError, ValueError):
+        return False
 
 
 def prepare_direct_layout():
@@ -3427,12 +3693,16 @@ def prepare_direct_layout():
         project.is_symlink() and Path(os.path.abspath(project.parent / os.readlink(project))) == target)):
         raise ValueError('conflicting memory alias')
     retirement = None
-    if persistence == 'new' and generation:
+    # Read all fixed masters before moving any restored session bytes.
+    receipt_match = merged_snapshot_matches()
+    reseed = receipt_match is True
+    seed = read_seed(require_all=True) if reseed else None
+    if (persistence == 'new' or reseed) and generation:
         if not re.fullmatch('[1-9][0-9]{0,15}', generation):
             raise ValueError('invalid Hermes admission generation')
         pending = cache / f'retiring-store-{session}'
         current = read(local_generation) if kind(local_generation, stat.S_ISREG) else None
-        if not kind(pending, stat.S_ISDIR) and os.path.lexists(marker) and current != f'{session}:{generation}\n':
+        if not kind(pending, stat.S_ISDIR) and os.path.lexists(marker) and (reseed or current != f'{session}:{generation}\n'):
             check_direct(True)
             ready.unlink(missing_ok=True)
             pending.mkdir(parents=True, mode=0o700)
@@ -3448,18 +3718,17 @@ def prepare_direct_layout():
             if not kind(complete, stat.S_ISREG):
                 # Move the old marker last; a retry finishes the same moves.
                 locks = [evidence / ('.pi-hermes-locks.sqlite' + suffix) for suffix in ('', '-wal', '-shm', '-journal')]
-                for path in [evidence / 'global', evidence / 'Projects', *locks, marker]:
+                for path in [evidence / 'global', evidence / 'Projects', *locks, baseline, marker]:
                     if os.path.lexists(path):
                         path.rename(attempt / path.name)
                 complete.touch(exist_ok=False)
-    if os.path.lexists(marker) or persistence == 'existing':
+    if os.path.lexists(marker) or (persistence == 'existing' and not reseed):
         check_direct(True)
     else:
         # Only a recorded retirement can resume interrupted local seeding.
         if not retirement and any(os.path.lexists(evidence / name) for name in paths.values()):
             raise ValueError('incomplete local Hermes store')
-        direct_directory(vault / 'Projects/workspace')
-        source = {name: read(vault / name) if kind(vault / name, stat.S_ISREG) else '' for name in paths}
+        source = seed if seed is not None else read_seed()
         for name, rel in paths.items():
             destination = evidence / rel
             destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -3470,6 +3739,14 @@ def prepare_direct_layout():
             else:
                 with os.fdopen(os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
                     output.write(source[name].encode())
+        if enterprise:
+            saved_baseline = {rel: source[name] for name, rel in paths.items()}
+            if reseed:
+                saved_baseline['_reseed'] = {
+                    'owner': bucket, 'sessionId': session, 'snapshotId': os.environ['CODEFLARE_HERMES_MERGED_SNAPSHOT'],
+                    'files': {rel: digest_text(source[name]) for name, rel in paths.items()},
+                }
+            atomic(baseline, saved_baseline, evidence)
         if retirement:
             replace_text(marker, session + '\n', retirement)
         else:
@@ -3482,7 +3759,7 @@ def prepare_direct_layout():
     for path in (cache / 'owners', cache / 'consolidation-locks'):
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
     write_config(evidence / 'global')
-    return retirement
+    return retirement, receipt_match
 
 
 def prepare_signed_legacy_layout():
@@ -3579,12 +3856,16 @@ def prepare_checkpoint_layout():
 
 try:
     if phase == 'disable':
+        opened = os.path.lexists(ready)
         ready.unlink(missing_ok=True)
         direct_directory(agent)
         # The old signed adapters require this exact alias; remove only a known
         # managed legacy alias when authorization or restore has failed.
         if legacy_project_link():
             project.unlink()
+        if enterprise and not opened and persistence in ('new', 'existing') \
+                and re.fullmatch('[a-z0-9]{8,24}', session) and re.fullmatch('[1-9][0-9]{0,15}', generation):
+            replace_text(ready.with_name('hermes-disabled-at-startup'), f'{session}:{generation}\n', ready.parent)
         sys.exit(0)
     if not re.fullmatch('[a-z0-9]{8,24}', session):
         raise ValueError('missing or invalid container session identity')
@@ -3604,6 +3885,10 @@ try:
         sys.exit(0)
     if phase == 'check-direct' and layout == 'direct':
         check_direct(True)
+        sys.exit(0)
+    if phase == 'receipt' and layout == 'direct':
+        if merged_snapshot_matches() is True:
+            print('matched')
         sys.exit(0)
     if phase == 'checkpoint' and layout == 'v197':
         for parent in (work / 'global', work / 'Projects/workspace', evidence):
@@ -3625,7 +3910,7 @@ try:
     if not isinstance(config, dict):
         raise ValueError('memory configuration must be an object')
     if layout == 'direct':
-        retirement = prepare_direct_layout()
+        retirement, receipt_match = prepare_direct_layout()
         if generation:
             replace_text(local_generation, f'{session}:{generation}\n', ready.parent)
         if retirement:
@@ -3636,6 +3921,12 @@ try:
         for parent in (work / 'global', work / 'Projects/workspace', evidence):
             direct_directory(parent)
         prepare_checkpoint_layout()
+    if layout == 'direct' and receipt_match is not None:
+        receipt = os.environ['CODEFLARE_HERMES_MERGED_SNAPSHOT']
+        if receipt_match is True:
+            replace_text(ready.with_name('hermes-restore-verified'), receipt + '\n', ready.parent)
+        elif restored_replacement_matches(receipt):
+            replace_text(ready.with_name('hermes-restore-synced'), receipt + '\n', ready.parent)
     ready.write_text(f'{layout}:{session}\n', encoding='utf-8')
     print('[entrypoint] Hermes memory prepared (' + layout + ')')
 except (OSError, ValueError) as error:
@@ -3665,6 +3956,7 @@ const required = [
   'npm:pi-smart-compact@10.8.1',
   // The Advanced-only Codeflare adapter owns foreground initialization.
   { source: 'npm:pi-hermes-memory@0.11.0', extensions: [] },
+  'npm:@narumitw/pi-goal@0.55.5',
   'npm:@narumitw/pi-plan-mode@0.60.1',
   // The managed terminal adapter initializes the native UI once.
   { source: 'npm:pi-open-tui@0.4.6', extensions: [] },
@@ -3678,7 +3970,9 @@ const defaultPackages = [
 // Migration: hard-remove retired managed packages from existing settings.
 // Retire managed registrations without deleting user files.
 // Unlike disabled packages these are dropped and never re-added, so upgrades load cleanly.
-const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:@narumitw/pi-goal', 'npm:pi-caveman', 'npm:@narumitw/pi-usage', 'npm:pi-mcp-extension']);
+const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman', 'npm:@narumitw/pi-usage', 'npm:pi-mcp-extension']);
+// Stock Pi Web can leave this exact image-owned registration in a restored profile.
+const bundledMcpManager = '/opt/codeflare/pi-web/node_modules/@jmfederico/pi-web/dist/pi-packages/mcp-manager';
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;
@@ -3718,7 +4012,7 @@ const existing = Array.isArray(settings.packages) ? settings.packages : [];
 const byName = new Map();
 for (const spec of existing) {
   const source = sourceOf(spec);
-  if (!source) continue;
+  if (!source || source === bundledMcpManager) continue;
   const id = identity(source);
   if (defaultPackageIds.has(id) || removedPackageIds.has(id)) continue;
   byName.set(id, spec);
@@ -4023,7 +4317,8 @@ NODE
 # package.json but no installed packages. Copying the image cache prevents Pi
 # from running a slow npm install on first launch.
 # Dependency warm-up remains non-fatal: aborting before the init-complete flag
-# leaves the terminal server gated in "warming up" forever.
+# leaves the terminal server gated in "warming up" forever. Goal and Plan Mode
+# keep that established degradation policy.
 # Pi Subagents: disable the upstream notify_parent / <subagent-update> channel.
 # Completion results and ask_parent remain available; only mid-run chatter is off.
 # Apply after home restore and before Pi loads its extensions, on EVERY startup:
@@ -4107,6 +4402,7 @@ NODE
 }
 configure_pi_open_tui || echo "[entrypoint] WARNING: Open TUI configuration could not be applied; existing preferences preserved"
 configure_pi_subagent_defaults || echo "[entrypoint] WARNING: Pi subagent update defaults could not be applied; existing preferences preserved"
+configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: Pi dependency warm-up failed; continuing startup"
 configure_pi_smart_compact_defaults || echo "[entrypoint] WARNING: Smart Compact defaults unavailable; continuing startup"
@@ -4341,10 +4637,16 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
     # curl/openssl) AND export the Node + Python env hooks (Copilot / Pi / any
     # node|python tooling use their own trust stores).
     if [ -f "$CF_CA_SRC" ]; then
-        cp "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
-            && update-ca-certificates >/dev/null 2>&1 \
-            && echo "[entrypoint] Enterprise Mode: Cloudflare containers CA installed into system trust store" \
-            || echo "[entrypoint] WARNING: could not install Cloudflare containers CA; LLM interception TLS may fail"
+        if [ "${enterprise_ca_installed_before_restore:-false}" = true ] \
+            && cmp -s "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt \
+            && openssl verify -no-CApath -no-CAstore -CAfile /etc/ssl/certs/ca-certificates.crt "$CF_CA_SRC" >/dev/null 2>&1; then
+            echo "[entrypoint] Enterprise Mode: Cloudflare containers CA still trusted after R2 restore"
+        else
+            cp "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
+                && update-ca-certificates >/dev/null 2>&1 \
+                && echo "[entrypoint] Enterprise Mode: Cloudflare containers CA installed into system trust store" \
+                || echo "[entrypoint] WARNING: could not install Cloudflare containers CA; LLM interception TLS may fail"
+        fi
         export_enterprise_ca_environment
 
         # Keep the login-shell exports after restore and before any blocking

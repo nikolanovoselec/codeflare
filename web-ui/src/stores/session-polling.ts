@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { batch, createSignal } from 'solid-js';
 import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
 import { terminalStore } from './terminal';
@@ -6,8 +6,8 @@ import { logger } from '../lib/logger';
 import { SESSION_POLL_STABLE_MS, SESSION_POLL_TRANSITION_MS } from '../lib/constants';
 import { updateStatsFromBatch } from './storage';
 import { setUsageState } from './session-usage';
-import { applyOrderedProjection, type BackendLifecycle } from '../lib/session-presentation';
-import type { SessionWithStatus, SessionStatus } from '../types';
+import { applyOrderedProjection, isShutdownInProgress, SESSION_REMOVAL_MISSES, type BackendLifecycle } from '../lib/session-presentation';
+import type { SessionWithStatus, SessionStatus, ShutdownPhase } from '../types';
 // Type-only imports - erased at runtime, so they do NOT reintroduce the
 // circular dependency that the registerPollingDeps DI pattern guards against.
 import type { SessionState, SessionMetrics } from './session';
@@ -44,22 +44,29 @@ type StateGetter = () => PollingStateView;
 type ProduceSetter = (fn: (s: SessionState) => void) => void;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RawSetter = (...args: any[]) => void;
-type StatusUpdater = (id: string, status: SessionStatus) => void;
+type StatusUpdater = (id: string, status: SessionStatus, shutdownPhase?: ShutdownPhase) => void;
+type ShutdownUpdater = (index: number, incoming: Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]) => void;
 type InitChecker = (id: string) => boolean;
+type StopOwnerCheck = (id: string, incoming: { generation?: number; revision?: number }) => boolean;
 type NegativeKvGuard = (id: string) => boolean;
 type AuthExpiredSetter = (expired: boolean) => void;
 type MetricsUpdater = (
   sessionMetrics: Record<string, SessionMetrics>,
   sessionId: string,
-  metrics: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string },
+  metrics: NonNullable<Awaited<ReturnType<typeof api.getBatchSessionStatus>>['statuses'][string]['metrics']>,
+  statusReadVersion: number,
+  generation?: number,
 ) => void;
 
 let getState: StateGetter;
 let setStateProduce: ProduceSetter;
 let setStateRaw: RawSetter;
 let updateSessionStatusFn: StatusUpdater;
+let applyShutdownFieldsFn: ShutdownUpdater;
+let removeConfirmedSession: (id: string) => void;
 let isSessionInitializingFn: InitChecker;
-let isLocallyStoppingFn: InitChecker;
+let hasCompletedReadyFn: InitChecker;
+let isLocallyStoppingFn: StopOwnerCheck;
 let shouldRetainNegativeKvFn: NegativeKvGuard;
 let setAuthExpiredFn: AuthExpiredSetter;
 let applyMetricsUpdateFn: MetricsUpdater;
@@ -70,8 +77,11 @@ export function registerPollingDeps(deps: {
   setStateProduce: ProduceSetter;
   setStateRaw: RawSetter;
   updateSessionStatus: StatusUpdater;
+  applyShutdownFields: ShutdownUpdater;
+  removeConfirmedSession: (id: string) => void;
   isSessionInitializing: InitChecker;
-  isLocallyStopping: InitChecker;
+  hasCompletedReady: InitChecker;
+  isLocallyStopping: StopOwnerCheck;
   shouldRetainNegativeKv: NegativeKvGuard;
   setAuthExpired: AuthExpiredSetter;
   applyMetricsUpdate: MetricsUpdater;
@@ -81,7 +91,10 @@ export function registerPollingDeps(deps: {
   setStateProduce = deps.setStateProduce;
   setStateRaw = deps.setStateRaw;
   updateSessionStatusFn = deps.updateSessionStatus;
+  applyShutdownFieldsFn = deps.applyShutdownFields;
+  removeConfirmedSession = deps.removeConfirmedSession;
   isSessionInitializingFn = deps.isSessionInitializing;
+  hasCompletedReadyFn = deps.hasCompletedReady;
   isLocallyStoppingFn = deps.isLocallyStopping;
   shouldRetainNegativeKvFn = deps.shouldRetainNegativeKv;
   setAuthExpiredFn = deps.setAuthExpired;
@@ -131,7 +144,33 @@ export function resetStartupGuards(): void {
 // ============================================================================
 
 export const sessionMissCounters = new Map<string, number>();
-const REMOVAL_THRESHOLD = 3;
+const acceptedDeletes = new Map<string, { generation?: number; revision?: number }>();
+
+export function noteAcceptedDelete(id: string, generation: number | undefined, revision: number | undefined): void {
+  acceptedDeletes.set(id, { generation, revision });
+  sessionMissCounters.delete(id);
+}
+
+export function hasAcceptedDelete(session: SessionWithStatus): boolean {
+  const accepted = acceptedDeletes.get(session.id);
+  if (!accepted) return false;
+  if (accepted.generation === session.generation) return true;
+  acceptedDeletes.delete(session.id);
+  return false;
+}
+
+/** A repeated pre-command row has not taken ownership of an accepted Delete. */
+export function reconcileAcceptedDelete(id: string, incoming: { generation?: number; revision?: number }): void {
+  const accepted = acceptedDeletes.get(id);
+  if (!accepted || incoming.generation === undefined || incoming.revision === undefined) return;
+  if (incoming.generation !== accepted.generation || incoming.revision > (accepted.revision ?? -1)) {
+    clearAcceptedDelete(id);
+  }
+}
+
+export function clearAcceptedDelete(id: string): void {
+  acceptedDeletes.delete(id);
+}
 
 // ============================================================================
 // Recursive poll handle
@@ -139,20 +178,28 @@ const REMOVAL_THRESHOLD = 3;
 
 let sessionListPollTimeout: ReturnType<typeof setTimeout> | null = null;
 let pollingActive = false;
+let sessionDropdownOpen = false;
 let visibilityListenerInstalled = false;
 let pollInFlight: Promise<void> | null = null;
+let pollRevision = 0;
 let catalogRevision = 0;
 let availabilityReadVersion = 0;
 const [sessionStatusUnavailable, setSessionStatusUnavailable] = createSignal(false);
-export { sessionStatusUnavailable };
+// A successful batch confirms only the samples it actually supplied and we accepted.
+const [completedStatusReadVersion, setCompletedStatusReadVersion] = createSignal(0);
+export { sessionStatusUnavailable, completedStatusReadVersion };
 
 /** Catalog and status reads share availability ordering, not lifecycle authority. */
-export function beginSessionStatusRead(): (unavailable: boolean) => boolean {
+export function beginSessionStatusRead() {
   const version = ++availabilityReadVersion;
-  return unavailable => {
-    if (version !== availabilityReadVersion) return false;
-    setSessionStatusUnavailable(unavailable);
-    return true;
+  return {
+    version,
+    reportAvailability(unavailable: boolean): boolean {
+      if (version !== availabilityReadVersion) return false;
+      setSessionStatusUnavailable(unavailable);
+      setCompletedStatusReadVersion(version);
+      return true;
+    },
   };
 }
 
@@ -214,16 +261,18 @@ export function refreshSessionAncillaryStatus({ afterCurrent = false } = {}): Pr
  */
 export function refreshSessionStatuses(forceManagedReleaseCheck = false): Promise<void> {
   if (pollInFlight) {
+    if (pollRevision !== catalogRevision) return pollInFlight.then(() => refreshSessionStatuses(forceManagedReleaseCheck));
     if (forceManagedReleaseCheck) void refreshSessionAncillaryStatus().catch(() => undefined);
     return pollInFlight;
   }
+  pollRevision = catalogRevision;
   pollInFlight = refreshSessionStatusesOnce(forceManagedReleaseCheck).finally(() => { pollInFlight = null; });
   return pollInFlight;
 }
 
 async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Promise<void> {
   const requestedCatalogRevision = catalogRevision;
-  const reportAvailability = beginSessionStatusRead();
+  const { version, reportAvailability } = beginSessionStatusRead();
   try {
     const state = getState();
     const batchResponse = await api.getBatchSessionStatus();
@@ -238,32 +287,30 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
     if (requestedCatalogRevision !== catalogRevision) return;
     reportAvailability(false);
 
-    // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
-    // Skip initializing sessions - they may not appear in batch status yet.
+    // Consecutive-miss tracking: only remove sessions after SESSION_REMOVAL_MISSES misses.
+    // A completed Ready may still retain workspace ownership. Count its
+    // omissions separately so hiding its card cannot accelerate disposal.
     const removedIds: string[] = [];
-    for (const session of state.sessions) {
+    for (const [index, session] of state.sessions.entries()) {
       if (!batchStatuses[session.id]) {
-        if (shouldRetainNegativeKvFn(session.id)) {
+        const retainWorkspace = !session.pendingDelete && !hasAcceptedDelete(session) && shouldRetainNegativeKvFn(session.id);
+        if (retainWorkspace) {
           sessionMissCounters.delete(session.id);
+          if (hasCompletedReadyFn(session.id) && (session.cardMisses ?? 0) < SESSION_REMOVAL_MISSES) {
+            setStateRaw('sessions', index, 'cardMisses', (session.cardMisses ?? 0) + 1);
+          }
           continue;
         }
         const count = (sessionMissCounters.get(session.id) || 0) + 1;
         sessionMissCounters.set(session.id, count);
-        if (count >= REMOVAL_THRESHOLD) {
-          removedIds.push(session.id);
-        }
+        if (count >= SESSION_REMOVAL_MISSES) removedIds.push(session.id);
       } else {
         sessionMissCounters.delete(session.id);
       }
     }
     if (removedIds.length > 0) {
       invalidateSessionStatusReads();
-      for (const id of removedIds) {
-        sessionMissCounters.delete(id);
-      }
-      setStateProduce((s: SessionState) => {
-        s.sessions = s.sessions.filter((sess: SessionWithStatus) => !removedIds.includes(sess.id));
-      });
+      for (const id of removedIds) removeConfirmedSession(id);
     }
     for (const session of getState().sessions) {
       const remote = batchStatuses[session.id];
@@ -286,6 +333,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // device-local and is never overwritten by a backend projection.
       const idx = getState().sessions.findIndex(s => s.id === session.id);
       if (idx !== -1) {
+        if (session.cardMisses) setStateRaw('sessions', idx, 'cardMisses', undefined);
         if (remote.lastActiveAt) setStateRaw('sessions', idx, 'lastActiveAt', remote.lastActiveAt);
         if (remote.lastStartedAt) setStateRaw('sessions', idx, 'lastStartedAt', remote.lastStartedAt);
         setStateRaw('sessions', idx, 'startupStage', remote.startupStage);
@@ -293,23 +341,25 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
         setStateRaw('sessions', idx, 'editorReadyError', remote.editorReadyError === true);
       }
 
-      // Populate sessionMetrics from batch-status metrics
       if (remote.metrics) {
         setStateProduce((s: SessionState) => {
-          applyMetricsUpdateFn(s.sessionMetrics, session.id, remote.metrics!);
+          applyMetricsUpdateFn(s.sessionMetrics, session.id, remote.metrics!, version, remote.generation);
         });
       }
 
       // Guard 1: Only the local Stop poll owns termination; persisted stopping
       // can accept a newer D1 stopped projection.
-      if (isLocallyStoppingFn(session.id)) continue;
+      if (isLocallyStoppingFn(session.id, remote)) continue;
 
       // Keep startup's local presentation, but record accepted D1 authority so
       // a delayed Ready cannot override a stop or a replacement already seen.
       if (session.status === 'initializing' || isSessionInitializingFn(session.id)) {
         if (remote.generation !== undefined && remote.revision !== undefined) {
-          setStateRaw('sessions', idx, { lifecycle: remote.lifecycle ?? remote.status,
-            generation: remote.generation, revision: remote.revision });
+          batch(() => {
+            setStateRaw('sessions', idx, { lifecycle: remote.lifecycle ?? remote.status,
+              generation: remote.generation, revision: remote.revision });
+            applyShutdownFieldsFn(idx, remote);
+          });
         }
         continue;
       }
@@ -318,20 +368,25 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // After the startup guard, an accepted generation/revision-fenced D1
       // stop must not be vetoed by a lingering socket/retry loop.
       if (remote.status === 'stopped' && session.status !== 'stopping'
-        && (remote.generation === undefined || remote.revision === undefined || isWithinStartupGuard(session.id))
+        && (remote.generation === undefined || remote.revision === undefined
+          || (isWithinStartupGuard(session.id) && !isShutdownInProgress(session.shutdownPhase)
+            && remote.shutdownPhase !== 'memory-not-merged'))
         && shouldRetainNegativeKvFn(session.id)) continue;
 
       // Apply the ordered D1 lifecycle projection. Transport ownership remains
       // local, so uncertainty never disposes mounted terminal/editor state.
       const statusChanged = remote.status !== session.status;
-      if (ordered === incomingProjection) {
-        if (statusChanged) updateSessionStatusFn(session.id, remote.status);
+      const settlingStop = remote.status === 'stopped' && !isShutdownInProgress(remote.shutdownPhase)
+        && (statusChanged || isShutdownInProgress(session.shutdownPhase));
+      batch(() => {
+        if (statusChanged) updateSessionStatusFn(session.id, remote.status, remote.shutdownPhase);
         setStateRaw('sessions', idx, 'lifecycle', remote.lifecycle ?? remote.status);
         if (remote.generation !== undefined) setStateRaw('sessions', idx, 'generation', remote.generation);
         if (remote.revision !== undefined) setStateRaw('sessions', idx, 'revision', remote.revision);
         if (remote.unreachableDeadlineMs !== undefined) setStateRaw('sessions', idx, 'unreachableDeadlineMs', remote.unreachableDeadlineMs);
-        if (remote.status === 'stopped' && statusChanged) terminalStore.disposeSession(session.id);
-      }
+        applyShutdownFieldsFn(idx, remote);
+        if (settlingStop) terminalStore.disposeSession(session.id);
+      });
     }
   } catch (err) {
     // Detect auth expiry: the API helper has started top-level sign-in; stop
@@ -354,8 +409,9 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
 
 function transitioning(): boolean {
   const state = getState();
-  return state.sessions.some((session) => session.status === 'initializing' || session.status === 'starting'
-    || session.status === 'unreachable' || session.status === 'stopping')
+  return sessionDropdownOpen || state.sessions.some((session) => session.status === 'initializing' || session.status === 'starting'
+    || session.status === 'unreachable' || session.status === 'stopping' || isShutdownInProgress(session.shutdownPhase)
+    || (hasAcceptedDelete(session) && !sessionStatusUnavailable()))
     || state.managedReleaseStatus === 'upgrading'
     || state.bucketMigrating
     || state.bucketMigrationPending;
@@ -383,10 +439,26 @@ function scheduleNextPoll(): void {
   }, transitioning() ? SESSION_POLL_TRANSITION_MS : SESSION_POLL_STABLE_MS);
 }
 
+/** Replace the idle timer with a fresh read ordered after the command. */
+export function refreshAfterShutdownAccepted(): void {
+  invalidateSessionStatusReads();
+  clearPollTimeout();
+  if (!pollingActive || document.visibilityState === 'hidden') return;
+  void refreshSessionStatuses().then(scheduleNextPoll);
+}
+
 function handlePollingVisibilityChange(): void {
   clearPollTimeout();
   if (!pollingActive || document.visibilityState === 'hidden') return;
   void pollWithoutOverlap().then(scheduleNextPoll);
+}
+
+/** An open session list observes other runtimes, which can shut down between idle reads. */
+export function setSessionDropdownPolling(open: boolean): void {
+  if (open === sessionDropdownOpen) return;
+  sessionDropdownOpen = open;
+  if (open) handlePollingVisibilityChange();
+  else scheduleNextPoll();
 }
 
 export function startSessionListPolling(): void {

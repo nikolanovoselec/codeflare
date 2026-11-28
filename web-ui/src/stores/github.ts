@@ -1,4 +1,5 @@
 import { createStore, produce } from 'solid-js/store';
+import { ApiError } from '../api/fetch-helper';
 import * as githubApi from '../api/github';
 import type { GithubStatus, GithubRepo } from '../api/github';
 import { DASHBOARD_LIST_FRESHNESS_MS } from '../lib/constants';
@@ -14,6 +15,8 @@ interface GithubState {
   loading: boolean;
   loadingMore: boolean;
   error: string | null;
+  repoErrorCode?: string;
+  initialRepoFailure: boolean;
   searchQuery: string;
 }
 
@@ -26,6 +29,8 @@ const initialState: GithubState = {
   loading: false,
   loadingMore: false,
   error: null,
+  repoErrorCode: undefined,
+  initialRepoFailure: false,
   searchQuery: '',
 };
 
@@ -39,7 +44,7 @@ function resetRepos() {
   repoGeneration++;
   lastRepoAttemptAt = undefined;
   loadingFirstPage = false;
-  setState({ repos: [], page: 0, hasMore: false, loading: false, loadingMore: false, searchQuery: '', error: null });
+  setState({ repos: [], page: 0, hasMore: false, loading: false, loadingMore: false, searchQuery: '', error: null, repoErrorCode: undefined, initialRepoFailure: false });
 }
 
 export const githubStore = {
@@ -55,6 +60,13 @@ export const githubStore = {
   get loading() { return state.loading; },
   get loadingMore() { return state.loadingMore; },
   get error() { return state.error; },
+  get repoErrorCode() { return state.repoErrorCode; },
+  get canRetryInitialRepos() {
+    return state.status?.connected === true && state.initialRepoFailure && state.page === 0 && !state.loading && !loadingFirstPage;
+  },
+  async retryInitialRepos() {
+    if (githubStore.canRetryInitialRepos) await githubStore.loadRepos();
+  },
   get searchQuery() { return state.searchQuery; },
 
   // Client-side filter over the already-loaded repos, by full_name.
@@ -79,6 +91,7 @@ export const githubStore = {
         || previous?.login !== status.login || previous?.source !== status.source) resetRepos();
       setState({ status, statusLoaded: true });
       if (status.enabled && status.connected && !loadingFirstPage && !state.loadingMore && state.page <= 1
+        && state.repoErrorCode !== 'NOT_CONNECTED'
         && (lastRepoAttemptAt === undefined || Date.now() - lastRepoAttemptAt >= DASHBOARD_LIST_FRESHNESS_MS)) {
         await githubStore.loadRepos({ silent: state.page === 1 });
       }
@@ -94,13 +107,19 @@ export const githubStore = {
     const generation = ++repoGeneration;
     lastRepoAttemptAt = Date.now();
     loadingFirstPage = true;
-    setState({ loading: !silent, loadingMore: false, error: null });
+    setState({ loading: !silent, loadingMore: false, error: null, repoErrorCode: undefined, initialRepoFailure: false });
     try {
       const result = await githubApi.getGithubRepos(1);
       if (generation !== repoGeneration) return;
       setState({ repos: result.repos, page: result.page, hasMore: result.hasMore });
     } catch (err) {
-      if (generation === repoGeneration && !silent) setState('error', err instanceof Error ? err.message : String(err));
+      if (generation !== repoGeneration) return;
+      const code = err instanceof ApiError ? err.code : undefined;
+      if (code === 'NOT_CONNECTED' || !silent) {
+        setState({ error: err instanceof Error ? err.message : String(err), repoErrorCode: code,
+          initialRepoFailure: !silent && code !== 'NOT_CONNECTED' && state.page === 0
+            && (!(err instanceof ApiError) || err.status === 0 || err.status === 429 || err.status >= 500) });
+      }
     } finally {
       if (generation === repoGeneration) {
         loadingFirstPage = false;
@@ -118,6 +137,8 @@ export const githubStore = {
     setState(produce((s) => {
       s.loadingMore = true;
       s.error = null;
+      s.repoErrorCode = undefined;
+      s.initialRepoFailure = false;
     }));
     try {
       const result = await githubApi.getGithubRepos(state.page + 1);
@@ -132,6 +153,7 @@ export const githubStore = {
       if (generation !== repoGeneration) return;
       setState(produce((s) => {
         s.error = err instanceof Error ? err.message : String(err);
+        s.repoErrorCode = err instanceof ApiError ? err.code : undefined;
         s.loadingMore = false;
       }));
     }

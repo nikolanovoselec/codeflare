@@ -1,4 +1,4 @@
-import { Component, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
+import { Component, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup } from 'solid-js';
 import { mdiChartGantt } from '@mdi/js';
 import Icon from './Icon';
 import type { VaultPrewarmStatus } from '../lib/vault-prewarm';
@@ -17,6 +17,9 @@ const VAULT_READY_MESSAGE_AUTO_HIDE_MS = 5000;
 interface VaultButtonProps {
   status: VaultButtonStatus;
   onOpen: () => void;
+  inProfile?: boolean;
+  waitingForOtherVault?: boolean;
+  hideTooltip?: boolean;
 }
 
 const VAULT_BUTTON_META: Record<VaultButtonStatus, { title: string; message: string; enabled: boolean }> = {
@@ -63,9 +66,13 @@ const VAULT_BUTTON_META: Record<VaultButtonStatus, { title: string; message: str
 };
 
 const VaultButton: Component<VaultButtonProps> = (props) => {
-  const meta = createMemo(() => VAULT_BUTTON_META[props.status]);
+  const meta = createMemo(() => props.waitingForOtherVault ? {
+    title: 'Vault ready; another Vault is preparing',
+    message: 'Wait for the other Vault to finish preparing, then click again to open this Vault.',
+    enabled: false,
+  } : VAULT_BUTTON_META[props.status]);
   const [showMessage, setShowMessage] = createSignal(false);
-  const messageId = 'header-vault-button-status';
+  const messageId = `vault-button-status-${createUniqueId()}`;
   let wrapRef: HTMLDivElement | undefined;
 
   createEffect(() => {
@@ -95,6 +102,7 @@ const VaultButton: Component<VaultButtonProps> = (props) => {
   // standalone PWA remounts the component — so we gate it on the previous status.
   let prevStatus: VaultButtonStatus | undefined;
   createEffect(() => {
+    if (props.hideTooltip) return;
     const status = props.status;
     const justBecameReady = prevStatus === 'preparing' && status === 'armed';
     prevStatus = status;
@@ -114,12 +122,12 @@ const VaultButton: Component<VaultButtonProps> = (props) => {
   });
 
   return (
-    <div class="header-vault-button-wrap" ref={(el) => { wrapRef = el; }}>
+    <div class={props.inProfile ? undefined : 'header-vault-button-wrap'} ref={(el) => { wrapRef = el; }}>
       <button
-        class={`header-vault-button header-vault-button--${props.status}`}
+        class={props.inProfile ? 'header-user-dropdown-item' : `header-vault-button header-vault-button--${props.status}`}
         data-testid="header-vault-button"
         data-vault-status={props.status}
-        title={meta().title}
+        title={props.hideTooltip ? undefined : meta().title}
         aria-label={meta().title}
         aria-disabled={meta().enabled ? 'false' : 'true'}
         aria-describedby={showMessage() ? messageId : undefined}
@@ -128,7 +136,7 @@ const VaultButton: Component<VaultButtonProps> = (props) => {
         onClick={(event) => {
           if (!meta().enabled) {
             event.preventDefault();
-            setShowMessage(true);
+            if (!props.hideTooltip) setShowMessage(true);
             return;
           }
           setShowMessage(false);
@@ -136,9 +144,10 @@ const VaultButton: Component<VaultButtonProps> = (props) => {
         }}
       >
         <Icon path={mdiChartGantt} size={20} />
+        <Show when={props.inProfile}><span>Vault</span></Show>
       </button>
       <Show when={showMessage()}>
-        <span id={messageId} class="header-vault-status" role="status" data-testid="header-vault-status">
+        <span id={messageId} class={props.inProfile ? 'type-hint' : 'header-vault-status'} role="status" data-testid="header-vault-status">
           {meta().message}
         </span>
       </Show>

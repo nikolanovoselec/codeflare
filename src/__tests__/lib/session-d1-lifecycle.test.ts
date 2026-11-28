@@ -2,12 +2,15 @@ import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { buildCloneTargets } from '../../lib/clone-targets';
+import { createLogger, setLogLevel } from '../../lib/logger';
 import { confirmMonitoredExit } from '../../container/container-lifecycle';
 import { TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY } from '../../container/container-metrics';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
 import boundaryMigration from '../../../migrations/usage/0004_boundary_activity.sql?raw';
+// @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
+import shutdownMigration from '../../../migrations/usage/0005_session_shutdown.sql?raw';
 
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
 
@@ -30,11 +33,10 @@ async function createSession(owner = 'owner-a', sessionId = 'session01') {
 }
 
 beforeAll(async () => {
-  for (const statement of migration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
-    await db.prepare(statement).run();
-  }
-  for (const statement of boundaryMigration.split(';').map((part: string) => part.trim()).filter(Boolean)) {
-    await db.prepare(statement).run();
+  for (const sql of [migration, boundaryMigration, shutdownMigration]) {
+    for (const statement of sql.split(';').map((part: string) => part.trim()).filter(Boolean)) {
+      await db.prepare(statement).run();
+    }
   }
 });
 
@@ -71,8 +73,16 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     await db.prepare("UPDATE session_cutover SET state = 'pending', completed_at = NULL WHERE id = 1").run();
     expect(await db.prepare('SELECT id, state FROM session_cutover').first()).toEqual({ id: 1, state: 'pending' });
 
-    const indexes = await db.prepare("PRAGMA index_list('runtime_sessions')").all<{ name: string }>();
-    const named = indexes.results.filter(({ name }) => !name.startsWith('sqlite_autoindex'));
+    const indexes = await db.prepare("PRAGMA index_list('runtime_sessions')").all<{ name: string; partial: number }>();
+    const shutdownIndex = 'runtime_sessions_shutdown_order';
+    expect(indexes.results.find(({ name }) => name === shutdownIndex)).toMatchObject({ partial: 1 });
+    const shutdownColumns = await db.prepare(`PRAGMA index_info('${shutdownIndex}')`).all<{ name: string }>();
+    expect(shutdownColumns.results.map(({ name }) => name)).toEqual(['owner_key', 'shutdown_order']);
+    const shutdownDefinition = await db.prepare('SELECT sql FROM sqlite_schema WHERE type = ? AND name = ?')
+      .bind('index', shutdownIndex).first<{ sql: string }>();
+    expect(shutdownDefinition?.sql).toMatch(/\bWHERE\s+shutdown_order\s+IS\s+NOT\s+NULL\s*$/i);
+
+    const named = indexes.results.filter(({ name }) => !name.startsWith('sqlite_autoindex') && name !== shutdownIndex);
     expect(named).toHaveLength(1);
     const columns = await db.prepare(`PRAGMA index_info('${named[0]?.name}')`).all<{ name: string }>();
     expect(columns.results.map(({ name }) => name)).toEqual(['owner_key', 'last_accessed_at', 'session_id']);
@@ -96,6 +106,35 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'activity-1' });
     expect(await confirmMonitoredExit(ctx as never, runtimeEnv as never, 'owner-a', 'session01', 1)).toBe(true);
     expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopped' });
+  });
+
+  it.each(['restart', 'headless Retry'] as const)('REQ-SESSION-043: %s does not carry readings into the replacement generation', async action => {
+    const owner = 'owner-a';
+    const id = 'session01';
+    const at = '2027-01-01T00:00:01.000Z';
+    const repository = new D1SessionRepository(db);
+    await createSession(owner, id);
+    await repository.start(owner, id, at);
+    await repository.project(owner, id, 1, 0, { lifecycleState: 'running', cpu: '7%', memory: '1.2G', disk: '3.1G', observedAt: at });
+    await repository.claimStop(owner, id, 'stop', at, 1);
+    await repository.confirmStopped(owner, id, 1, 'stop', at);
+    const stopped = (await repository.getSession(owner, id))!;
+    expect(stopped).toMatchObject({ cpu: '7%', memory: '1.2G', disk: '3.1G' });
+
+    if (action === 'restart') {
+      await repository.start(owner, id, at, 1);
+    } else {
+      const job = { intent: 'retry', phase: 'queued' as const, delete: false, sourceGeneration: 1 };
+      expect(await repository.updateShutdown(stopped, job)).toBe(true);
+      const queued = (await repository.getSession(owner, id))!;
+      await repository.beginShutdownRetry(queued, { ...job, phase: 'consolidating' });
+    }
+    const replacement = await repository.getSession(owner, id);
+    expect(replacement).toMatchObject({ lifecycleGeneration: 2, lifecycleState: 'starting' });
+    expect(replacement?.cpu).toBeUndefined();
+    expect(replacement?.memory).toBeUndefined();
+    expect(replacement?.disk).toBeUndefined();
+    expect(replacement?.metricsObservedAt).toBeUndefined();
   });
 
   it('rejects an old monitor generation before claiming Stop on a replacement', async () => {
@@ -754,8 +793,21 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
   });
 
+  function captureLifecycleLogs() {
+    const entries: Array<{ message: string; data?: Record<string, unknown> }> = [];
+    const capture = (line: unknown) => {
+      try { entries.push(JSON.parse(String(line))); } catch { /* Ignore unrelated non-JSON console output. */ }
+    };
+    vi.spyOn(console, 'log').mockImplementation(capture);
+    vi.spyOn(console, 'warn').mockImplementation(capture);
+    vi.spyOn(console, 'error').mockImplementation(capture);
+    setLogLevel('info');
+    return entries;
+  }
+
   it('D1 outage or ambiguous failed projection cannot authorize reconstruction, SIGTERM or force', async () => {
     const f = await runtimeFixture();
+    const entries = captureLifecycleLogs();
     try {
       f.ctx.container.running = true;
       f.host.env.USAGE_DB = { prepare: () => {
@@ -763,10 +815,15 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
         return failed;
       } } as unknown as D1Database;
       for (const delta of [0, 120_000, 255_000]) { f.time(at + delta); await f.tick(); }
+      expect(entries).toContainEqual(expect.objectContaining({
+        message: 'collectMetrics: D1 lifecycle observation unavailable',
+        data: expect.objectContaining({ sessionId: id, lifecycleGeneration: pin.generation, errorClass: 'd1_unavailable' }),
+      }));
+      expect(entries.some(entry => entry.data?.reason === 'host_transport_loss')).toBe(false);
       expect(f.effects).toEqual([]);
       expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'running' });
       expect(f.schedules.at(-1)).toEqual(pin);
-    } finally { vi.restoreAllMocks(); }
+    } finally { setLogLevel('silent'); vi.restoreAllMocks(); }
   });
 
   it('deliberate shutdown and unreadable shutdown ownership suppress reconstruction and effects', async () => {
@@ -915,6 +972,8 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
 
   it('first failed probe is nonbillable, survives reconstruction, signals at 120s even with SDK false, destroys only after 135s grace', async () => {
     const f = await runtimeFixture();
+    const entries = captureLifecycleLogs();
+    f.host.logger = createLogger('container');
     try {
       await f.tick();
       const first = await repository().getSession(owner, id);
@@ -932,9 +991,16 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       expect(f.hostRequests.some(request => request.url === 'http://localhost/internal/final-sync')).toBe(false);
       expect(f.hostRequests.some(request => request.url === 'http://localhost/internal/agent-events/drain' && request.final)).toBe(false);
       expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'stopped' });
+      const context = { sessionId: id, lifecycleGeneration: pin.generation, incidentId: first!.unreachableIncidentId };
+      expect(entries).toContainEqual(expect.objectContaining({ message: 'unreachable_incident_opened',
+        data: expect.objectContaining({ ...context, reason: 'host_transport_loss' }),
+      }));
+      expect(entries).toContainEqual(expect.objectContaining({ message: 'process_exit_confirmed',
+        data: expect.objectContaining({ ...context, reason: 'recovery_expiry' }),
+      }));
       expect(f.host._usageSeconds).toBe(0);
       expect(f.effects).not.toContain('sdk-stop'); expect(f.effects).not.toContain('sdk-destroy');
-    } finally { vi.restoreAllMocks(); }
+    } finally { setLogLevel('silent'); vi.restoreAllMocks(); }
   });
 
   it('a failed native SIGTERM remains stopping and escalates at the same finite grace deadline', async () => {

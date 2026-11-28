@@ -58,6 +58,10 @@ Node Docker major proposals are ignored; Node LTS migration is manual, not an au
 
 **Registry bypass:** `registry: dockerhub` uses the same Deploy/Image workflows rather than a duplicate. It requires the private registry credentials and a public pullable repository after first push. The scan preparation frees runner disk, preserves the target image and prunes dangling layers. The owning workflows pin runner images and support explicit `RUNNER` overrides rather than a floating default.
 
+### Stock pi-web pin
+
+Dependabot owns the dedicated `/image/pi-web` npm manifest and consumer lock; Shadow Pins does not update it. The packaged image exercises stock transcript interchange against the installed Pi SDK. PR Checks separately exercise the production supervisor, live stop-and-switch with an isolated Host and native TUI, and the shipped Classic launcher ([PR Checks workflow](../../.github/workflows/test.yml)). The fixtures do not publish images or configure a hosted workspace. Use [Pi Chat handoff acceptance](terminal-and-ide.md#pi-chat-handoff-acceptance) for complete image entrypoint, UI, and workspace evidence.
+
 ### Shadow-pin ownership and mutation boundaries
 
 The [Shadow Pins workflow](../../.github/workflows/bump-shadow-pins.yml) owns context-mode, graphify, checksum-backed binaries/uv, shared npm tools and agent CLIs, Browser Run MCP's dedicated lock, Pi preseed pins, Impeccable, code-server/Code gitlink, official Claude extension, Antigravity, Herdr, actionlint and zizmor. Image/CI matrices also cover Go, Rust, GitHub CLI, rclone/gRPC/compress, k6, Trivy and governed CI Node patches; security matrices own image overlays and explicit override/floor pins. <!-- @impl: scripts/ci/update-shadow-image-pins.mjs::IMAGE_PIN_IDS --> <!-- @impl: scripts/ci/update-npm-security-pins.mjs::SECURITY_PIN_OWNERS -->
@@ -72,7 +76,7 @@ Top-level permission is `contents: read`; only branch/PR-writing jobs elevate to
 
 The code-server job validates release versions, extracts/cross-checks artifact package/product commit and Code version, derives the embedded Code source commit from the immutable gitlink, and invalidates the checksum. Validated metadata enters quoted environment variables, never shell source (REQ-OPS-027).
 
-Pi extension discovery reads the owning preseed manifest except context-mode and the separately managed Pi runtime. The installed `pi-mcp-adapter` and stock Todo Loop use that matrix, not separate updaters. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions-discover --> Independent `fail-fast: false` legs bump manifest, entrypoint pins, pinned-version evidence and generated seed. Plan Mode candidates must run the exact-version Plan transform before publication; source-layout drift fails the candidate instead of opening an unverified pin PR. Todo Loop uses the regular lock-backed path without a transform. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> Candidate-transform acceptance remains qualified by REQ-OPS-025, not by version prose in this reference.
+Pi extension discovery reads the owning preseed manifest except context-mode and the separately managed Pi runtime. The installed `pi-mcp-adapter` and managed Todo Loop use that matrix, not separate updaters. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions-discover --> Independent `fail-fast: false` legs bump manifest, entrypoint pins, pinned-version evidence and generated seed. Plan Mode and [Goal](../references/pi-packages.md#goal) candidates must pass their respective exact-version transforms before the update PR opens. Source-layout drift fails the candidate instead of opening an unverified pin PR. Todo Loop uses the same lock-backed path and must pass its version- and source-guarded default-pause transform. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> Candidate-transform acceptance remains qualified by REQ-OPS-025, not by version prose in this reference.
 
 Impeccable's one-minute no-container PR probe verifies pinned source, compiles the exact raster/wait logic into probes, reproduces upstream regressions, and verifies idle-grace/no-symlink fixes. Deployment still compiles/tests the complete binary before publication; bundle refresh rejects an engine the image has not adopted (REQ-AGENT-163/164/181, REQ-OPS-058/059).
 
@@ -87,7 +91,7 @@ For [OPS-020/055/025](../../sdd/spec/operations.md), inspect existing shadow-pin
 | OPS-055 | Herdr PR couples version, commit, checksum, provenance and launcher without workflow edits. Inspect duplicate-release skip. |
 | OPS-174 | Inspect exact-version complete-image API checks, including scroll/status schemas. Incompatible-candidate refusal needs an actual retained rejection. |
 | OPS-025 AC1–5 | Compare coupled plugin/runtime/prewarm pins, owning locks, manifest/install identities and embedded seed. Actual commands must show lifecycle-disabled lock generation. Runtime integrity and shared toolchain pins move together; unrelated dependencies remain unchanged. |
-| OPS-025 AC6 | Compare actual latest-pinned Plan Mode transform success and rejection before publication. A rejected candidate leaves no PR. Fake commands, source assertions or accepted-only records do not establish this case. |
+| OPS-025 AC6 | Compare actual locked-candidate transform success and rejection before publication for Plan Mode, Goal, and Todo Loop. A rejected candidate leaves no PR. Fake commands, source assertions or accepted-only records do not establish this case. |
 | OPS-025 AC7 | Inspect the candidate check outcome for generated-artifact drift; an accepted bump does not establish refusal on drift. |
 
 Candidate-transform and complete-image qualifications remain distinct from source-shape tests.
@@ -205,11 +209,14 @@ PR classification checks out depth2; push filtering keeps full history. When Git
 - **changes:** backend, webui, landing, host, pi, ide, workflows and production dependencies; `full` means no filtering. Nightly skips filtering under its distinct identity.
 - **quality:** seed drift, backend/frontend oxlint/knip, `bash -n` over tracked shell scripts (REQ-OPS-003).
 - **typecheck:** Wrangler types and backend/frontend `tsc --noEmit`.
-- **backend-tests:** thirteen duration-weighted Workers shards plus native/flue/rest Node legs through the shared suite action.
+- **backend-tests:** eleven duration-weighted Workers shards. The selector runs the SQL capacity case on a separate shard and moves application execution off shard 8 when it would share that shard with the other capacity case. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: scripts/ci/select-weighted-backend-tests.mjs::selectBackendGroup -->
+- **backend-node-tests:** separate `native`, `flue`, and `rest` Node legs through the shared suite action. <!-- @impl: .github/workflows/test.yml::backend-node-tests -->
 - **frontend-tests:** three duration-weighted test groups through the same action. Measured weights guide assignment, not a runtime guarantee. <!-- @impl: .github/workflows/test.yml::frontend-tests --> [Capacity validation](../../web-ui/src/__tests__/operators/operator-capacity-validation.test.tsx) and [source-response controls](../../web-ui/src/__tests__/operators/operator-source-response.test.tsx) register separately.
 - **frontend-build:** independent frontend production-build gate, separate from the test matrix. <!-- @impl: .github/workflows/test.yml::frontend-build -->
 - **landing-tests:** rendering/unit tests plus Astro production build.
-- **host-tests:** nonempty Node-runner selection with at least one JUnit `<testcase>` across its partitions, reconciled against `ci-excluded.txt` (test-case counting, not assertion-call enforcement); rclone for real sync-filter behavior. Approved Ubuntu sandbox package sources and real sandbox probe remain required.
+- **pi-web:** `pi` changes and full runs execute `services`, `handoff`, and `handoff-retry` in parallel; all three feed required `test`. See the [stock pin](#stock-pi-web-pin) and [browser acceptance](terminal-and-ide.md#pi-chat-handoff-acceptance). <!-- @impl: .github/workflows/test.yml::pi-web --> <!-- @impl: .github/workflows/test.yml::summary -->
+- **host-tests:** six nonempty Node-runner partitions; `6/6` runs the rclone filter test alone. Each partition requires a JUnit `<testcase>`, not a count of assertions. The selector honors `ci-excluded.txt`. <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @impl: scripts/ci/select-host-tests.mjs::selectHostGroup -->
+  - Host tests require approved Ubuntu sandbox package sources and a real sandbox probe. <!-- @impl: .github/workflows/test.yml::host-tests -->
 - **browser-ide:** clean install with the pinned IDE Node runtime, owned dependency/license audit, typecheck, deterministic bundle, context/RPC/approval and official Claude behavior, coverage and JSON gate.
 - **dependency-review:** fail-closed PR vulnerability/license checks with visible available OpenSSF scores; six exact historical Codex 0.147.0 platform-release license exceptions, backed by Apache-2.0 metadata in the historical committed lock, not equivalence to the current lock or exceptions for future versions (REQ-OPS-053). <!-- @impl: .github/workflows/test.yml::dependency-review -->
   - The historical evidence is `preseed/npm-tools/package-lock.json` at `88a0dddbf2a4da18222ccda21f5a15e2c49d65ea^`, for darwin/linux/win32 × arm64/x64.
@@ -217,7 +224,7 @@ PR classification checks out depth2; push filtering keeps full history. When Git
 - **workflow-audit:** pinned/checksummed zizmor/actionlint over `.github/**` inside required `test`; standalone SARIF is not a bypass (REQ-OPS-021).
 - **impeccable-engine:** pinned-source focused native regressions, one-minute probe timeout, no image build (REQ-OPS-058).
 - **bundle-size:** Wrangler dry-run with container configuration repointed away from Dockerfile; one unambiguous measurement, valid positive budget or explicit opt-out sentinel (REQ-OPS-024).
-- **coverage:** affected-package and full-run global floors plus bounded changed-production-line LCOV floors, backend 80%, frontend 70% (REQ-OPS-022).
+- **coverage:** affected-package and full-run global floors plus bounded changed-production-line LCOV floors, backend 80%, frontend 70% (REQ-OPS-022). Backend coverage merge requires one report from each configured Workers shard. <!-- @impl: .github/workflows/test.yml::coverage-backend -->
 - **summary:** rejects failed or cancelled lanes. Diff-filtered runs permit skipped unaffected lanes; full runs reject unexpected skips, with PR-only Dependency Review exempt. The job reconciles suite evidence and publishes the exact-tree receipt.
 
 PR Dependency Review is dependency-security evidence for that reviewed tree and its main squash result; post-merge checks do not repeat registry-backed audits. Explicit full dispatch retains bounded one-minute fail-closed lockfile-only registry audits. Tool archives cache by OS/architecture/version/checksum and reject restored mismatch before execution ([REQ-OPS-165](../../sdd/spec/operations.md#req-ops-165-cached-external-tool-integrity-and-reuse)).
@@ -491,7 +498,7 @@ Mostly reads, with occasional `PATCH /api/preferences` writes. `sustained_load`:
 | `health_duration` p95 | <1s |
 | `session_list_duration` p95 | <5s |
 
-The scripted approximately-five-second dashboard pattern is not the current product polling contract: stable visible session status now uses sixty-second polling, transitions five seconds, hidden pages stop (REQ-OPS-057). Individual check failures are not universally aggregated into a `checks` threshold in this suite.
+The scripted approximately-five-second dashboard pattern does not model the [product polling contract](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope) in REQ-OPS-057 AC1. Individual check failures are not universally aggregated into a `checks` threshold in this suite.
 
 #### Session Lifecycle (`session-lifecycle.js`) <!-- @impl: stress/session-lifecycle.js::options --> <!-- @impl: stress/session-lifecycle.js::default -->
 

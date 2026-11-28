@@ -24,17 +24,265 @@ Browser terminal and editor client contracts, mobile compatibility, viewport own
 
 ## Terminal ownership and transport
 
-The persisted per-session terminal stamp is immutable. Classic owns Codeflare tabs/labels/layouts/tiling and up to six outer node-pty sessions; Herdr owns inner tabs/panes/splits/workspaces/agents behind one xterm surface, outer terminal ID `1`. Historical missing/invalid mode resolves Classic; preferences affect only new sessions. Dashboard and VS Code workspaces mount no host browser-terminal surface. MultiView is browser-local virtual workspace membership, never a backend identity or capacity/storage API argument. [REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-034](../../sdd/spec/terminal.md#req-term-034-terminal-mode-assignment-is-immutable).
+The persisted per-session terminal stamp is immutable. Classic owns Codeflare tabs/labels/layouts/tiling and up to six outer node-pty sessions; Herdr owns inner tabs/panes/splits/workspaces/agents behind one xterm surface, outer terminal ID `1`. Historical missing/invalid mode resolves Classic; preferences affect only new sessions. Dashboard opens no new terminal surface; VS Code has none. MultiView is browser-local virtual workspace membership, never a backend identity or capacity/storage API argument. [REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-034](../../sdd/spec/terminal.md#req-term-034-terminal-mode-assignment-is-immutable).
 
 `/api/terminal/{sessionId}-{terminalId}/ws` remains the existing authenticated Worker→DO→host transport. PTY output is raw, with typed JSON control frames for resize/process name/restore/kill and notification coordination. No application ping/pong or browser Herdr protocol is added. [REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002-websocket-connection-to-container-pty) owns Herdr outer-ID rejection and the Enterprise same-owner/generation reconnect fence. See also [API](api-reference.md) and [Security](security.md). See [REQ-TERM-019](../../sdd/spec/terminal.md#req-term-019-terminal-websocket-control-frames-and-protocol-guards).
 
-Only visible workspace panes own sockets. Dashboard has zero, single-session Classic exposes its active tabs/tiles, Herdr one surface, MultiView one outer surface per member. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> Leaving visible set disposes local UI resources without killing PTY. Focus handoff does not remount/reconnect; focused visible pane claims resize authority before publishing fitted dimensions. Stale cleanup cannot close a newer owner; losing focus before open clears pending resize authority. Herdr visibility return forces current-pane repaint with same-size resize even if dimensions did not change. [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-016](../../sdd/spec/terminal.md#req-term-016-terminal-pane-reconnect-and-resize-authority), [REQ-TERM-017](../../sdd/spec/terminal.md#req-term-017-multiview-pane-focus-and-input-routing).
+Dashboard opens no terminal sockets, but can retain one already-connected untiled Classic or single Herdr pane without allowing hidden input, resize, or reconnect. Single-session Classic exposes its active tabs or tiles, Herdr one surface, and MultiView one outer surface per member. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> Leaving the visible set disposes non-retained panes without killing their PTYs. Focus handoff does not remount/reconnect; focused visible pane claims resize authority before publishing fitted dimensions. Stale cleanup cannot close a newer owner; losing focus before open clears pending resize authority. Herdr visibility return forces current-pane repaint with same-size resize even if dimensions did not change. [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-016](../../sdd/spec/terminal.md#req-term-016-terminal-pane-reconnect-and-resize-authority), [REQ-TERM-017](../../sdd/spec/terminal.md#req-term-017-multiview-pane-focus-and-input-routing).
 
-At `mounting` the visible pane initiates one attachment lifecycle; it does not bypass public endpoint readiness. The endpoint returns retryable 1013 before the terminal service is ready and does not assign a PTY. The store publishes Ready and exposes OPEN only after confirming the completion still belongs to the current Start. Focus and display await OPEN, which leaves foreign panes unchanged and produces a focused renderable pane even if viewport dimensions are not yet initialized. <!-- @impl: web-ui/src/stores/session.ts::startSession --> Genuine PTY reattachment first restores the host serialized screen. [REQ-TERM-043](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating) owns OPEN display and focus. The original mounting-stage obligations in [REQ-TERM-046](../../sdd/spec/terminal.md#req-term-046-visible-terminal-startup-connection) remain intact and do not establish current endpoint authority. [REQ-TERM-044](../../sdd/spec/terminal.md#req-term-044-terminal-restore-and-readiness-rendering) owns restore/rendering obligations.
+A Host-confirmed Vibe-to-Code handoff may attach or reconnect only one rendered destination pane in the current session and generation. Until reveal, it sends no input, focus, or resize frames. See the [tiled handoff regression](../../web-ui/src/__tests__/components/Layout.test.tsx). <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal.ts::connect -->
 
-Browser Back or Dashboard during terminal startup selects a usable dashboard independently of any session's initialization latch. Startup and its progress/OPEN ownership continue in the background; returning restores the progress/ready surface without another Start or Stop. Background completion/failure cannot hide Dashboard or steal selection. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> [REQ-SESSION-037](../../sdd/spec/session-lifecycle.md#req-session-037-dashboard-navigation-remains-available-during-startup).
+At `mounting` the visible pane initiates one attachment lifecycle; it does not bypass public endpoint readiness. The endpoint returns retryable 1013 before the terminal service is ready and does not assign a PTY. See [REQ-TERM-046](../../sdd/spec/terminal.md#req-term-046-visible-terminal-startup-connection) for mounting behavior; it does not establish endpoint authority.
 
-Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); only official structural `session.json` beneath the private `~/.codeflare` home root is durable through normal R2 sync, never prior pane output or arbitrary process survival. Fresh Herdr Pi runs fullscreen and owns its transcript.
+The store publishes Ready only after confirming the completion still belongs to the current Start. <!-- @impl: web-ui/src/stores/session.ts::startSession --> The single-pane Terminal keeps showing startup progress until that pane’s browser socket is connected. Focus and display await OPEN, which reveals and focuses the same mounted pane without reconnecting it. Foreign panes are unchanged. [REQ-TERM-043](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating) owns OPEN display and focus.
+
+OPEN still renders the selected pane before viewport dimensions are known. Genuine PTY reattachment first restores the host serialized screen. [REQ-TERM-044](../../sdd/spec/terminal.md#req-term-044-terminal-restore-and-readiness-rendering) owns restore/rendering obligations.
+
+Browser Back or Dashboard during terminal startup selects a usable dashboard independently of any session's initialization latch. Startup and its progress/OPEN ownership continue in the background; returning restores progress or Ready without another Start or Stop while that state still belongs to the session. Background completion/failure cannot hide Dashboard or steal selection. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> [REQ-SESSION-037](../../sdd/spec/session-lifecycle.md#req-session-037-dashboard-navigation-remains-available-during-startup).
+
+Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); normal [Storage & Sync](storage-and-sync.md) retains the structural `session.json` and the current Herdr session’s exact Pi `agent-session-id` under private home metadata ([REQ-TERM-033](../../sdd/spec/terminal.md#req-term-033-durable-herdr-structural-session-recovery)). Pane output and arbitrary processes do not survive. Fresh Herdr Pi runs fullscreen and owns its transcript.
+
+### Pi Chat handoff acceptance
+
+[REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) treats Chat and Classic Terminal as alternate writers for one native transcript. Herdr stays on its native Terminal path; its Chat handoff is deferred. Browser VS Code owns its own Pi and is not part of the switch. These steps require an authorized disposable workspace and the packaged feature head; a passing stock transcript interoperability check alone is not full acceptance.
+
+| Criteria | Procedure |
+|---|---|
+| Classic Start and Resume | [Choose the starting writer](#choose-the-starting-writer). |
+| Transcript continuity and stop | [Switch one writer at a time](#switch-one-writer-at-a-time). |
+| Native quit and re-entry | [Quit and reopen native Pi](#quit-and-reopen-native-pi). |
+| Panel geometry | [Check desktop and mobile layout](#check-desktop-and-mobile-layout). |
+| Passive clients and stock controls | [Check stale frames and native questions](#check-stale-frames-and-native-questions). |
+
+[Pi Web image prewarm](container.md#stock-pi-web-and-the-native-pi-writer) timings do not measure browser readiness or time to **Open**.
+
+#### Choose the starting writer
+
+[REQ-AGENT-275](../../sdd/spec/agents.md#req-agent-275-classic-pi-chat-startup) covers startup and frame recovery.
+
+In **Vibe**, Dashboard **New Session** starts Pi Chat directly. Returning to Dashboard does not unlock another direct launch until the first Start settles or you stop it. Existing creation limits still apply. See [REQ-AGENT-279](../../sdd/spec/agents.md#req-agent-279-direct-vibe-session-launch).
+
+When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi directly when Pi is allowed; otherwise it keeps the filtered agent picker ([REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions)).
+
+- When the picker is available, choose Vibe or Code in the header before using a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
+- For [REQ-TERM-049](../../sdd/spec/terminal.md#req-term-049-shared-workspace-startup-progress), check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**.
+- While waiting for Open, Vibe shows **Loading Chat** with the same one-decimal elapsed timer as the other startup steps and a loading icon that spins with default motion.
+- With a non-green theme accent, check the final startup row, not the subtitle. For **Loading Chat**, expect accent text and a muted-accent icon background.
+- When **Open** appears, the row still says **Loading Chat** with its final elapsed time, success text, and a muted-success icon background.
+- Repeat with reduced motion enabled: the timer still advances, but the icon does not spin.
+- Code shows **Connecting Terminal**. Only when Open is available does the final step say **Ready to open**.
+- In Standard and Pro where available, start Chat-first and Terminal-first in Classic. Send a synthetic message, Stop normally, then resume in the other surface. Only the selected primary opens the saved conversation.
+- On a disposable account with no saved surface preference, start a stopped Classic Pi session from its card without choosing a mode.
+- Save **Vibe**, then set **VS Code** as the default workspace. Confirm the mode picker is hidden and restart the same stopped Classic Pi session, not a new VS Code session.
+- In both runs, verify **Loading Chat** never appears and **Open** reveals the already-mounted Terminal.
+- The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) checks that the startup UI stays mounted while the first Host status is pending ([REQ-TERM-043 AC6](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating)). It uses a mock Terminal and does not track sockets.
+- On Chat-first Start and Resume, verify the stock frame loads behind the startup overlay. Once the Host confirms Chat and five seconds have passed since the stock loader disappeared, **Open** becomes available on a best-effort basis.
+- After **Open** appears, wait over 25 seconds before clicking it. Verify it reveals the same frame without starting native Pi.
+- For [REQ-AGENT-291](../../sdd/spec/agents.md#req-agent-291-mobile-focus-on-new-chat-open), start a new empty Vibe session on both a physical iPhone (Safari) and Android phone (Chrome), with the keyboard closed.
+- Tap **Open** once. The OS keyboard should appear and typing should land in the retained stock composer without a second tap. DOM focus or desktop emulation does not verify the OS keyboard.
+- On both platforms, repeat after waiting at **Open** and after creating a new session with an authorized disposable clone target. Record missing device coverage separately.
+- Tap startup **Open** after resuming an empty session on a phone, and return separately to a live Chat. Neither should bring up the keyboard without a composer tap.
+- On a phone with the keyboard closed, switch from a live Terminal to Chat. Verify the composer does not take focus and the keyboard stays closed until you tap the composer.
+- On desktop, activate startup **Open** and confirm it does not claim composer focus.
+- The [Layout suite](../../web-ui/src/__tests__/components/Layout.test.tsx) separately checks that keyboard activation and unknown or populated history do not trigger startup composer focus. It does not verify the phone’s OS keyboard.
+- On a phone, use the [native-question fixture](#check-stale-frames-and-native-questions) with a fresh empty Chat if applicable. Start with the OS keyboard closed.
+- While **Open** is unavailable, verify the question is answerable, the composer does not take focus, and the keyboard stays closed. Mark unavailable fixtures unexercised.
+- For each run below, configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally.
+- Start Chat-first and choose **Open**. While **Restoring repositories…** is visible, verify the Chat composer works, then switch **Chat → Terminal** before waiting for the clone outcome.
+- In a separate Terminal-first run, choose **Open**. While **Restoring repositories…** is visible, verify native Pi accepts a harmless prompt, then switch **Terminal → Chat**.
+- For each direction, record notice transitions as they happen; a success notice clears after five seconds. Confirm the destination answers a harmless prompt while the restore notice remains visible through the switch. <!-- @impl: web-ui/src/stores/session.ts::watchRepositoryRestore -->
+- Mark only that direction unexercised if you observe a restore outcome before the reply. A notice disappearing while restore is still active is a failure, not evidence of completion.
+- If the destination replies first, keep observing. Record **Repositories restored**, **Some repositories weren’t restored**, or no observed outcome. Disappearance alone proves neither outcome. See [REQ-GITHUB-320 AC2–3](../../sdd/spec/github.md#req-github-320-nonblocking-terminal-repository-restore-notice). <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+- In a disposable browser check, block the first Chat frame navigation before it reaches the Host. Clear the block and choose **Reload Chat**. Verify the same conversation opens without a second handoff.
+- Verify unchanged workspace defaults, manually opened panes, and independent Browser VS Code behavior.
+
+#### Switch one writer at a time
+
+[REQ-AGENT-273](../../sdd/spec/agents.md#req-agent-273-pi-handoff-continuity) covers stopping feedback, no replay, and draft recovery.
+
+- Switch both ways in an empty and a populated conversation, then repeat from an earlier tree leaf. The native ID and branch match; the previous writer exits first. A failed open cannot replace the conversation.
+- Record matching identities as equality results. Do not record actual transcript IDs, paths, or content.
+- Start Chat-first and switch after prewarm orphan expiry without previously opening Terminal. The healthy primary is still available without counting as user activity. A secondary Classic Pi tab owns a different conversation.
+- Switch during streaming, a queued follow-up, and a pending question. Expect the destination label to shuffle without extra text, a spinner, or **Cancel switch** in the mode menu. With reduced motion, the label stays static.
+- With a screen reader, verify the pending destination is announced once without reading the scrambled characters.
+- During the switch, verify automatic native Abort and rejection of fresh prompts.
+- For [REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), keep the outgoing view until Code connects or Vibe clears the stock loader. A native startup question can appear early.
+For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), capture Network traffic and return to the same running generation before Chat attaches:
+
+- **Acknowledged:** Switch Code to Vibe. Observe the original request in Host status while Code is still visible, then leave and save Code as the Dashboard default. On return, verify Code stays visible until Chat attaches.
+- **Unpublished:** Initiate the switch, leave before publication, and keep Vibe saved. The first Host status after return must show Code without reporting the handoff. Verify Code is visible in the browser before publication, even if AC5 is unexercised.
+  1. For [AC5](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal), confirm in Network that the original POST is still pending and the latest Host status still shows Code without reporting the handoff. If either condition is missing when testing the menu, mark AC5 unexercised.
+  2. Before publication, attempt to open the mode menu. Verify the control stays disabled, no menu opens, and no second POST is sent.
+  3. After the Host reports the handoff, verify Code stays visible until Chat attaches and only the original switch POST was sent.
+- For the acknowledged case, also require exactly one POST. If Chat attached before return, or the outgoing status was not observed in the unpublished case, mark that case unexercised. The Layout regression controls publication timing deterministically.
+
+- During Code-to-Vibe handoff, fail the first destination frame navigation. Verify Vibe reveals **Reload Chat** before normal readiness, then clear the failure and reload the same conversation without a new handoff.
+- The workspace mode menu does not offer browser cancellation.
+- The [Host test](../../host/__tests__/pi-web-handoff.test.js) holds the request before Abort and verifies whether the turn survives ([REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) AC6).
+- The [Layout test](../../web-ui/src/__tests__/components/Layout.test.tsx) simulates `waiting` and verifies the source remains mounted without **Cancel switch** in the mode menu ([REQ-AGENT-280](../../sdd/spec/agents.md#req-agent-280-attachment-gated-workspace-reveal) AC3).
+- Repeat with an input hook held before streaming. Neither an idle-looking status nor an Abort acknowledgment can transfer ownership while the hook is active.
+- Verify saved history appears without automatic prompt or queue replay. Text recovered by Abort returns to Terminal as an editable, unsent draft.
+- In one disposable Classic workspace, use the stock Sessions **+** to create A, B, and C. Give each distinctive text and verify the Codeflare session stays unchanged ([REQ-AGENT-286](../../sdd/spec/agents.md#req-agent-286-classic-chat-conversation-selection)).
+- After writing to C, select B by pointer and verify B’s text. Return to C, focus B’s row with the keyboard, and press Enter or Space. Verify B opens again.
+- With B selected, switch to Code. Verify the terminal shows B’s original text, not C’s ([REQ-AGENT-272 AC2](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff)).
+- Before each Stop, select an earlier branch in B with a distinct non-sensitive marker. Apply the [final persistence procedure](storage-and-sync.md#req-stor-005-final-persistence-acceptance) to the binding and transcript.
+- Before each Resume, confirm native preparation and the triggered final drain succeeded. Independently read back the R2 binding and transcript and verify B’s ID and saved branch marker. A Stop response alone does not count.
+- For each Resume, use an authorized replacement runtime for the same session and confirm the local binding and transcript are absent before R2 restore.
+- Resume once per surface. Verify both open B at the selected branch, not the latest leaf, and that A and C remain available in Vibe. Mark missing persistence evidence unverified ([REQ-SESSION-044 AC2](../../sdd/spec/session-lifecycle.md#req-session-044-managed-pi-transcript-persistence-on-stop)).
+- The [packaged handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) exercises local reopen on the same home, not R2 publication and restore.
+
+Hosted R2 restore qualification is blocked until an authorized method can establish that the files were absent before restore. A successful reopen does not close that check.
+
+#### Return from Profile Usage
+
+1. With Chat visible, identify its iframe in Chrome DevTools and note its node and generation for comparison. Start recording Network requests.
+2. From the workspace header, choose **Profile → Usage** without going through Dashboard. Verify the original frame stays mounted but hidden. Click **Back to Dashboard** and verify the frame is still parked.
+3. Open the same running session. Verify it reveals the original node and generation, with no `POST` to `/_switch` during the round trip. Read-only status requests are allowed. Record only equality and whether the POST occurred ([REQ-AGENT-277 AC3](../../sdd/spec/agents.md#req-agent-277-retained-chat-on-dashboard-return)).
+4. Separately open **Profile → Usage** from Dashboard. Verify the Profile overlay disappears and **Back to Dashboard** remains usable ([REQ-AUTH-016 AC6](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown)).
+
+#### Switch between two running Chats
+
+For [REQ-AGENT-277](../../sdd/spec/agents.md#req-agent-277-retained-chat-on-dashboard-return), open two disposable Vibe sessions and wait for both Chats to finish loading. Alternate between them using the session selector and again via Dashboard. After each session has first opened, verify that selecting it shows the original iframe without a startup screen or a new `POST` to `/_switch`. Only the selected Chat should be visible. Stop one session and verify its frame disappears without replacing the other.
+
+#### Quit and reopen native Pi
+
+- Quit Pi normally and run a harmless command in the same Terminal shell. Run the printed restart command there without opening Chat. The same transcript and branch reopen under a fresh writer, without replay.
+- Repeat the quit, switch to Chat after Pi exits, then switch back. When **Retry switch** appears, run the printed command in the original pane, then select **Retry switch**. The same conversation reopens without replay.
+- Use the [packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) for the rapid-return race. It keeps the retiring registration live, then checks that the grant is unchanged and the attempt remains retryable. A manual timing attempt does not replace this check.
+- The [packaged launcher smoke](../../scripts/ci/smoke-pi-web-launchers.mjs) interrupts a pending launch, verifies a late claim cannot use the revoked grant, and reopens the transcript with a fresh invocation. It also verifies that a claim which won first prevents replacement.
+
+#### Verify SYSTEM rows are hidden in Chat
+
+For [REQ-AGENT-282](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), the [stock browser fixture](../../scripts/ci/smoke-pi-web-system-rows.mjs) checks both SYSTEM row shapes and ordinary user and assistant rows. It does not test durable storage or a live producer.
+
+- **Saved history:** Read the JSONL of a disposable conversation with a known, non-sensitive SYSTEM marker and ordinary replies. Do not edit the transcript or open a second writer.
+- Reload the page and reopen the same conversation. In DevTools, match the marker in the fresh `transcript-snapshot` response for that session. Revealing a retained frame does not qualify.
+- Read the JSONL again to confirm the same entry remains. Compare the entry, not the line count.
+- **Live event prerequisite:** No repeatable, safe hosted producer is established. Record the live case as unexercised unless a supported disposable trigger and its delivery are observed.
+- **Live event capture:** Start DevTools Network recording before opening Chat. After a supported trigger, match the marker in the session `/events` WebSocket messages without reloading or reopening. Confirm the entry separately in JSONL.
+- In both cases, ordinary replies must remain visible and the entire SYSTEM row must be hidden. Mark cases unexercised if you cannot verify delivery or the required fresh load.
+- **Native dialog:** Use [native questions](#check-stale-frames-and-native-questions) to verify that an independent dialog can still open and be answered.
+
+#### Check desktop and mobile layout
+
+Use these checks for the handoff header in [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) and panel sizing in [REQ-AGENT-287](../../sdd/spec/agents.md#req-agent-287-empty-and-restored-vibe-layout).
+
+- Above the phone breakpoint, compare the outer iframe and the single Codeflare session header. Their left and right edges match, the header sits immediately above the frame, and the pair is centered in the workspace.
+- After subtracting the header height, allow 1440 × 900 CSS px and expect an 800 × 720 frame at rest. Repeat with 900 × 1600 CSS px and expect 720 × 1200. Together these exercise the percentage and both caps.
+- At 390 and 640 CSS px, verify the single outer header stays at the top edge, inside the safe area, for compact and full Chat. Full Chat fills the remaining area without gutters, border, or rounding.
+- At 641 CSS px, verify the centered header and frame return.
+- Above the phone breakpoint, compare workspace widths of 760 and 761 CSS px at a height above 480 px. Expect 12 px gutters plus safe-area insets at 760 px and proportional sizing at 761 px.
+- With workspace width above 760 px, compare workspace heights of 480 and 481 CSS px. Expect gutters at 480 px and proportional sizing at 481 px. Both cases retain the size caps.
+- In the narrower header, verify Profile overflow actions and keyboard focus remain usable. Select Code and verify focus returns to the same mode trigger once Code attaches.
+- Confirm the composer and controls stay reachable without a second page scrollbar at rest, with the mobile keyboard open, and with browser zoom.
+- Confirm the regular Dashboard, startup, and Code/Terminal layouts are unchanged. On returning to the same running Chat from Dashboard, confirm it reappears in the panel without reloading.
+- For [REQ-AGENT-282 AC3](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), verify token and context usage remain visible without a USD amount.
+- On a disposable session, queue a harmless message during a turn and verify the nonzero queued count remains visible. Repeat the footer check with a different stock theme.
+- In the disposable Chat frame’s DevTools network log, inspect the successful scoped `GET …/api/machines` response. Verify the local machine is named **Codeflare**; the embedded label is hidden ([REQ-AGENT-274 AC5](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls)).
+- In stock Appearance, verify **Codeflare** is selected in **Theme** and shown as the current theme ([REQ-AGENT-288 AC1](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
+- In a browser that saved a different theme with **Use in this browser** before the change, reload Codeflare and open Chat. Verify **Codeflare** is selected and active on this first open ([REQ-AGENT-288 AC2](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
+- With Codeflare active, verify the computed `pi-web-app` background inside the Chat iframe is `rgba(24, 24, 24, 0.2)` or equivalent. Confirm the outer gradient shows through ([REQ-AGENT-288 AC4](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
+- With Codeflare still active, verify user messages have a tint and stronger leading border without fading text ([REQ-AGENT-288 AC5](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
+- On desktop and mobile, verify the stock Refresh and Actions controls are absent, including their keyboard focus stops. Confirm navigation is still usable ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
+- Check that the sidebar omits Projects, its divider, and the stock title and mark. On mobile, check that the context header omits project, workspace, and machine identity ([REQ-AGENT-289 AC1–2](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome), [REQ-AGENT-290](../../sdd/spec/agents.md#req-agent-290-embedded-mobile-workspace-context)).
+- Verify Chat, Files, Sessions, New session, and the sidebar toggle remain usable. On mobile, pin Chat and Files.
+- Open the stock menu from Chat and unpin Files. Re-pin Files, switch to it, and open the menu to unpin Chat ([REQ-AGENT-289 AC3](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
+- Pin both tabs again, leave Sessions unpinned, and open Sessions from the session picker. Verify the hamburger takes no space or focus, then return using the pinned Chat tab.
+- With Files unpinned, open Sessions from the picker, then open Files from stock Navigation. Repeat with Chat unpinned by opening pinned Files first, then returning to Chat through stock Navigation.
+- The [pinned browser fixture](../../scripts/ci/smoke-pi-web-system-rows.mjs) checks that the stale notice is hidden and an interrupted refresh is visible. It does not exercise live recovery ([REQ-AGENT-289 AC4](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
+- Live recovery is **unexercised**. Proceed only with a disposable Chat and an authorized browser control that can isolate its open session-scoped `/events` WebSocket and hold reconnects. No such control has been verified; blocking new requests alone is insufficient.
+- To count live recovery, require evidence that the original socket closed, reconnects stayed blocked until the same session independently recorded the reply as complete, and a post-reconnect `transcript-snapshot` restored that reply in the retained frame without a reload.
+- Check that Jump to top and Jump to end are absent from the composer and keyboard order.
+- Compare the rendered button and icon bounds of Attach files with Send and Stop. Verify attachments still open the native picker ([REQ-AGENT-289 AC5–6](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
+- Open empty Chat on mobile. Verify the header does not show **(no messages)** and that the Sessions picker remains labeled and keyboard-operable ([REQ-AGENT-289 AC7](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
+- Send a first message and verify the title appears when stock supplies it. An authored **(no messages)** title stays visible.
+- With Codeflare active, verify the session-start summary and count, composer and placeholder, model label, and footer token and context counters match the normal message font size ([REQ-AGENT-282 AC6](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
+- Verify the session-start summary has top padding and the controls remain usable ([REQ-AGENT-282 AC7](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
+- Open a fresh Vibe conversation. Verify zero-height history and a usable composer. Above the phone breakpoint the header stays immediately above the frame; on phones only the Chat frame centers below the top-edge header ([REQ-AGENT-287](../../sdd/spec/agents.md#req-agent-287-empty-and-restored-vibe-layout)).
+- Send the first message. Verify Chat grows up and down without replacing the frame or losing composer focus. On phones, confirm the same header stays at the top.
+- Open a saved populated conversation and verify it starts full-size. Enable reduced motion and verify empty Chat expands instantly after the first message.
+- Open Files and return before sending a message; confirm Files gets the full panel. An early native question or a failed load must remain reachable without typing a message.
+- On a phone, open and dismiss the keyboard in ready empty Chat. Verify the composer stays reachable ([REQ-AGENT-287 AC5](../../sdd/spec/agents.md#req-agent-287-empty-and-restored-vibe-layout)).
+- In Samsung Browser, lock then unlock the phone with Chat open, once empty and once populated. Check that the same frame visibly refits without a reload or another handoff ([REQ-AGENT-287 AC6](../../sdd/spec/agents.md#req-agent-287-empty-and-restored-vibe-layout)).
+- Save a different theme with **Use in this browser**, reload Codeflare, and reopen Chat. Verify the new choice is still selected and active ([REQ-AGENT-288 AC3](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
+- With the alternate theme saved after the first open, repeat the [failed frame navigation check](#switch-one-writer-at-a-time) and verify **Reload Chat** still opens the same conversation. Confirm navigation stays available ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
+
+The [Chat wrapper tests](../../web-ui/src/__tests__/components/PiWebChat.test.tsx) check that fresh browsers have no stored override, previously saved overrides are cleared on first open, and later values survive wrapper remount. They supplement the browser checks; they do not verify the stock picker or rendered theme.
+
+#### Check tablet Chat keyboard fit
+
+For [REQ-AGENT-292](../../sdd/spec/agents.md#req-agent-292-tablet-chat-keyboard-fit), use Samsung Browser on a physical tablet. Record the keyboard-closed frame bounds, then focus the prompt. With the keyboard open, verify that the header stays attached and the top gutter halves without losing safe-area clearance. In populated Chat, verify that history uses the available space up to the frame height cap.
+
+For the empty-Chat comparison, keep the same ready, empty conversation with no dialog. In both viewports, keep a coarse pointer and a width above 640 CSS pixels, and confirm the workspace has `data-chat-keyboard="open"`. In browser inspection, compare the composer and status slots’ combined `offsetHeight` with the iframe’s `offsetHeight` minus the `chat-view` element’s `offsetHeight`. Both slot heights must be positive.
+
+- **Compact:** When the controls fit, verify that `.layout-middle` has `--chat-compact-height` set and both controls are reachable without blank history.
+- **Set up capture:** In remote DevTools, add a non-pausing logpoint on the final `compact(...)` call in `watchCompactHistory` in `PiWebChat.tsx`. Log `[remaining, composerHeight, statusHeight]` before the call changes the cap.
+- **Trigger fallback:** Constrain the viewport, for example with split-screen. Look for a sample with two positive control heights whose sum exceeds `remaining`. Confirm the cap clears while tablet fit stays active and the controls remain reachable.
+- **Record the result:** If you cannot capture the shortfall and observe the resulting fallback, mark the case unexercised. An unset cap alone is not a pass.
+
+Dismiss the keyboard and compare the frame bounds to the starting size. Check that the same composer remains focused, then reopen the keyboard and verify the draft and transcript are unchanged. Check for jumps or reloads during both transitions. Repeat with reduced motion: Chat should follow the keyboard’s viewport changes without its own eased sizing transition or continued settling after the viewport stops changing. Mark unavailable device cases unexercised.
+
+#### Check accent preferences
+
+For [REQ-AGENT-288 AC6](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme), focus the Vibe prompt and check that its outline matches the active Codeflare accent. Change the accent without reopening Chat, then focus and blur the prompt: the outline uses the new accent and the unfocused border stays unchanged.
+
+For [REQ-AGENT-019 AC3](../../sdd/spec/agents.md#req-agent-019-branded-settings-ui), confirm the fresh-browser accent is `#00BAFF`. Save a custom accent and reload to verify it persists. Choose **Reset** in Appearance and confirm the accent returns to `#00BAFF`.
+
+#### Check stale frames and native questions
+
+- Keep an old frame open during Terminal ownership. Refresh and reconnect its event socket; neither action can acquire a writer. A stale prompt cannot run. Worker tests separately exercise cross-owner and CSRF rejection.
+- Stop the session without resuming. Repeat the refresh and reconnect while stopped. No replacement starts and the generation stays unchanged. Resume Chat and repeat with the old frame while the same transcript is active in the new generation.
+- For [REQ-AGENT-274](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls), open a harmless file through Files, then select it with `@`. Quiet starts on and can be changed. Chat has no Git or worktree controls; ordinary Terminal and VS Code Git still work.
+- Use a disposable managed-adapter profile and fresh Pi Web runtime data. Before startup, append `/opt/codeflare/pi-web/node_modules/@jmfederico/pi-web/dist/pi-packages/workflows` to the restored profile’s `~/.pi/agent/settings.json` `packages` array, keeping existing entries. See the [stock service fixture](../../scripts/ci/smoke-pi-web-services.mjs).
+- Start Vibe and verify Chat opens with that restored profile ([REQ-AGENT-272 AC7](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff)).
+- From first visible Chat render and again after returning from Dashboard to the same session, check Git navigation and the composer’s command picker. Any appearance of Git navigation or `/worktree` fails ([REQ-AGENT-274](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls)).
+- Use the synthetic confirmation fixture below. During Chat opening, leave **Resume the Pi handoff smoke transcript?** unanswered for over 25 seconds. Verify it remains answerable and **Open** is absent.
+- Choose **Yes** and verify `pi-fixture-opening-yes.txt` appears and the same frame reaches **Open**.
+- The [packaged Host smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) separately checks the timeout exception, original answer delivery, and writer fence. It does not exercise browser visibility.
+- Once Chat is ready, submit `pi-fixture-question`. Choose **Yes** on **Continue the ready Chat fixture?**. Verify `pi-fixture-ready-yes.txt` appears without a model turn. Then send a separate harmless prompt and verify the composer works.
+- In the ready Chat composer, use **Save to …** with synthetic attachments totaling 10 MB (10,000,000 bytes). Verify that the files land in the selected workspace folder.
+- Repeat with a batch one byte larger, then with 17 small attachments. Confirm that neither rejected batch saves any files.
+- Verify Chat and Files remain available and Info, Updates, MCP Manager, Tasks, and Relays are absent from stock navigation. This does not verify MCP configuration.
+- For [REQ-AGENT-282 AC1–2](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), use a fresh browser and verify only Chat and Files are pinned on desktop and phone.
+- Change the pins and reopen Chat in the same browser to verify the saved choices win. Stock Navigation can re-pin Terminal or mobile Sessions; the default does not disable the required Terminal plugin.
+- Recovering an already-pending question after refresh is not required. For a [recoverable initial Chat service failure](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery), retry the same transcript only after the previous attempt is confirmed closed.
+
+Workspace attachments survive Stop and Resume only with [full Workspace Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) and a successful sync. For independent persistence, use **Dashboard → Storage → Uploads**, then **Sync now** to read the files in `~/Uploads` in the running session.
+
+The [packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) exercises a successful 10,000,000-byte batch and rejects an extra byte, 17 files, and a request body above 14 MiB before writing files. It does not exercise browser submission.
+
+The [stock supervisor smoke](../../scripts/ci/smoke-pi-web-services.mjs) checks disabled plugins and runs [package reconciliation](mcp.md#client-configuration-and-migration) on a restored profile fixture before opening stock Chat. It verifies adapter preparation, no handoff warning, and a catalog request to a synthetic MCP server. It does not run full container startup or invoke an MCP tool.
+
+The [supervisor-only smoke case](../../scripts/ci/smoke-pi-web-services.mjs) re-adds the bundled Manager after reconciliation and starts the supervisor without reconciling again. The supervisor preserves the registration, and the Pi config handoff extension reports ambiguity without changing the adapter config.
+
+In the disposable workspace only, load the following as `handoff-fixture.ts` in the Pi agent’s `extensions` directory before opening Chat. It uses the same startup confirmation as the [packaged stock smoke](../../scripts/ci/smoke-pi-web-handoff.mjs) and adds the ready-state trigger. Start with both marker files absent; remove the fixture and marker files afterwards.
+
+```ts
+import { writeFile } from 'node:fs/promises';
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+export default function (pi: ExtensionAPI) {
+  const mark = (cwd: string, name: string) => writeFile(`${cwd}/${name}`, 'yes\n', { flag: 'wx' });
+  pi.on('session_start', async (_event, ctx) => {
+    if (ctx.mode === 'rpc' && await ctx.ui.confirm('Resume the Pi handoff smoke transcript?', 'Continue without a model turn.'))
+      await mark(ctx.cwd, 'pi-fixture-opening-yes.txt');
+  });
+  pi.on('input', async (event, ctx) => {
+    if (ctx.mode !== 'rpc' || event.text !== 'pi-fixture-question') return;
+    if (await ctx.ui.confirm('Continue the ready Chat fixture?', 'Handle this input without a model turn.'))
+      await mark(ctx.cwd, 'pi-fixture-ready-yes.txt');
+    return { action: 'handled' };
+  });
+}
+```
+
+#### Future Herdr handoff qualification
+
+Herdr Chat is not part of the current delivery. The [launcher fixture](../../host/__tests__/herdr-launcher.test.js) supplies an available pane: bootstrap completes without a direct `pane run … pi` command. That fixture does not run the writer wrapper. The [packaged launcher fixture](../../scripts/ci/smoke-pi-web-launchers.mjs) has a Herdr case that observes a live wrapper in the primary pane and checks that native Pi does not start without a ticket. This is not a current CI receipt and does not hold the primary pane back to test delayed readiness.
+
+The restore checks below apply only if Herdr handoff is enabled in a future release.
+
+- For [REQ-TERM-048](../../sdd/spec/terminal.md#req-term-048-managed-herdr-pi-writer-restore), Stop a live managed Herdr writer, then repeat with one already parked. Confirm the original pane retains the wrapper role.
+- Restore with a different pane focused. The writer returns to the original pane. A legacy snapshot with no verified role restores its native Terminal and refuses Chat.
 
 ### Browser terminal link activation
 
@@ -72,7 +320,7 @@ Notification delivery coordinates event-specific suppression, a single local gra
 
 ## GitHub and Storage workspace
 
-The dashboard right column shares space between GitHub and Storage: when space permits, GitHub anchors at the top and Storage at the bottom, with adaptive scrollable allocation rather than a fixed repository row limit. Narrow or short viewports collapse to one content-sized, viewport-capped face. GitHub is the default when enabled; header controls flip to Storage and back, recomputing height. Disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> [REQ-GITHUB-009](../../sdd/spec/github.md#req-github-009-github-repository-list-viewport-and-empty-states), [REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation).
+In Code mode, the Dashboard right column shares space between GitHub and Storage: when space permits, GitHub anchors at the top and Storage at the bottom, with adaptive scrollable allocation rather than a fixed repository row limit. Only the mobile layout collapses to one content-sized, viewport-capped face. <!-- @impl: web-ui/src/components/Dashboard.tsx::flipBrowsers --> GitHub is the default when enabled; header controls flip to Storage and back, recomputing height. Disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> [REQ-GITHUB-009](../../sdd/spec/github.md#req-github-009-github-repository-list-viewport-and-empty-states), [REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation).
 
 For [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) AC4, the controls reuse one tested icon-button primitive, `IconButton`. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @impl: web-ui/src/components/ui/IconButton.tsx::IconButton --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) --> <!-- @test: web-ui/src/__tests__/components/IconButton.test.tsx (IconButton) -->
 
@@ -80,12 +328,95 @@ Repository search is disclosed on demand at every breakpoint. Opening the magnif
 
 On Dashboard return, the GitHub panel reuses its repository list and search. An unpaginated list may refresh quietly after five minutes; accumulated pages wait for explicit reload. A changed connection discards the prior account's repositories. This policy applies only to file and repository listings, not session status, readiness, or quota polling. <!-- @impl: web-ui/src/stores/github.ts::loadStatus -->
 
+In Vibe, the [GitHub and Storage drawer](../../sdd/spec/github.md#req-github-321-vibe-dashboard-browser-disclosure) starts closed. Open it from the summary column’s right edge on desktop and tablet, or below Storage Usage on mobile. The same control closes both browsers. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
+
+### Workspace header acceptance
+
+[REQ-AGENT-278](../../sdd/spec/agents.md#req-agent-278-narrow-workspace-header-fallback) covers dropdown placement and the second-row fallback. On both Dashboard and workspace, check that the dropdown sits immediately before Profile on desktop and tablet, whether it shows text or an icon.
+
+Try a tablet viewport such as 960px. In Vibe, open and close the Dashboard drawer to vary the header width without changing the viewport. Verify the label appears when it fits and the icon replaces it when it does not.
+
+Open the dropdown and verify **Vibe Mode** and **Code Mode**, with an accent-filled background only on the active choice and no “(Current)” suffix. With forced colors active, confirm the checkmark still distinguishes the active choice. In a running Pi workspace, switch modes and confirm the menu shows pending progress. When the destination activates, the menu closes and focus returns to its trigger.
+
+For [REQ-AGENT-276 AC2](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), select the other mode on Dashboard. Confirm Dashboard stays open and no session starts. Reload Dashboard and confirm the selected default persists.
+
+At 390px verify the icon-only dropdown sits before Profile and opens the same choices. Separately, on desktop, narrow the Dashboard card until the text no longer fits; the icon should replace it, and the label should return when it fits again.
+
+Use an authorized running Enterprise workspace with the mode selector, VS Code, Vault, and the sleep countdown visible.
+
+Narrow the viewport and verify VS Code, then Operators, then Vault enter Profile as needed. Open Profile and check each moved action remains reachable. See [Operators](../../sdd/spec/operators.md#req-operator-040-owned-activity-control-presentation) and [Vault](../../sdd/spec/vault.md#req-vault-033-vault-button-availability-and-opening).
+
+For [REQ-AUTH-016 AC4 and AC7](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), open Profile in both headers above 640 CSS px. Measure from the Profile button’s bottom edge: without email, 60px anchors the menu and 59px uses the bottom sheet. With email, add the rendered label height and gap to both thresholds. Use a long address near 640px and resize with the menu open: the black label stays above the actions, and a short viewport uses the bottom sheet. Repeat both threshold cases between 640px and 641px, using browser zoom if needed. Confirm `matchMedia('(640px < width < 641px)').matches` before counting each result. Check the rendered placement, not just the menu class.
+
+At 390 CSS px, open Profile in both headers and compare the email badge and **Usage** action label in DevTools ([REQ-AUTH-027](../../sdd/spec/authentication.md#req-auth-027-mobile-profile-email-typography)). Their computed font sizes should match. Use the next check to verify address visibility and truncation.
+
+Compare short and long addresses in both headers with desktop Profile anchored and with the bottom sheet open. The short address is fully visible. Use a test address wider than 90% of the viewport and verify the badge stays within the viewport, fills 90% of its width, and ends in an ellipsis. The action panel width stays unchanged, and the accessibility tree still contains the full address.
+
+For [REQ-AUTH-016 AC5](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown), reduce height on desktop and mobile in both headers until the last action starts below the visible menu area. Verify the menu stays inside the viewport and scrolling it reveals the last action fully without scrolling the page. Mark any placement or scrolling case that cannot be reproduced as unverified.
+
+At 375px, verify Settings is reachable and the groups retain the one-slot gap. Continue narrowing after overflow is exhausted until the utilities move to a second row. Verify every remaining action is reachable and each icon target measures 44 × 44 CSS px. Mark wrapping unverified if the fallback never appears.
+
+### Vibe drawer acceptance
+
+In both Vibe and Code, measure the **+ New Session** button on desktop, tablet, and mobile. Verify its wrapper adds half the rendered button height as bottom padding. For the error-only case, use an authorized test setup with GitHub disabled and simulate a denied callback by opening `/app/?github=denied` in Vibe. Verify the denial is visible and the normal GitHub card is absent before measuring. If that setup is unavailable, record the case as unexercised.
+
+Use an authorized account with GitHub enabled and select **Vibe**. Check [drawer disclosure](../../sdd/spec/github.md#req-github-321-vibe-dashboard-browser-disclosure) and [responsive layout](../../sdd/spec/github.md#req-github-323-responsive-vibe-dashboard-layout). On desktop and tablet, open the drawer and verify GitHub stacks above Storage beside the summary. Close it and verify that, with room to spare, the card is 390 CSS px wide, the full Codeflare label is readable, and GitHub Details sits directly above Storage Usage when present.
+
+At desktop and tablet widths, open and close the drawer with reduced motion off. Record the top edge of **+ New Session** before, during, and after both transitions. It stays vertically steady as closing reverses the opening motion ([REQ-GITHUB-331](../../sdd/spec/github.md#req-github-331-vibe-drawer-motion)).
+
+With a connected account, verify that clicking `@username` opens the profile in a new tab. For [Vibe repository shortcuts](../../sdd/spec/github.md#req-github-327-vibe-repository-shortcuts), use an authorized fixture with a settled owned-counts response of `{"counts":null}` and at least four loaded, accessible repositories with distinct, known `updated_at` values. Confirm the loading notice is gone and no verified count is shown; a pending request or a verified public-only count does not qualify.
+
+Use an input list not already in newest-first order. For example, load four test repos with `updated_at` values `2025-12-01T00:00:00Z`, `2026-01-01T00:00:00Z`, `2026-03-01T00:00:00Z`, and `2026-02-01T00:00:00Z`, in that order. Verify the card shows exactly the March, February, and January repos in that order, excluding December. Verify the repository icon, repo-name-only links, and age-only controls. Open a repo link and verify the intended GitHub page opens in a new tab without launching a session.
+
+Hover the GitHub card outside the age pills and verify that the card highlights. Move onto an enabled age pill: the pill highlights and the card returns to its normal surface and border. Move back onto the card to verify the card highlight returns. Tab to the pill and verify it has a visible focus outline.
+
+With separate authorization, use a disposable Vibe workspace and a repository with a known default branch and a distinguishable nondefault branch. With no running session, hover an age label for **Clone into a session**, then click it and choose **Open**. While **Restoring repositories…** is still visible for that clone, verify the Chat composer accepts a harmless prompt. If the clone finishes before this can be observed, mark the ordering check unexercised.
+
+For [REQ-GITHUB-330](../../sdd/spec/github.md#req-github-330-workspace-mode-clone-destinations), use a Pi-enabled profile with disposable Pi and non-Pi sessions running. Verify both the Vibe age pill and GitHub Browser Clone offer only eligible running Pi sessions and exactly one new destination, **New Pi session**. Exercise the live and new targets separately. From each Vibe entry point, verify that the new clone opens Chat at `/app/session/<new-session-id>` before any Dashboard action. Then confirm the checkout in each selected session.
+
+In a separate authorized profile or fixture that excludes Pi, verify zero new-session choices at both Vibe entry points. In Code, confirm the browser offers enabled agents.
+
+For [saved Code recovery](../../sdd/spec/github.md#req-github-322-clone-launch-recovery) (AC6), use a Pi-enabled profile and record the failed Code clone’s session identity. Verify Vibe does not offer its retry, then complete a **New Pi session** launch for the same repository. Return to Code and verify **Retry Start** targets the recorded session. Mark this case unexercised if the new Vibe launch does not complete.
+
+The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) holds Start pending in an automated fixture. Its Back → Forward case checks the clone URL and **Preparing Chat…** after Forward, then releases Start as failed and checks `/app/` after settlement. Cancellation is a separate fixture case.
+
+For [REQ-GITHUB-330 AC4](../../sdd/spec/github.md#req-github-330-workspace-mode-clone-destinations), the automated newer-route case uses `history.pushState` to change the URL without switching away from the active clone. It then releases Start as failed, waits for that clone’s Dashboard card to become visible, and checks that the newer URL remains. No hosted fault fixture is established. Mark hosted failure cases unexercised unless an authorized fixture can preserve the active clone and observe Start settlement without reloading or switching sessions.
+
+Compare the GitHub and Storage card bounds, surface color, border, corner radius, and padding in the same viewport, using Storage Usage as the reference. Repeat the comparison with a successfully loaded empty list and no positive owned count. The black labels then read **NOTHING TO SHOW.** and **GO BUILD SOMETHING.** on two lines. Leave and return to Dashboard and check that both lines still appear once the empty list is confirmed.
+
+For [REQ-GITHUB-332](../../sdd/spec/github.md#req-github-332-vibe-repository-list-recovery), use an authorized browser fixture with unavailable counts and no loaded shortcuts. Return `503 GITHUB_REFRESH_UNAVAILABLE` on the first list request and an empty success on the next. Stay on Dashboard without reloading or clicking. Verify the centered **CONNECTION TO GITHUB** and **FAILED. RETRYING.** lines give way to the empty copy. Mark this browser check unexercised if the fixture is unavailable. In a separate case, start watching `/api/github/repos` in Network before returning `409 NOT_CONNECTED`. Verify the GitHub connection action appears. Keep Dashboard open for ten seconds after the response and confirm no automatic retry occurs before using the connection action.
+
+After restore, check that the clone directory is the Git checkout root, its `origin` matches the selected `owner/repo`, and its checked-out branch matches the known default. A selected repo or a clone request alone does not pass. Record any case without the required fixture or authorization as unexercised.
+
+On mobile, test below 600 CSS px and again from 600 through 640 CSS px. Verify only one browser is visible. Flip in each direction using the keyboard. Verify the incoming face animates, focus moves to its flip control, and Tab cannot enter the inactive face. Escape closes the drawer and returns focus to its grip. Verify the closed browsers cannot receive focus.
+
+Repeat with `prefers-reduced-motion: reduce`: the drawer opens and closes without sliding, and the browsers still swap without flip animation. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-body--disclosure -->
+
+With the browsers open and closed, verify Profile stays icon-only and the email appears on a black label above the open action panel without widening it. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
+
+On desktop and tablet, verify the transparent double chevron sits at the summary’s right edge when closed and the browsers’ far right edge when open. It points right when closed and left when open, and bounces slowly sideways. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
+
+In both states, verify the transparent hit area is 44 × 150 CSS px and that clicking inside it but outside the icon toggles the drawer. Only the chevron is visible, with no peeking trim. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
+
+For [mobile Vibe disclosure](../../sdd/spec/github.md#req-github-325-mobile-vibe-browser-disclosure-gestures), verify the white double chevron on a transparent background below the column points down when closed and up when open, with a slow vertical bounce. Tap it in both states. Repeat on all sizes with reduced motion; the bounce stops. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-pull -->
+
+In the installed mobile app, pull up at the bottom to open and down at the top to close. Verify scrolling away from those edges, horizontal swipes, a two-finger pull at an eligible edge, and a closed-panel pull down do not toggle the panel or intercept ordinary refresh.
+
+### Recent Sessions acceptance
+
+For [REQ-GITHUB-334](../../sdd/spec/github.md#req-github-334-recent-sessions-in-the-vibe-summary), check the closed Vibe summary on a tablet and in a short desktop viewport. With up to three sessions, verify that each card retains its full height and the column scrolls to GitHub and Storage below the cards. Try scrolling within Recent Sessions and verify the cards do not scroll independently, even if the browser hides idle scrollbars.
+
+With four or more, start at the top of Recent Sessions and confirm that three full cards plus the top 30% of the fourth are visible within the list. Scroll the list by touch and keyboard to reach the last card. Open the browser drawer and check that its layout is unchanged; confirm the Code Dashboard layout is unchanged too.
+
+The Chromium fixture exercises the scroll layout with synthetic cards and a preset cap. The live check covers the Dashboard’s measurement of actual cards and touch and keyboard scrolling.
+
 ### GitHub workspace manual acceptance
 
 Reuse the protected Integration viewport checks in [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation) and the [Integration checklist](deployment.md#integration-acceptance-checklist), with an authorized connected test account. Record browser/device/version and viewport; these are methods, not executed results.
 
-- At desktop/tablet sizes, confirm the stacked panels stay anchored, repository overflow scrolls and every fetched repository remains reachable.
-  - Resize across the 600px width/height boundaries; in single-face mode confirm the flip control appears and switches faces, while split mode hides it. Repeat with reduced motion enabled and confirm an instant swap.
+- Select **Code**. At desktop/tablet sizes, confirm the stacked panels stay anchored, repository overflow scrolls and every fetched repository remains reachable.
+  - In mobile Code, activate each flip control by keyboard. Confirm focus lands on the incoming panel’s flip control in both directions ([REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching), AC5). Repeat with reduced motion and confirm an instant swap.
+  - With production styles on desktop and tablet, shorten each viewport until the right column is under 600 CSS px. Verify both browsers remain visible without flip controls.
 - On a supported touch device, tap the search toggle: observe the actual OS keyboard opening and the input remaining visible above it while typing.
   - Hide search and confirm the filter clears; reopen and verify every repository is reachable by scrolling. DOM focus and mocked scroll calls alone do not establish keyboard or rendered geometry outcomes.
 
@@ -93,13 +424,17 @@ Reuse the protected Integration viewport checks in [REQ-GITHUB-012](../../sdd/sp
 
 D1 is shared backend authority: `stopped`, `starting`, `running`, `unreachable`, `stopping`, ordered by generation/revision. The DO controls processes; only matching positive exit evidence releases ownership. [Sessions & Runtime](container.md#lifecycle-authority) owns that contract.
 
-Both dashboard and session-dropdown menus expose **Retry Stop** for persisted `stopping`, and **Stop** for starting/running/unreachable sessions. Retry preserves the session and uses the existing authenticated Stop endpoint; local pending attempts suppress duplicate requests but release that guard after failure or polling cancellation. Unconfirmed termination stays `stopping`; Start requires authoritative completion. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/stores/session.ts::stopSession --> [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-start-stop-restart-and-delete-sessions).
+Both Dashboard and session-dropdown menus expose **Retry Stop** for persisted `stopping` without an active shutdown phase, and **Stop** for starting, running, or unreachable sessions outside that phase. An errored VS Code session can also be stopped from either menu. Retry preserves the session and uses the existing authenticated Stop endpoint; local pending attempts suppress duplicate requests but release that guard after failure or polling cancellation. After Kill confirms exit, its superseded Stop response cannot block or settle a Stop on the replacement ([REQ-SESSION-041 AC3](../../sdd/spec/session-lifecycle.md#req-session-041-stop-recovery-controls-and-local-attempt-fencing)). Unconfirmed termination stays `stopping`; Start requires authoritative completion. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/stores/session.ts::stopSession --> [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-start-stop-restart-and-delete-sessions).
 
-Both menus also offer **Kill** for starting, running, unreachable and stopping sessions, without entering the session. Kill bypasses graceful Stop and final sync; unsynced edits may be lost. See [REQ-SESSION-038](../../sdd/spec/session-lifecycle.md#req-session-038-user-can-force-kill-a-session-container).
+Both menus also offer **Kill** for starting, running, unreachable, and stopping sessions, and during active shutdown phases, including a stopped session with a queued headless retry. No terminal needs to open. Kill bypasses graceful Stop and final sync; unsynced edits may be lost. See [REQ-SESSION-038](../../sdd/spec/session-lifecycle.md#req-session-038-user-can-force-kill-a-session-container).
 
 Terminal `running` + this device's connected selected socket presents green ACTIVE; no selected socket presents blue IDLE. Classic uses the active outer tab; Herdr uses its single outer terminal `1`. A hidden Classic tab cannot supply the active tab's presence. Neither label is persisted or inferred for another device. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation -->
 
-Starting/unreachable/stopping use yellow presentation, stopped gray. Countdown expiry cannot establish stopped or dispose workspace state; there is no separate recovery-countdown requirement. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation -->
+Starting/unreachable/stopping use yellow presentation, stopped gray. The Dashboard and session dropdown can show an ordered STOPPED state without dismissing the terminal’s pending Ready screen. ([REQ-SESSION-043 AC5](../../sdd/spec/session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery)) Countdown expiry cannot establish stopped or dispose workspace state; there is no separate recovery-countdown requirement. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation -->
+
+For a completed Start whose workspace is retained, three current, successful batch reads omitting the session hide its cards on the Dashboard and dropdown. A current row resets the streak; failed reads and stale rows do not. A missing card alone does not confirm deletion or dispose the terminal. [REQ-SESSION-244 AC5](../../sdd/spec/session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling). <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce -->
+
+If a card disappears while Delete is awaiting confirmation, its menu closes and discards the confirmation. Deleting that session or another one requires a fresh confirmation. [REQ-SESSION-244 AC6](../../sdd/spec/session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling). <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
 
 Terminal objects, tabs and tiling remain mounted through transport uncertainty; reattachment deliberately rebuilds buffer/scrollback from the host snapshot rather than retaining prior selection or viewport position. [Terminal restore frame](../../web-ui/src/stores/terminal.ts#L354-L385). Newer authoritative shutdown/deletion evidence owns disposal. [Session polling ownership](../../web-ui/src/stores/session-polling.ts#L266-L335). D1 outage retains the last ordered view, with its status-unavailable notice on the Dashboard rather than an additional active-terminal notice. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> [REQ-TERM-045](../../sdd/spec/terminal.md#req-term-045-local-terminal-presence-presents-active-or-idle) retains its remaining ownership/ordering qualification.
 
@@ -184,6 +519,8 @@ Use authorized disposable Integration sessions on the selected image. These are 
 ### MultiView Availability
 
 Phone capacity is zero: shared `getTerminalViewportClass` hides MultiView launch and prevents tiled selection. Tablet capacity is two, desktop two–four. Saved browser membership survives being hidden; tablet/desktop can reopen `MultiView #1` if two eligible terminal members remain. Eligibility includes initializing sessions and mounted starting, running, unreachable or stopping lifecycles; stopped, errored and VS Code sessions are excluded. [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow).
+
+When choosing panes, active shutdown makes a session ineligible even if it still reports running. A selected session entering shutdown frees its slot; Cancel remains available if too few choices remain. Resume for unmerged memory is disabled while choosing panes. Resizing to a viewport without MultiView exits selection without launching. These rules do not change saved workspace membership. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard -->
 
 ### Cursor Visibility
 
@@ -410,7 +747,11 @@ For REQ-GITHUB-002 AC6, use an approved connected account with an existing repos
 
 ### GitHub panel geometry acceptance
 
-For REQ-GITHUB-012 AC1/AC6/AC7, use browser-e2e against protected Integration after access/authentication approval. At tablet and desktop breakpoints, verify the stacked column anchors GitHub at the top and Storage at the bottom. At mobile width, verify existing short content centers the active face; existing long repository/storage lists must scroll internally within the viewport cap. Pass only if all outcomes hold without page overflow. Missing content is unverified, not permission to upload files or create repositories.
+For REQ-GITHUB-012 AC1/AC6/AC7, use browser-e2e against protected Integration after access and authentication approval. At desktop and tablet sizes, check both the **Code** split and the open **Vibe** drawer. GitHub stays at the top and Storage at the bottom. The shorter panel takes only the height it needs; the longer panel uses spare height and scrolls internally when needed.
+
+Use existing content where Storage is shorter than unfiltered GitHub but taller than GitHub after a repository search. Apply and clear GitHub search without resizing and verify that the larger allocation swaps between panels. Mark the reversal unverified if suitable content is unavailable; do not upload files or create repositories for the check.
+
+At mobile width in **Code**, switch to each face. Verify short content centers the active face. With an overflowing repository list and an overflowing Storage list, scroll each face to its last item and confirm that the list, not the page, scrolls within the viewport cap. Use existing content and mark unavailable short or overflowing cases unverified. Check that none of these layouts introduces page overflow.
 
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
@@ -530,6 +871,10 @@ AC1: On Android Chrome, open terminal input, background the browser, then return
 [REQ-GITHUB-320](../../sdd/spec/github.md#req-github-320-nonblocking-terminal-repository-restore-notice) keeps terminal Open independent of cloning. On desktop the restore notice floats bottom-left. On touch tablets and phones it sits just below the open session’s tab bar (or below the header when no tab bar is shown), so users can create and switch tabs during restore. On phones it spans the available width with safe-area clearance. The accent-colored dismiss button is at least 44 × 44 CSS pixels in every layout. It never changes the session-card metrics layout or takes focus.
 
 For an authorized test session with a slow clone, compare Dashboard and terminal views on desktop, tablet and phone, including the on-screen keyboard. Check that Open is usable while the notice says **Restoring repositories…**, the accent-colored close button dismisses any notice, and success also clears automatically. On phone and touch tablet, create and switch tabs while a notice is visible and confirm it does not cover the tab controls. An already-populated workspace needs no startup restore notice. Compare the recorded clone outcome rather than assuming the browser notification proves every repository was restored.
+
+For [REQ-GITHUB-326](../../sdd/spec/github.md#req-github-326-repository-names-in-resume-notices), resume an authorized test session with known restore targets and verify the notice lists their exact `owner/repo` names instead of the session name. In a separate browser fixture, omit only `details.repositoryRestoreRepos` from the Ready response and every subsequent startup-status response for the same generation until you verify that the notice shows the session name and no repository list. Preserve the restore status and generation in each response. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+
+In a constrained mobile viewport, use an active restore notice with 21 repository names. Swipe within the list to reach the last entry while Dismiss stays visible. Repeat from the top using Tab to focus the list and the keyboard to reach the last entry. <!-- @impl: web-ui/src/styles/layout.css::.repository-restore-notice__repos -->
 
 Missing restore details or missing/older generations consume the retry budget. A matching confirmed stop or error, a newer generation, lost local restore ownership, or exhausted observation budget ends tracking. A disappearing notice does not establish success. <!-- @impl: web-ui/src/stores/session.ts::watchRepositoryRestore -->
 

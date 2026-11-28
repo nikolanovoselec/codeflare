@@ -6,6 +6,7 @@ import { AGENT_OPTIONS } from '../../lib/agent-catalog';
 
 interface ClonePickerNewSessionProps {
   disabled: boolean;
+  vibeOnly?: boolean;
   onSelect: (agentType: AgentType) => void;
 }
 
@@ -17,7 +18,7 @@ const ClonePickerNewSession: Component<ClonePickerNewSessionProps> = (props) => 
   // Until it hydrates, expose no creation choice rather than an omitted CLI.
   const agentOptions = () => {
     const allowed = sessionStore.allowedAgents;
-    return allowed ? AGENT_OPTIONS.filter((agent) => allowed.includes(agent.type)) : [];
+    return allowed ? AGENT_OPTIONS.filter((agent) => allowed.includes(agent.type) && (!props.vibeOnly || agent.type === 'pi')) : [];
   };
 
   return (
@@ -30,7 +31,7 @@ const ClonePickerNewSession: Component<ClonePickerNewSessionProps> = (props) => 
           {(agent) => (
             <ClonePickerOptionRow
               icon={agent.icon}
-              label={agent.label}
+              label={props.vibeOnly ? 'New Pi session' : agent.label}
               description={agent.description}
               badge={agent.badge}
               disabled={props.disabled}

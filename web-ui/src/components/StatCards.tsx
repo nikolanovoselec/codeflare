@@ -1,9 +1,9 @@
 import { Component, Show } from 'solid-js';
 import Icon from './Icon';
 import { mdiFileDocumentOutline, mdiFolderOutline, mdiHarddisk, mdiCloudOutline } from '@mdi/js';
+import { StatCard, StatCardMetric } from './StatCard';
 import { storageStore } from '../stores/storage';
 import { formatSize } from '../lib/format';
-import '../styles/stat-cards.css';
 
 interface StorageStats {
   totalFiles: number;
@@ -44,40 +44,25 @@ const StatCards: Component<StatCardsProps> = (props) => {
         }
       >
         {(stats) => (
-          <div class="stat-card" data-testid="stat-card-storage">
-            <div class="stat-card__header">
-              <Icon path={mdiCloudOutline} size={14} class="stat-card__icon" />
-              <span class="stat-card__title type-section-header">{formatBucketLabel(stats().bucketName)}</span>
-            </div>
+          <StatCard icon={mdiCloudOutline} testId="stat-card-storage"
+            title={<span class="stat-card__title type-section-header">{formatBucketLabel(stats().bucketName)}</span>}>
             <div class="stat-card__metrics">
-              <div class="stat-card__metric" data-testid="stat-card-files">
-                <span class="stat-card__metric-label">
-                  <Icon path={mdiFileDocumentOutline} size={12} />
-                  Files
-                </span>
-                <span class="stat-card__metric-value">{String(stats().totalFiles)}</span>
-              </div>
-              <div class="stat-card__metric" data-testid="stat-card-folders">
-                <span class="stat-card__metric-label">
-                  <Icon path={mdiFolderOutline} size={12} />
-                  Folders
-                </span>
-                <span class="stat-card__metric-value">{String(stats().totalFolders)}</span>
-              </div>
-              <div class="stat-card__metric" data-testid="stat-card-size">
-                <span class="stat-card__metric-label">
-                  <Icon path={mdiHarddisk} size={12} />
-                  Storage
-                </span>
-                <span class="stat-card__metric-value">
+              <StatCardMetric testId="stat-card-files"
+                label={<span class="stat-card__metric-label"><Icon path={mdiFileDocumentOutline} size={12} />Files</span>}
+                value={<span class="stat-card__metric-value">{String(stats().totalFiles)}</span>} />
+              <StatCardMetric testId="stat-card-folders"
+                label={<span class="stat-card__metric-label"><Icon path={mdiFolderOutline} size={12} />Folders</span>}
+                value={<span class="stat-card__metric-value">{String(stats().totalFolders)}</span>} />
+              <StatCardMetric testId="stat-card-size"
+                label={<span class="stat-card__metric-label"><Icon path={mdiHarddisk} size={12} />Storage</span>}
+                value={<span class="stat-card__metric-value">
                   {formatSize(stats().totalSizeBytes)}
                   {stats().maxStorageBytes != null && stats().maxStorageBytes! > 0
                     ? ` / ${formatSize(stats().maxStorageBytes!)}`
                     : ''}
-                </span>
-              </div>
+                </span>} />
             </div>
-          </div>
+          </StatCard>
         )}
       </Show>
     </div>

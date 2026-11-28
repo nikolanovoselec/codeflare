@@ -6,17 +6,20 @@ export interface PrewarmOrphanActions {
   deleteSession(): void;
 }
 
-export type PrewarmOrphanOutcome = 'ready';
+export type PrewarmOrphanOutcome = 'ready' | 'retained';
 
 export function handlePrewarmOrphanExpiry(
   mode: HostTerminalMode,
   herdrBootstrapDone: boolean,
   actions: PrewarmOrphanActions,
+  retainManagedPrimary = false,
 ): PrewarmOrphanOutcome {
   actions.disposeDataListener();
   actions.clearReadinessPoll();
+  const usable = isPrewarmTimeoutReady(mode, herdrBootstrapDone);
+  if (usable && retainManagedPrimary) return 'retained';
   actions.deleteSession();
-  if (!isPrewarmTimeoutReady(mode, herdrBootstrapDone)) {
+  if (!usable) {
     process.exit(1);
   }
   return 'ready';

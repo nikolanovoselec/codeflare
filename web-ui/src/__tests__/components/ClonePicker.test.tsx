@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
 import { createSignal, Show } from 'solid-js';
 
 // ── API mock (hoisted so the vi.mock factory can reference it) ──────────────
@@ -18,13 +18,15 @@ const sessionStoreState = vi.hoisted(() => ({
   sessions: [] as Array<{ id: string; name: string; status: string; agentType?: string }>,
   enterpriseMode: false as boolean,
   allowedAgents: null as string[] | null,
+  readSessions: null as (() => Array<{ id: string; name: string; status: string }>) | null,
 }));
 const mockCreateSessionWithClone = vi.hoisted(() => vi.fn());
+const mockRetryCloneStart = vi.hoisted(() => vi.fn());
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
     get sessions() {
-      return sessionStoreState.sessions;
+      return sessionStoreState.readSessions?.() ?? sessionStoreState.sessions;
     },
     get enterpriseMode() {
       return sessionStoreState.enterpriseMode;
@@ -36,6 +38,11 @@ vi.mock('../../stores/session', () => ({
       return { lastAgentType: undefined };
     },
     createSessionWithClone: (...args: unknown[]) => mockCreateSessionWithClone(...args),
+    canRetryCloneStart: (id: string) => {
+      const status = (sessionStoreState.readSessions?.() ?? sessionStoreState.sessions).find(session => session.id === id)?.status;
+      return status === 'stopped' || status === 'error';
+    },
+    retryCloneStart: (...args: unknown[]) => mockRetryCloneStart(...args),
     cloneRepositoryIntoSession: (...args: unknown[]) => mockCloneIntoSession(...args),
   },
 }));
@@ -48,6 +55,7 @@ vi.mock('../../components/Icon', () => ({
 
 import { mdiPi } from '@mdi/js';
 import ClonePicker from '../../components/github/ClonePicker';
+import { cloneAttempt, forgetCloneAttempt, setCloneAttempt } from '../../stores/clone-attempts';
 
 const REPO = {
   full_name: 'octocat/hello',
@@ -72,14 +80,71 @@ describe('ClonePicker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStoreState.sessions = [];
+    sessionStoreState.readSessions = null;
     sessionStoreState.enterpriseMode = false;
     sessionStoreState.allowedAgents = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'];
     mockCloneIntoSession.mockResolvedValue({ outcome: 'cloned', path: '/home/user/workspace/hello' });
-    mockCreateSessionWithClone.mockResolvedValue({ id: 's-new', name: '', status: 'stopped' });
+    mockCreateSessionWithClone.mockResolvedValue({ sessionId: 's-new', started: true });
+    mockRetryCloneStart.mockResolvedValue(true);
   });
 
   afterEach(() => {
     cleanup();
+    setCloneAttempt(REPO.full_name);
+    setCloneAttempt(REPO.full_name, undefined, 'chat');
+  });
+
+  it('Vibe offers only Pi destinations and never retries a non-Pi Code clone', async () => {
+    sessionStoreState.enterpriseMode = true;
+    sessionStoreState.allowedAgents = ['copilot', 'pi', 'bash'];
+    sessionStoreState.sessions = [
+      { id: 'pi-running', name: 'Running Pi', status: 'running', agentType: 'pi' },
+      { id: 'code-running', name: 'Running Codex', status: 'running', agentType: 'codex' },
+      { id: 'code-failed', name: 'Saved Codex', status: 'stopped', agentType: 'codex' },
+    ];
+    setCloneAttempt(REPO.full_name, { phase: 'failed', sessionId: 'code-failed' });
+    render(() => <ClonePicker repo={REPO} vibeOnly onClose={() => {}} />);
+    expect(screen.getByRole('button', { name: /^Running Pi/ })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /^Running Codex|^Retry Start|^Codex/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('clone-picker-agent-copilot')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('clone-picker-agent-bash')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^New Pi session/ }));
+    await waitFor(() => expect(mockCreateSessionWithClone).toHaveBeenCalledWith(REPO.full_name, 'pi', 'chat'));
+  });
+
+  it('offers no new Vibe destination when the profile excludes Pi', () => {
+    sessionStoreState.enterpriseMode = true;
+    sessionStoreState.allowedAgents = ['copilot', 'bash'];
+    render(() => <ClonePicker repo={REPO} vibeOnly onClose={() => {}} />);
+    const dialog = screen.getByRole('dialog', { name: 'Clone repository' });
+    expect(within(dialog).getAllByRole('button')).toEqual([within(dialog).getByRole('button', { name: 'Close clone picker' })]);
+  });
+
+  it('preserves the saved Code retry after a successful Vibe clone of the same repository', async () => {
+    sessionStoreState.sessions = [{ id: 'code-saved', name: 'Code clone', status: 'stopped', agentType: 'codex' }];
+    setCloneAttempt(REPO.full_name, { phase: 'failed', sessionId: 'code-saved' });
+    const close = vi.fn();
+    render(() => <ClonePicker repo={REPO} vibeOnly onClose={close} />);
+    fireEvent.click(screen.getByRole('button', { name: /^New Pi session/ }));
+    await waitFor(() => expect(close).toHaveBeenCalled());
+    cleanup();
+    renderPicker();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Start' }));
+    await waitFor(() => expect(mockRetryCloneStart).toHaveBeenCalledWith('code-saved'));
+  });
+
+  it('retries the original Chat surface from Code after a failed Vibe clone', async () => {
+    sessionStoreState.sessions = [{ id: 'chat-saved', name: 'Vibe clone', status: 'stopped', agentType: 'pi' }];
+    mockCreateSessionWithClone.mockResolvedValueOnce({ sessionId: 'chat-saved', started: false });
+    render(() => <ClonePicker repo={REPO} vibeOnly onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /^New Pi session/ }));
+    await screen.findByRole('button', { name: 'Retry Start' });
+    cleanup();
+    renderPicker();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Start' }));
+    await waitFor(() => expect(mockRetryCloneStart).toHaveBeenCalledWith('chat-saved', 'chat'));
+    expect(mockCreateSessionWithClone).toHaveBeenCalledTimes(1);
   });
 
   it('renders the running group before the new-session group through shared option rows', () => {
@@ -163,6 +228,93 @@ describe('ClonePicker', () => {
     expect(mockCreateSessionWithClone.mock.calls[0][1]).toBe('pi');
   });
 
+  it('retries Start on the saved session rather than creating another session', async () => {
+    sessionStoreState.sessions = [{ id: 's-new', name: 'hello', status: 'error' }];
+    mockCreateSessionWithClone.mockResolvedValueOnce({ sessionId: 's-new', started: false });
+    mockRetryCloneStart.mockResolvedValueOnce(false);
+    renderPicker();
+    fireEvent.click(screen.getByRole('button', { name: /^Pi\s*Minimal, extensible coding harness$/ }));
+    const retry = await screen.findByRole('button', { name: 'Retry Start' });
+    fireEvent.click(retry);
+    await waitFor(() => expect(retry).toBeEnabled());
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(mockRetryCloneStart.mock.calls).toEqual([['s-new'], ['s-new']]);
+    expect(mockCreateSessionWithClone).toHaveBeenCalledTimes(1);
+  });
+
+  it('focuses Close and preserves the pending launch across dismissal and reopen', async () => {
+    sessionStoreState.sessions = [{ id: 's-new', name: 'hello', status: 'error' }];
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    mockCreateSessionWithClone.mockReturnValueOnce(pending);
+    const onClose = vi.fn();
+    renderPicker(onClose);
+    const pi = screen.getByRole('button', { name: /^Pi\s*Minimal, extensible coding harness$/ });
+    pi.focus();
+    fireEvent.click(pi);
+    expect(pi).toBeDisabled();
+    const close = screen.getByRole('button', { name: 'Close clone picker' });
+    expect(close).toHaveFocus();
+    fireEvent.click(close);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    renderPicker();
+    expect(screen.getByRole('status')).toHaveTextContent('Starting session…');
+    expect(screen.getByTestId('clone-picker-agent-pi')).toBeDisabled();
+    finish({ sessionId: 's-new', started: false });
+    await pending;
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry Start' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(mockRetryCloneStart).toHaveBeenCalledWith('s-new');
+    expect(mockCreateSessionWithClone).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a failed Start that settles while closed, even across catalog omissions', async () => {
+    const saved = { id: 's-new', name: 'hello', status: 'error' };
+    const [sessions, setSessions] = createSignal([saved]);
+    sessionStoreState.readSessions = sessions;
+    let fail!: () => void;
+    const pending = new Promise(resolve => { fail = () => resolve({ sessionId: saved.id, started: false }); });
+    mockCreateSessionWithClone.mockReturnValueOnce(pending);
+    renderPicker();
+    fireEvent.click(screen.getByTestId('clone-picker-agent-pi'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close clone picker' }));
+    fail();
+    await pending;
+    renderPicker();
+    const retry = await screen.findByRole('button', { name: 'Retry Start' });
+    expect(retry).toBeEnabled();
+    setSessions([]);
+    expect(retry).toBeDisabled();
+    expect(screen.queryByTestId('clone-picker-agent-pi')).not.toBeInTheDocument();
+    setSessions([saved]);
+    expect(retry).toBeEnabled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(mockRetryCloneStart).toHaveBeenCalledWith(saved.id);
+    expect(mockCreateSessionWithClone).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers new sessions on reopen after deletion despite a late Start result', async () => {
+    let finish!: () => void;
+    const pending = new Promise(resolve => { finish = () => resolve({ sessionId: 's-deleted', started: false }); });
+    mockCreateSessionWithClone.mockImplementationOnce(() => {
+      const attempt = cloneAttempt(REPO.full_name);
+      if (attempt?.phase === 'creating') setCloneAttempt(REPO.full_name, { ...attempt, sessionId: 's-deleted' });
+      return pending;
+    });
+    renderPicker();
+    fireEvent.click(screen.getByTestId('clone-picker-agent-pi'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close clone picker' }));
+    forgetCloneAttempt('s-deleted');
+    finish();
+    await pending;
+    renderPicker();
+    expect(screen.getByTestId('clone-picker-agent-pi')).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Retry Start' })).not.toBeInTheDocument();
+  });
+
   it('closes after a successful new-session clone (navigation already happened)', async () => {
     const onClose = vi.fn();
     renderPicker(onClose);
@@ -188,8 +340,9 @@ describe('ClonePicker', () => {
     expect(screen.queryByRole('dialog', { name: 'Clone repository' })).not.toBeInTheDocument();
   });
 
-  it('disables the confirm controls while new-session creation is in flight', async () => {
-    sessionStoreState.sessions = [{ id: 's1', name: 'Pi #1', status: 'running' }];
+  it('disables controls while launching and keeps the picker open after a cancelled repository launch', async () => {
+    const [sessions, setSessions] = createSignal([{ id: 's1', name: 'Pi #1', status: 'running' }, { id: 's-new', name: 'hello', status: 'stopping' }]);
+    sessionStoreState.readSessions = sessions;
     let resolveCreate!: (value: unknown) => void;
     mockCreateSessionWithClone.mockReturnValueOnce(new Promise(resolve => { resolveCreate = resolve; }));
     renderPicker();
@@ -199,8 +352,16 @@ describe('ClonePicker', () => {
 
     expect(agentBtn.disabled).toBe(true);
     expect((screen.getByTestId('clone-picker-session-row') as HTMLButtonElement).disabled).toBe(true);
-    resolveCreate(null);
-    await screen.findByText('Clone failed. Please try again.');
+    // The session store returns no successful launch after Stop cancels Start.
+    resolveCreate({ sessionId: 's-new', started: false });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Clone failed. Please try again.');
+    expect(screen.getByRole('dialog', { name: 'Clone repository' })).toBeVisible();
+    const retry = screen.getByRole('button', { name: 'Retry Start' });
+    expect(retry).toBeDisabled();
+    setSessions(rows => rows.map(row => row.id === 's-new' ? { ...row, status: 'stopped' } : row));
+    expect(retry).toBeEnabled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('withholds new-session agent choices until /api/user hydrates', () => {

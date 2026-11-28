@@ -1,19 +1,23 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
-import { createSignal, For } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import type { SessionWithStatus } from '../../types';
+import PiWorkspaceMode from '../../components/PiWorkspaceMode';
+import CreateSessionDialog from '../../components/CreateSessionDialog';
 
 const retryMigration = vi.hoisted(() => vi.fn());
 const appAuth = vi.hoisted(() => ({ getUser: vi.fn() }));
 vi.mock('../../api/client', async importOriginal => ({
   ...await importOriginal<typeof import('../../api/client')>(),
   retryBucketMigration: retryMigration,
+  getUsage: async () => ({ dailySeconds: 0, monthlySeconds: 0, monthlyQuotaSeconds: null, mode: 'default', tier: 'Test' }),
   getSetupStatus: async () => ({ configured: true }),
   getUser: (...args: unknown[]) => appAuth.getUser(...args),
 }));
 vi.mock('../../api/mcp-portals', () => ({ getMcpPortalStatuses: async () => [] }));
 
-const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realSettingsPanel: false, realDashboard: false }));
+const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false, realSettingsPanel: false, realDashboard: false, realHeader: false, terminalAutoFocus: false }));
+const vaultRendering = vi.hoisted(() => ({ realLifecycle: false }));
 const cloudflare = vi.hoisted(() => ({ getStatus: vi.fn(), selectAccount: vi.fn() }));
 vi.mock('../../api/cloudflare', () => ({
   getCloudflareStatus: cloudflare.getStatus,
@@ -26,34 +30,60 @@ vi.mock('../../components/Dashboard', async importOriginal => {
   const ActualDashboard = (await importOriginal<typeof import('../../components/Dashboard')>()).default;
   return { default: (props: any) => navigationRendering.realDashboard ? <ActualDashboard {...props} /> : <section aria-label="Session dashboard">
     <span>{props.userName}</span>
+    <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} presentation="text" />}</Show>
     <For each={props.sessions}>{session => <span>{session.name}</span>}</For>
+    <button onClick={() => props.onCreateSession('Fresh Pi', 'pi', undefined, 'chat')}>Start fresh Vibe</button>
     <button onClick={() => props.onStartSession('abcdef0123456789')}>Start session</button>
     <button onClick={() => props.onOpenSessionById('abcdef0123456789')}>Return to session</button>
+    <button onClick={() => props.onOpenSessionById('abcdef0123456789', 'terminal')}>Open in Terminal</button>
+    <button onClick={() => props.onStopSession('abcdef0123456789')}>Stop retained session</button>
+    <button onClick={() => props.onOpenSessionById('fedcba9876543210')}>Open another session</button>
   </section> };
 });
 vi.mock('../../components/Terminal', async () => {
   const { sessionStore } = await import('../../stores/session');
-  const { Show } = await import('solid-js');
-  return { default: (props: any) => <Show when={sessionStore.isSessionInitializing(props.sessionId)}
-    fallback={<div data-testid="workspace-content">Workspace</div>}>
-    <div data-testid="startup-progress">
-      {sessionStore.sessions.find(session => session.id === props.sessionId)?.status === 'running' ? 'Ready to open' : 'Starting'}
-      <button onClick={props.onInitComplete}>Open workspace</button>
-    </div>
-  </Show> };
+  const { terminalStore } = await import('../../stores/terminal');
+  const { Show, createEffect, untrack } = await import('solid-js');
+  return { default: (props: any) => {
+    createEffect(() => {
+      if (props.connect && props.onHandoffAttached && terminalStore.getConnectionState(props.sessionId, props.terminalId) === 'connected') {
+        props.onHandoffAttached();
+      }
+    });
+    let input: HTMLTextAreaElement | undefined;
+    createEffect(() => {
+      if (navigationRendering.terminalAutoFocus && props.focused && props.connect
+        && !sessionStore.isSessionInitializing(props.sessionId)
+        && !untrack(() => props.preserveDomFocus?.())) input?.focus();
+    });
+    return <Show when={sessionStore.isSessionInitializing(props.sessionId)}
+      fallback={<div data-testid={mockTilingForSession?.enabled ? `workspace-content-${props.terminalId}` : "workspace-content"} data-connect={String(props.connect)} data-focused={String(props.focused)}>Workspace{navigationRendering.terminalAutoFocus && <textarea ref={input} aria-label="Terminal input" />}</div>}>
+      <div data-testid="startup-progress">
+        {sessionStore.sessions.find(session => session.id === props.sessionId)?.status === 'running' ? 'Ready to open' : 'Starting'}
+        <button onClick={props.onInitComplete}>Open workspace</button>
+      </div>
+    </Show>;
+  } };
 });
 vi.mock('../../components/TerminalTabs', () => ({ default: () => <div role="tablist" aria-label="Terminals" /> }));
 vi.mock('../../components/FloatingTerminalButtons', () => ({ default: () => <div /> }));
 
 // Existing isolated tests keep their lightweight child; navigation regressions
 // opt into the actual TerminalArea to exercise its dashboard render boundary.
-vi.mock('../../components/Header', () => ({
-  default: (props: any) => {
+vi.mock('../../components/Header', async importOriginal => {
+  const ActualHeader = (await importOriginal<typeof import('../../components/Header')>()).default;
+  return { default: (props: any) => {
+    if (navigationRendering.realHeader) return <ActualHeader {...props} />;
     // Store props on window for inspection in tests (CF-075 vault gating).
     (window as any).__headerProps = props;
-    return <header data-testid="header"><button onClick={props.onLogoClick}>Dashboard</button></header>;
-  }
-}));
+    return (
+      <header data-testid="header">
+        <button onClick={props.onLogoClick}>Dashboard</button>
+        <Show when={props.workspaceMode}>{mode => <PiWorkspaceMode {...mode()} presentation="text" />}</Show>
+      </header>
+    );
+  } };
+});
 
 vi.mock('../../components/TerminalArea', async () => {
   const ActualTerminalArea = (await vi.importActual<typeof import('../../components/TerminalArea')>('../../components/TerminalArea')).default;
@@ -96,13 +126,18 @@ const vaultProbeMock = vi.hoisted(() => ({
   cancel: vi.fn(),
 }));
 
-vi.mock('../../lib/vault-readiness', () => ({
-  startVaultReadinessProbe: (opts: any) => {
-    vaultProbeMock.latestOptions = opts;
-    vaultProbeMock.start(opts);
-    return vaultProbeMock.cancel;
-  },
-}));
+vi.mock('../../lib/vault-readiness', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/vault-readiness')>();
+  return {
+    ...actual,
+    startVaultReadinessProbe: (opts: Parameters<typeof actual.startVaultReadinessProbe>[0]) => {
+      if (vaultRendering.realLifecycle) return actual.startVaultReadinessProbe(opts);
+      vaultProbeMock.latestOptions = opts;
+      vaultProbeMock.start(opts);
+      return vaultProbeMock.cancel;
+    },
+  };
+});
 
 const vaultPrewarmMock = vi.hoisted(() => ({
   start: vi.fn(),
@@ -110,14 +145,18 @@ const vaultPrewarmMock = vi.hoisted(() => ({
   cancel: vi.fn(),
 }));
 
-vi.mock('../../lib/vault-prewarm', () => ({
-  DEFAULT_VAULT_PREWARM_TIMEOUT_MS: 300000,
-  startVaultPrewarm: (opts: any) => {
-    vaultPrewarmMock.latestOptions = opts;
-    vaultPrewarmMock.start(opts);
-    return { cancel: vaultPrewarmMock.cancel, prewarmId: 'test-prewarm', iframe: document.createElement('iframe') };
-  },
-}));
+vi.mock('../../lib/vault-prewarm', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/vault-prewarm')>();
+  return {
+    ...actual,
+    startVaultPrewarm: (opts: Parameters<typeof actual.startVaultPrewarm>[0]) => {
+      if (vaultRendering.realLifecycle) return actual.startVaultPrewarm(opts);
+      vaultPrewarmMock.latestOptions = opts;
+      vaultPrewarmMock.start(opts);
+      return { cancel: vaultPrewarmMock.cancel, prewarmId: 'test-prewarm', iframe: document.createElement('iframe') };
+    },
+  };
+});
 
 const vaultLocalReadinessMock = vi.hoisted(() => ({
   keyRecoverable: vi.fn(async (_sessionId?: string) => true),
@@ -139,9 +178,11 @@ const vaultPrewarmProof = {
 // Session store mock with controllable state.
 // Module-level variables allow tests to set up specific states before rendering.
 let mockSessions: any[] = [];
-let mockRepositoryNotices: Record<string, { status: 'restoring' | 'complete' | 'issues'; repo?: string; outcome?: 'cloned' | 'exists' | 'failed' | 'tracking-unconfirmed' }> = {};
+let mockRepositoryNotices: Record<string, { status: 'restoring' | 'complete' | 'issues'; repo?: string; repos?: string[]; outcome?: 'cloned' | 'exists' | 'failed' | 'tracking-unconfirmed' }> = {};
 let mockMigrationHalt: string | null = null;
 let mockActiveSessionId: string | null = null;
+let mockPhone = false;
+let mockFreshChatStart: { id: string; generation: number } | undefined;
 let mockPreferences: Record<string, any> = {};
 let mockVisiblePanes: Array<{ sessionId: string; terminalId: string }> = [];
 let mockTerminalsForSession: any = null;
@@ -165,9 +206,12 @@ vi.mock('../../stores/session', () => ({
       bumpSessionStoreVersion();
     },
     get activeSessionId() { readSessionStoreVersion(); return mockActiveSessionId; },
+    get freshChatStart() { readSessionStoreVersion(); return mockFreshChatStart; },
     get saasMode() { readSessionStoreVersion(); return mockSaasMode; },
     get error() { return null; },
     get loading() { return false; },
+    r2Ready: true,
+    allowedAgents: ['bash', 'pi'],
     loadSessions: vi.fn(),
     setActiveSession: vi.fn((id: string | null) => { mockActiveSessionId = id; bumpSessionStoreVersion(); }),
     getActiveSession: vi.fn(() => {
@@ -179,16 +223,18 @@ vi.mock('../../stores/session', () => ({
     stopSession: vi.fn(),
     deleteSession: vi.fn(),
     createSession: vi.fn(),
+    createSessionWithClone: vi.fn(),
     dismissInitProgressForSession: vi.fn(),
     clearError: vi.fn(),
     isSessionInitializing: vi.fn(() => false),
+    isMemoryRetryPending: vi.fn(() => false),
     getInitProgressForSession: vi.fn(() => null),
     getMetricsForSession: vi.fn(() => null),
     stopAllPolling: vi.fn(),
     setEnterpriseMode: vi.fn(),
     setSaasMode: vi.fn(),
     setAllowedAgents: vi.fn(),
-    getTerminalsForSession: vi.fn(() => mockTerminalsForSession),
+    getTerminalsForSession: vi.fn(() => { readSessionStoreVersion(); return mockTerminalsForSession; }),
     initializeTerminalsForSession: vi.fn(),
     addTerminalTab: vi.fn(),
     removeTerminalTab: vi.fn(),
@@ -205,6 +251,7 @@ vi.mock('../../stores/session', () => ({
     stopSessionListPolling: vi.fn(),
     get preferences() { readSessionStoreVersion(); return mockPreferences; },
   },
+  getUsageState: () => ({ monthlySeconds: 0, monthlyQuotaSeconds: null }),
   getUsageWarningLevel: vi.fn(() => 'none'),
   isAtUsageQuota: vi.fn(() => false),
   getDismissedQuotaLevel: vi.fn(() => null),
@@ -212,7 +259,7 @@ vi.mock('../../stores/session', () => ({
 }));
 
 vi.mock('../../stores/terminal', () => ({
-  terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn(), disposeAll: vi.fn(), getConnectionState: vi.fn(() => 'disconnected') },
+  terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn(), disposeAll: vi.fn(), setParked: vi.fn(), getConnectionState: vi.fn(() => 'disconnected') },
   reconnectDisconnectedTerminals: vi.fn(),
   reconnectOnVisibilityReturn: vi.fn(),
   scheduleDisconnect: vi.fn(),
@@ -222,6 +269,7 @@ vi.mock('../../stores/terminal', () => ({
 vi.mock('../../stores/terminal-workspace', () => ({
   terminalWorkspaceStore: {
     reconcileMultiView: vi.fn(() => null),
+    getMultiViewCapacity: () => 0,
     getActiveWorkspace: vi.fn(() => mockActiveWorkspace),
     getVisiblePanes: vi.fn(() => {
       readSessionStoreVersion();
@@ -257,6 +305,8 @@ vi.mock('../../stores/terminal-workspace', () => ({
 let mockIsSamsungBrowser = false;
 vi.mock('../../lib/mobile', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/mobile')>(),
+  isMobile: () => mockPhone,
+  isTouchDevice: () => mockPhone,
   forceResetKeyboardState: vi.fn(),
   enableVirtualKeyboardOverlay: vi.fn(),
   cleanupDebugOverlay: vi.fn(),
@@ -264,7 +314,7 @@ vi.mock('../../lib/mobile', async importOriginal => ({
 }));
 
 import { forceResetKeyboardState } from '../../lib/mobile';
-import { reconnectDisconnectedTerminals, reconnectOnVisibilityReturn } from '../../stores/terminal';
+import { reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, terminalStore } from '../../stores/terminal';
 import { getUsageWarningLevel, getDismissedQuotaLevel, setDismissedQuotaLevel } from '../../stores/session';
 import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import App from '../../App';
@@ -287,13 +337,17 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   beforeEach(() => {
     vi.clearAllMocks();
     navigationRendering.realTerminalArea = false;
+    navigationRendering.realHeader = false;
     navigationRendering.realSettingsPanel = false;
     navigationRendering.realDashboard = false;
+    vaultRendering.realLifecycle = false;
     mockMigrationHalt = null;
     retryMigration.mockReset();
     mockSessions = [];
     mockRepositoryNotices = {};
     mockActiveSessionId = null;
+    mockPhone = false;
+    mockFreshChatStart = undefined;
     mockPreferences = {};
     mockVisiblePanes = [];
     mockTerminalsForSession = null;
@@ -317,6 +371,102 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     window.history.replaceState(null, '', '/app/');
     delete (window as any).__terminalAreaProps;
     delete (window as any).__headerProps;
+  });
+
+  it.each([
+    ['terminal', 'Return to session', {}],
+    [undefined, 'Return to session', {}],
+    ['chat', 'Open in Terminal', {}],
+    ['chat', 'Return to session', { defaultWorkspace: 'vscode' }],
+    [undefined, 'Create session', {}],
+  ] as const)('keeps the Code startup pane mounted while the first surface status is pending (default: %s, action: %s, settings: %j)', async (defaultPiSurface, action, settings) => {
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    mockPreferences = { defaultPiSurface, ...settings };
+    const hiddenPicker = 'defaultWorkspace' in settings;
+    const creating = action === 'Create session';
+    navigationRendering.realDashboard = creating;
+    const priorGeneration = creating ? 0 : 1;
+    const generation = priorGeneration + 1;
+    const session = createMockSession({ id, agentType: 'pi', workspace: 'terminal', terminalMode: 'classic', status: 'stopped', generation: priorGeneration }) as SessionWithStatus;
+    mockSessions = creating ? [] : [session];
+    const createSession = vi.mocked(sessionStore.createSession);
+    const startSession = vi.mocked(sessionStore.startSession);
+    const originalCreate = createSession.getMockImplementation();
+    const originalStart = startSession.getMockImplementation();
+    if (creating) createSession.mockImplementation(async (_name, agentType) => {
+      if (agentType !== 'pi') return null;
+      mockSessions = [session];
+      bumpSessionStoreVersion();
+      return session;
+    });
+    const [running, setRunning] = createSignal(false);
+    let confirmSurface!: (response: Response) => void;
+    const hostStatus = new Promise<Response>(resolve => { confirmSurface = resolve; });
+    const fetchStatus = vi.fn(async (url: string) => {
+      if (url === `/api/pi-web/${id}/_switch?generation=${generation}`) return hostStatus;
+      if (!creating && url === `/api/pi-web/${id}/_switch?generation=${priorGeneration}`) {
+        return Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/1/a/00000000-0000-4000-8000-000000000001/?session=previous&view=chat` });
+      }
+      return Response.json({});
+    });
+    vi.stubGlobal('fetch', fetchStatus);
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation(running);
+    vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Container ready' });
+    startSession.mockImplementation(async () => {
+      mockSessions = [{ ...mockSessions[0], status: 'starting' }];
+      setRunning(true);
+      bumpSessionStoreVersion();
+    });
+    try {
+      render(() => <Layout />);
+      if (creating) {
+        fireEvent.click(await screen.findByRole('button', { name: 'Create new session' }));
+        fireEvent.click(await screen.findByTestId('csd-agent-pi'));
+      } else fireEvent.click(await screen.findByRole('button', { name: action }));
+      expect(await screen.findByTestId('startup-progress')).toBeVisible();
+      expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+      expect(fetchStatus.mock.calls.map(([url]) => url)).not.toContain(`/api/pi-web/${id}/_switch?generation=${priorGeneration}`);
+      mockSessions = [{ ...mockSessions[0], generation }];
+      bumpSessionStoreVersion();
+      const pane = screen.getByTestId('startup-progress');
+      mockSessions = [{ ...mockSessions[0], status: 'running' }];
+      bumpSessionStoreVersion();
+      expect(screen.getByTestId('startup-progress')).toBe(pane);
+      expect(screen.queryByText('Loading Chat')).not.toBeInTheDocument();
+      if (hiddenPicker) expect(screen.queryByRole('button', { name: /^Workspace mode:/ })).not.toBeInTheDocument();
+      else expect(screen.getByRole('button', { name: /^Workspace mode:/ })).toBeDisabled();
+      confirmSurface(Response.json({ phase: 'active', surface: 'terminal' }));
+      if (hiddenPicker) {
+        // The existing workspace can display its confirmed mode once the picker is enabled again.
+        mockPreferences = { defaultPiSurface };
+        bumpSessionStoreVersion();
+      }
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Workspace mode: Code Mode' })).toBeEnabled());
+      expect(screen.getByTestId('startup-progress')).toBe(pane);
+    } finally {
+      cleanup();
+      vi.unstubAllGlobals();
+      if (creating) {
+        if (originalCreate) createSession.mockImplementation(originalCreate);
+        else createSession.mockReset();
+      }
+      if (originalStart) startSession.mockImplementation(originalStart);
+      else startSession.mockReset();
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
+    }
+  });
+
+  it('REQ-GITHUB-320: lists repositories instead of the session name when available', () => {
+    mockSessions = [createMockSession({ name: 'Payments workspace' })];
+    mockRepositoryNotices = { sess1: { status: 'restoring', repos: ['octocat/api', 'octocat/docs'] } };
+    render(() => <Layout />);
+    const notice = within(screen.getByRole('region', { name: 'Activity notifications' }));
+    expect(notice.getByText('octocat/api')).toBeInTheDocument();
+    expect(notice.getByText('octocat/docs')).toBeInTheDocument();
+    expect(notice.getByRole('list', { name: 'Repositories' })).toHaveAttribute('tabindex', '0');
+    expect(notice.queryByText('Payments workspace')).toBeNull();
   });
 
   it('REQ-GITHUB-320: shows restore progress on the Dashboard and dismisses a partial outcome', () => {
@@ -350,6 +500,883 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     }));
     expect(screen.queryByText(title)).toBeNull();
     expect(tabs).toBeInTheDocument();
+  });
+
+  it.each([
+    ['chat', 'terminal', {}, 'chat'],
+    ['terminal', 'chat', {}, 'terminal'],
+    ['chat', 'chat', {}, undefined],
+    ['terminal', 'chat', { herdrEnabled: true }, undefined],
+    ['terminal', 'chat', { defaultWorkspace: 'vscode' }, undefined],
+    ['terminal', 'chat', { herdrEnabled: true }, undefined, true],
+    ['terminal', 'chat', { defaultWorkspace: 'vscode' }, undefined, true],
+  ] as const)('opens a running Pi workspace using preference %s from %s with settings %j', async (preferred, initial, settings, target, explicit?: boolean) => {
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    const prefix = `/api/pi-web/${id}/`;
+    const chatUrl = `${prefix}g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
+    let surface: string = initial;
+    const requested: string[] = [];
+    mockPreferences = { defaultPiSurface: preferred, ...settings };
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    mockVisiblePanes = [{ sessionId: id, terminalId: '1' }];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (url !== `${prefix}_switch?generation=7` && url !== `${prefix}_switch`) return Response.json({});
+      if (init?.method === 'POST') {
+        surface = JSON.parse(String(init.body)).target;
+        requested.push(surface);
+      }
+      return Response.json({ phase: 'complete', surface, ...(surface === 'chat' && { chatUrl }) });
+    });
+    try {
+      render(() => <Layout />);
+      fireEvent.click(await screen.findByRole('button', { name: explicit === true ? 'Open in Terminal' : 'Return to session' }));
+      if ((target ?? initial) === 'chat') await screen.findByTitle('Pi Chat');
+      else await screen.findByTestId('workspace-content');
+      expect(requested).toEqual(target ? [target] : []);
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  });
+
+  it.each([{ herdrEnabled: true }, { defaultWorkspace: 'vscode' }])('hides Dashboard mode navigation with settings %j', preferences => {
+    navigationRendering.realTerminalArea = true;
+    mockPreferences = preferences;
+    render(() => <Layout />);
+    expect(screen.queryByRole('button', { name: /^Workspace mode:/ })).not.toBeInTheDocument();
+  });
+
+  it.each([{ herdrEnabled: true }, { defaultWorkspace: 'vscode' }])('hides the running workspace mode selector with settings %j', async preferences => {
+    navigationRendering.realTerminalArea = true;
+    mockPreferences = preferences;
+    const id = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id, agentType: 'pi', workspace: 'terminal', generation: 7 })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    render(() => <Layout />);
+    const header = await screen.findByTestId('header');
+    expect(within(header).getByRole('button', { name: 'Dashboard' })).toBeVisible();
+    expect(within(header).queryByRole('button', { name: /^Workspace mode:/ })).not.toBeInTheDocument();
+  });
+
+  it.each(['Start', 'Open'])('keeps saved preferences and workspace kind after a Dashboard card %s', async action => {
+    navigationRendering.realTerminalArea = true;
+    navigationRendering.realDashboard = true;
+    mockPreferences = { defaultPiSurface: 'terminal', defaultWorkspace: 'terminal' };
+    const id = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id, agentType: 'pi', workspace: 'terminal', generation: 7,
+      status: action === 'Start' ? 'stopped' : 'running' })];
+    if (action === 'Start') vi.mocked(sessionStore.startSession).mockImplementationOnce(async () => {
+      mockSessions = [{ ...mockSessions[0], status: 'initializing' }];
+      bumpSessionStoreVersion();
+    });
+    vi.mocked(sessionStore.updatePreferences).mockImplementation(async preferences => {
+      mockPreferences = { ...mockPreferences, ...preferences };
+      bumpSessionStoreVersion();
+    });
+    const path = `/api/pi-web/${id}/_switch`;
+    const handoffs: unknown[] = [];
+    const unexpectedWrites: string[] = [];
+    let surface: 'chat' | 'terminal' = 'chat';
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+      const url = new URL(input instanceof Request ? input.url : input, window.location.origin);
+      if (url.pathname === path) {
+        if (method === 'POST') {
+          const { target } = JSON.parse(String(init?.body));
+          handoffs.push(target);
+          if (target === 'terminal') surface = target;
+        }
+        return Response.json({ phase: 'complete', surface, ...(surface === 'chat' && {
+          chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`,
+        }) });
+      }
+      if (method !== 'GET' && /^\/api\/(sessions|preferences)(?:\/|$)/.test(url.pathname)) {
+        unexpectedWrites.push(`${method} ${url.pathname}`);
+        return Response.json({}, { status: 400 });
+      }
+      return Response.json({});
+    });
+    try {
+      render(() => <Layout />);
+      fireEvent.click(await screen.findByRole('button', { name: /^Activate session/ }));
+      if (action === 'Open') await waitFor(() => expect(handoffs).toEqual(['terminal']));
+      else expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'terminal');
+      expect(await screen.findByTestId('workspace-content')).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+      expect(await screen.findByTestId(`session-stat-card-${id}-menu`)).toBeVisible();
+      expect(sessionStore.sessions.find(row => row.id === id)?.workspace).toBe('terminal');
+      expect(sessionStore.preferences.defaultWorkspace).toBe('terminal');
+      expect(sessionStore.preferences.defaultPiSurface).toBe('terminal');
+      expect(unexpectedWrites).toEqual([]);
+    } finally { cleanup(); vi.unstubAllGlobals(); vi.mocked(sessionStore.updatePreferences).mockReset(); }
+  });
+
+  it('resumes a stopped recovery card in Vibe without observing the old writer or opening before attachment', async () => {
+    navigationRendering.realTerminalArea = true;
+    navigationRendering.realDashboard = true;
+    const id = 'abcdef0123456789';
+    const path = `/api/pi-web/${id}/_switch`;
+    const chatUrl = `/api/pi-web/${id}/g/8/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
+    mockPreferences = { defaultPiSurface: 'chat' };
+    mockSessions = [createMockSession({ id, name: 'Saved Pi', agentType: 'pi', workspace: 'terminal',
+      status: 'running', lifecycle: 'stopped', generation: 7, cardStoppedGeneration: 7, shutdownPhase: 'memory-not-merged' })];
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => {
+      readSessionStoreVersion();
+      return true;
+    });
+    vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Ready' });
+    vi.mocked(sessionStore.startSession).mockResolvedValueOnce(undefined);
+    const observedGenerations: (string | null)[] = [];
+    vi.stubGlobal('fetch', async (input: string | Request) => {
+      const url = new URL(input instanceof Request ? input.url : input, window.location.origin);
+      if (url.pathname !== path) return Response.json({});
+      observedGenerations.push(url.searchParams.get('generation'));
+      return Response.json({ phase: 'complete', surface: 'chat', chatUrl });
+    });
+    try {
+      render(() => <Layout />);
+      fireEvent.click(screen.getByRole('button', { name: 'Resume session Saved Pi' }));
+      expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'chat');
+      expect(window.location.pathname).toBe(`/app/session/${id}`);
+      expect(observedGenerations).toEqual([]);
+      mockSessions = [{ ...mockSessions[0], lifecycle: 'running', generation: 8,
+        shutdownPhase: undefined, cardStoppedGeneration: undefined }];
+      bumpSessionStoreVersion();
+      await waitFor(() => expect(observedGenerations).toContain('8'));
+      expect(observedGenerations).not.toContain('7');
+      await screen.findByTitle('Pi Chat');
+      expect(screen.queryByRole('button', { name: /^open$/i })).not.toBeInTheDocument();
+    } finally {
+      cleanup();
+      vi.unstubAllGlobals();
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+    }
+  });
+
+  it('saves the mode from Dashboard without selecting a session', async () => {
+    const { sessionStore } = await import('../../stores/session');
+    navigationRendering.realTerminalArea = true;
+    render(() => <Layout />);
+    vi.mocked(sessionStore.updatePreferences).mockImplementationOnce(async preferences => {
+      mockPreferences = { ...mockPreferences, ...preferences };
+      bumpSessionStoreVersion();
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Workspace mode: Code Mode' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Vibe Mode' }));
+    expect(await screen.findByRole('button', { name: 'Workspace mode: Vibe Mode' })).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeVisible();
+    expect(sessionStore.startSession).not.toHaveBeenCalled();
+  });
+
+  it('reconnects a dropped parked Terminal only after making it foreground', async () => {
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    const key = `${id}:1`;
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'bash', generation: 7 })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    let connected = true;
+    let parked = false;
+    const reconnects: string[] = [];
+    vi.mocked(terminalStore.getConnectionState).mockImplementation(() => connected ? 'connected' : 'disconnected');
+    vi.mocked(terminalStore.setParked).mockImplementation((_id, _tab, value) => { parked = value; });
+    vi.mocked(reconnectDisconnectedTerminals).mockImplementation((_id, visible) => {
+      if (!parked && !connected && visible?.includes(key)) {
+        reconnects.push(key);
+        connected = true;
+      }
+    });
+    try {
+      render(() => <Layout />);
+      const pane = await screen.findByTestId('workspace-content');
+      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+      expect(parked).toBe(true);
+      connected = false;
+      bumpSessionStoreVersion();
+      expect(reconnects).toEqual([]);
+      fireEvent.click(await screen.findByRole('button', { name: 'Return to session' }));
+      expect(reconnects).toEqual([key]);
+      expect(screen.getByTestId('workspace-content')).toBe(pane);
+    } finally {
+      cleanup();
+      vi.mocked(terminalStore.setParked).mockReset();
+      vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
+      vi.mocked(reconnectDisconnectedTerminals).mockReset();
+    }
+  });
+
+  it.each(['generation replacement', 'page exit', 'Stop', 'different session'])('retains one mounted Terminal pane on Dashboard and discards it on %s', async invalidation => {
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'bash', generation: 7 }),
+      createMockSession({ id: 'fedcba9876543210', workspace: 'terminal', agentType: 'bash', generation: 7 })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    vi.mocked(terminalStore.getConnectionState).mockReturnValue('connected');
+    try {
+      render(() => <Layout />);
+      const pane = await screen.findByTestId('workspace-content');
+      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+      expect(pane).toBeInTheDocument();
+      expect(pane).not.toBeVisible();
+      fireEvent.click(await screen.findByRole('button', { name: 'Return to session' }));
+      expect(screen.getByTestId('workspace-content')).toBe(pane);
+      expect(pane).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+      if (invalidation === 'page exit') window.dispatchEvent(new Event('pagehide'));
+      else if (invalidation === 'Stop') fireEvent.click(await screen.findByRole('button', { name: 'Stop retained session' }));
+      else if (invalidation === 'different session') fireEvent.click(await screen.findByRole('button', { name: 'Open another session' }));
+      else {
+        mockSessions = [{ ...mockSessions[0], generation: 8 }];
+        bumpSessionStoreVersion();
+      }
+      expect(pane).not.toBeInTheDocument();
+    } finally { vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected'); }
+  });
+
+  it('groups the existing header with the same Chat frame only after Open', async () => {
+    navigationRendering.realTerminalArea = true;
+    navigationRendering.realHeader = true;
+    const id = 'abcdef0123456789';
+    const [initializing, setInitializing] = createSignal(true);
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation(initializing);
+    vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Container ready' });
+    vi.mocked(sessionStore.dismissInitProgressForSession).mockImplementation(() => setInitializing(false));
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    vi.stubGlobal('fetch', async (url: string) => Response.json(url.endsWith('/_switch?generation=7')
+      ? { phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` } : {}));
+    try {
+      render(() => <Layout />);
+      const frame = await screen.findByTitle('Pi Chat');
+      if (!(frame instanceof HTMLIFrameElement)) throw new Error('Expected the stock Chat frame');
+      const header = screen.getByRole('banner');
+      expect(frame).not.toBeVisible();
+      expect(screen.queryByRole('group', { name: 'Vibe Chat' })).not.toBeInTheDocument();
+
+      vi.useFakeTimers();
+      const doc = document.implementation.createHTMLDocument();
+      Object.defineProperty(doc, 'URL', { value: frame.src });
+      doc.body.innerHTML = '<pi-web-app></pi-web-app>';
+      Object.defineProperty(frame, 'contentDocument', { value: doc });
+      fireEvent.load(frame);
+      await vi.advanceTimersByTimeAsync(5000);
+      fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+
+      const panel = within(screen.getByRole('group', { name: 'Vibe Chat' }));
+      expect(screen.getAllByRole('banner')).toEqual([header]);
+      expect(panel.getByRole('banner')).toBe(header);
+      expect(panel.getByTitle('Pi Chat')).toBe(frame);
+      expect(frame).toBeVisible();
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
+      vi.mocked(sessionStore.dismissInitProgressForSession).mockReset();
+    }
+  });
+
+  describe('REQ-AGENT-275: startup Open and the phone prompt', () => {
+    it.each(['fresh empty', 'Resume', 'desktop', 'mouse on phone', 'keyboard activation', 'nonempty', 'unknown history',
+      'native question', 'transcript question', 'stock modal', 'activity notice', 'replaced document', 'different conversation',
+      'switched attachment'] as const)(
+      'opens the retained Chat in place: %s', async scenario => {
+        navigationRendering.realTerminalArea = true;
+        const id = 'abcdef0123456789';
+        const creating = scenario !== 'Resume';
+        const generation = creating ? 1 : 2;
+        const session: SessionWithStatus = { ...createMockSession(), id, workspace: 'terminal', terminalMode: 'classic', agentType: 'pi',
+          status: 'stopped', generation: generation - 1 };
+        mockPreferences = { defaultPiSurface: 'chat' };
+        mockPhone = scenario !== 'desktop';
+        mockSessions = creating ? [] : [session];
+        const [initializing, setInitializing] = createSignal(false);
+        vi.mocked(sessionStore.isSessionInitializing).mockImplementation(initializing);
+        vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Container ready' });
+        vi.mocked(sessionStore.dismissInitProgressForSession).mockImplementation(() => setInitializing(false));
+        if (creating) vi.mocked(sessionStore.createSession).mockImplementationOnce(async () => {
+          mockSessions = [session];
+          bumpSessionStoreVersion();
+          return session;
+        });
+        vi.mocked(sessionStore.startSession).mockImplementationOnce(async (_id, _surface, freshChat?: boolean) => {
+          if (freshChat) mockFreshChatStart = { id, generation };
+          mockSessions = [{ ...session, status: 'running', generation }];
+          setInitializing(true);
+          bumpSessionStoreVersion();
+        });
+        let attachment = 1;
+        vi.stubGlobal('fetch', async (url: string) => Response.json(url.endsWith(`/_switch?generation=${generation}`)
+          ? { phase: 'complete', surface: 'chat', target: 'chat', requestId: `00000000-0000-4000-8000-00000000000${attachment + 2}`,
+            chatUrl: `/api/pi-web/${id}/g/${generation}/a/00000000-0000-4000-8000-00000000000${attachment}/?project=p&workspace=w&session=native&view=chat` } : {}));
+        vi.useFakeTimers();
+        try {
+          render(() => <Layout />);
+          fireEvent.click(screen.getByRole('button', { name: creating ? 'Start fresh Vibe' : 'Start session' }));
+          await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).toBeInTheDocument());
+          if (scenario === 'switched attachment') {
+            const first = screen.getByTitle('Pi Chat');
+            attachment = 2;
+            await vi.advanceTimersByTimeAsync(5000);
+            await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).not.toBe(first));
+          }
+          const frame = screen.getByTitle('Pi Chat');
+          if (!(frame instanceof HTMLIFrameElement) || !frame.contentDocument) throw new Error('Expected the stock Chat frame');
+          const src = frame.src;
+          const stockDocument = (doc: Document) => {
+            if (!doc.body) {
+              doc.open();
+              doc.write('<!doctype html><html><body></body></html>');
+              doc.close();
+            }
+            Object.defineProperty(doc, 'URL', { value: src });
+            const app = doc.body.appendChild(Object.assign(doc.createElement('pi-web-app'), {
+              isRenderedModalOpen: () => scenario === 'stock modal', isChatVisible: () => true,
+            }));
+            const root = app.attachShadow({ mode: 'open' });
+            root.innerHTML = '<main class="chat-view"><conversation-layout><chat-view></chat-view>'
+              + '<div slot="composer"><prompt-editor></prompt-editor></div></conversation-layout></main>';
+            Object.assign(root.querySelector('conversation-layout')!, { questionActions: scenario === 'transcript question' ? {} : undefined });
+            Object.assign(root.querySelector('chat-view')!, { sessionId: 'native',
+              historyReady: scenario !== 'unknown history', messageTotal: scenario === 'nonempty' ? 1 : 0,
+              messages: scenario === 'nonempty' ? [{ role: 'system' }] : [], hasMore: false,
+              pendingDialogs: scenario === 'native question' ? [{}] : [], closedDialogs: [] });
+            const editor = root.querySelector('prompt-editor')!;
+            const editorRoot = editor.attachShadow({ mode: 'open' });
+            const input = editorRoot.appendChild(doc.createElement('div'));
+            input.className = 'cm-content';
+            input.setAttribute('contenteditable', 'true');
+            input.tabIndex = 0;
+            Object.defineProperty(input, 'getClientRects', { value: () => [new DOMRect(0, 0, 100, 20)] });
+            if (scenario === 'activity notice') editor.setAttribute('inert', '');
+            // Stand in for the pinned stock focus method; observe actual focus and the reveal at that moment.
+            const focusedWhileVisible: boolean[] = [];
+            Object.assign(editor, { disabled: false, sessionId: scenario === 'different conversation' ? 'other' : 'native',
+              projectId: 'p', workspaceId: 'w', focusInput: () => {
+                focusedWhileVisible.push(!frame.closest('[inert]') && frame.closest('main > .pi-web-chat')?.getAttribute('style')?.includes('visibility: hidden') !== true);
+                input.focus();
+              } });
+            return { doc, editorRoot, input, focusedWhileVisible };
+          };
+          let stock = stockDocument(frame.contentDocument);
+          Object.defineProperty(frame, 'contentDocument', { get: () => stock.doc });
+          expect(frame).not.toBeVisible();
+          fireEvent.load(frame);
+          await vi.advanceTimersByTimeAsync(5000);
+          if (scenario === 'replaced document') {
+            stock = stockDocument(document.implementation.createHTMLDocument());
+            fireEvent.load(frame);
+            await vi.advanceTimersByTimeAsync(5000);
+          }
+          expect(stock.editorRoot.activeElement).toBeNull();
+          const open = screen.getByRole('button', { name: 'Open' });
+          fireEvent(open, new PointerEvent('click', { bubbles: true, composed: true,
+            detail: scenario === 'keyboard activation' ? 0 : 1,
+            pointerType: scenario === 'mouse on phone' || scenario === 'desktop' ? 'mouse' : 'touch' }));
+          if (scenario === 'fresh empty') {
+            expect(stock.editorRoot.activeElement).toBe(stock.input);
+            expect(stock.focusedWhileVisible).toEqual([true]);
+          } else {
+            expect(stock.editorRoot.activeElement).toBeNull();
+            await vi.runOnlyPendingTimersAsync();
+            expect(stock.editorRoot.activeElement).toBeNull();
+            expect(stock.focusedWhileVisible).toEqual([]);
+          }
+          expect(open).not.toBeInTheDocument();
+          expect(screen.getByTitle('Pi Chat')).toBe(frame);
+          expect(frame.contentDocument).toBe(stock.doc);
+          expect(frame.src).toBe(src);
+          expect(frame).toBeVisible();
+        } finally {
+          cleanup();
+          vi.useRealTimers();
+          vi.unstubAllGlobals();
+          vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+          vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
+          vi.mocked(sessionStore.dismissInitProgressForSession).mockReset();
+        }
+      },
+    );
+  });
+
+  it.each(['generation replacement', 'page exit'])('reuses the open Chat frame on Dashboard return and discards it on %s', async invalidation => {
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    const switches: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.includes('/_switch')) switches.push(url);
+      const generation = /_switch\?generation=(7|8)$/.exec(url)?.[1];
+      return generation ? Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/${generation}/a/00000000-0000-4000-8000-000000000001/?view=chat` }) : Response.json({});
+    });
+    try {
+      render(() => <Layout />);
+      const frame = await screen.findByTitle('Pi Chat');
+      expect(within(screen.getByRole('group', { name: 'Vibe Chat' })).getByTitle('Pi Chat')).toBe(frame);
+      // A batch-status update for the same launch must not reload the prepared frame.
+      mockSessions = [{ ...mockSessions[0], lifecycle: 'running', revision: 2 }];
+      bumpSessionStoreVersion();
+      expect(screen.getByTitle('Pi Chat')).toBe(frame);
+      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+      expect(frame).toBeInTheDocument();
+      expect(frame).not.toBeVisible();
+      expect(screen.queryByRole('group', { name: 'Vibe Chat' })).not.toBeInTheDocument();
+      mockPreferences = { defaultPiSurface: 'terminal' };
+      bumpSessionStoreVersion();
+      fireEvent.click(await screen.findByRole('button', { name: 'Return to session' }));
+      expect(screen.getByTitle('Pi Chat')).toBe(frame);
+      expect(frame).toBeVisible();
+      expect(within(screen.getByRole('group', { name: 'Vibe Chat' })).getByTitle('Pi Chat')).toBe(frame);
+      expect(switches).toEqual([]);
+      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+      if (invalidation === 'page exit') window.dispatchEvent(new Event('pagehide'));
+      else {
+        mockSessions = [{ ...mockSessions[0], generation: 8 }];
+        bumpSessionStoreVersion();
+      }
+      expect(frame).not.toBeInTheDocument();
+      expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  });
+
+  it.each(['generation replacement', 'Stop', 'ownership loss', 'page exit'] as const)('switches between two running Chats without replacing either frame or requesting a writer, then handles %s', async invalidation => {
+    navigationRendering.realTerminalArea = true;
+    navigationRendering.realHeader = true;
+    const first = 'abcdef0123456789';
+    const second = 'fedcba9876543210';
+    mockSessions = [first, second].map((id, index) => createMockSession({ id, name: `Chat ${index + 1}`, workspace: 'terminal', agentType: 'pi', generation: 7 }));
+    window.history.replaceState(null, '', `/app/session/${first}`);
+    const switches: string[] = [];
+    let firstOwnsChat = true;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.includes('/_switch')) switches.push(url);
+      const id = /\/api\/pi-web\/([^/]+)\/_switch\?generation=7$/.exec(url)?.[1];
+      if (id === first && !firstOwnsChat) return Response.json({ phase: 'active', surface: 'terminal' });
+      return Response.json(id ? { phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` } : {});
+    });
+    const frameFor = (id: string) => screen.queryAllByTitle('Pi Chat').find(frame =>
+      frame.getAttribute('src')?.includes(`/api/pi-web/${id}/g/7/`));
+    const dashboard = () => fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+    const select = async (name: string) => fireEvent.click(await screen.findByRole('button', { name }));
+    try {
+      render(() => <Layout />);
+      const a = await waitFor(() => { const frame = frameFor(first); expect(frame).toBeVisible(); return frame; });
+      fireEvent.click(screen.getByTestId('session-switcher'));
+      fireEvent.click(within(screen.getByTestId('session-dropdown')).getByRole('button', { name: 'Activate session Chat 2' }));
+      const b = await waitFor(() => { const frame = frameFor(second); expect(frame).toBeVisible(); return frame; });
+      expect(a).toBeInTheDocument();
+      expect(a).not.toBeVisible();
+
+      mockPreferences = { defaultPiSurface: 'terminal' };
+      bumpSessionStoreVersion();
+      dashboard();
+      await select('Return to session');
+      expect(frameFor(first)).toBe(a);
+      expect(a).toBeVisible();
+      expect(b).not.toBeVisible();
+      expect(screen.queryByRole('button', { name: /^Open$/ })).not.toBeInTheDocument();
+      dashboard();
+      await select('Open another session');
+      expect(frameFor(second)).toBe(b);
+      expect(b).toBeVisible();
+      expect(screen.queryByRole('button', { name: /^Open$/ })).not.toBeInTheDocument();
+      expect(switches).toEqual([]);
+
+      if (invalidation === 'page exit') {
+        dashboard();
+        expect(a).toBeInTheDocument();
+        expect(b).toBeInTheDocument();
+        window.dispatchEvent(new Event('pagehide'));
+        expect(a).not.toBeInTheDocument();
+        expect(b).not.toBeInTheDocument();
+      } else {
+        if (invalidation === 'generation replacement') {
+          mockSessions = [{ ...mockSessions[0], generation: 8 }, mockSessions[1]];
+          bumpSessionStoreVersion();
+        } else if (invalidation === 'Stop') {
+          dashboard();
+          await select('Stop retained session');
+          await select('Open another session');
+        } else {
+          firstOwnsChat = false;
+          await waitFor(() => expect(a).not.toBeInTheDocument(), { timeout: 6500 });
+        }
+        expect(a).not.toBeInTheDocument();
+        expect(frameFor(second)).toBe(b);
+        expect(b).toBeVisible();
+      }
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  }, 10000);
+
+  it.each(['acknowledged', 'unacknowledged', 'superseded', 'rejected', 'other tab'] as const)('restores the matching Chat attachment gate or saved preference after a %s handoff', async scenario => {
+    navigationRendering.realTerminalArea = true;
+    const first = 'abcdef0123456789';
+    const second = 'fedcba9876543210';
+    mockSessions = [first, second].map(id => createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 }));
+    window.history.replaceState(null, '', `/app/session/${first}`);
+    let requestId: string | undefined;
+    const switches: string[] = [];
+    const unpublished = scenario === 'unacknowledged' || scenario === 'rejected' || scenario === 'other tab';
+    let published = !unpublished;
+    const remoteRequest = crypto.randomUUID();
+    let superseded = false;
+    let hitsWhileUnpublished = 0;
+    mockVisiblePanes = [{ sessionId: first, terminalId: '1' }];
+    let acknowledge!: () => void;
+    const waitForAcknowledgement = new Promise<void>(resolve => { acknowledge = resolve; });
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      const id = /\/api\/pi-web\/([^/]+)\/_switch(?:\?generation=7)?$/.exec(url)?.[1];
+      if (!id) return Response.json({});
+      if (init?.method === 'POST') {
+        switches.push(id);
+        requestId = JSON.parse(String(init.body)).requestId;
+        if (switches.length === 1) {
+          await waitForAcknowledgement;
+          if (scenario === 'rejected') return Response.json({ error: 'Switch rejected' }, { status: 400 });
+        }
+        else { published = true; superseded = false; }
+      }
+      if (id === first && requestId && !published) hitsWhileUnpublished++;
+      if (id === second || !requestId || !published) return Response.json({ phase: 'active', surface: 'terminal' });
+      if (superseded) return Response.json({ phase: 'complete', surface: 'terminal', target: 'terminal', requestId: crypto.randomUUID() });
+      return Response.json({ phase: 'complete', surface: 'chat', target: 'chat', requestId: scenario === 'other tab' ? remoteRequest : requestId,
+        chatUrl: `/api/pi-web/${first}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` });
+    });
+    const dashboard = () => fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+    try {
+      render(() => <Layout />);
+      const mode = () => within(screen.getByRole('banner')).getByRole('button', { name: 'Workspace mode: Code Mode' });
+      await waitFor(() => expect(mode()).toBeEnabled());
+      fireEvent.click(mode());
+      fireEvent.click(await screen.findByRole('button', { name: 'Vibe Mode' }));
+      expect(switches).toEqual([first]);
+      if (published) {
+        acknowledge();
+        expect(await screen.findByTitle('Pi Chat')).not.toBeVisible();
+        expect(screen.getByTestId('workspace-content')).toBeVisible();
+      } else expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+      dashboard();
+      fireEvent.click(await screen.findByRole('button', { name: 'Open another session' }));
+      await waitFor(() => expect(mode()).toBeEnabled());
+      superseded = scenario === 'superseded';
+      if (!unpublished) acknowledge();
+      dashboard();
+      mockPreferences = { defaultPiSurface: scenario === 'acknowledged' || scenario === 'other tab' ? 'terminal' : 'chat' };
+      bumpSessionStoreVersion();
+      if (unpublished) vi.useFakeTimers();
+      const readsBeforeReturn = hitsWhileUnpublished;
+      fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
+      if (unpublished) {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(hitsWhileUnpublished).toBeGreaterThan(readsBeforeReturn);
+        expect(screen.getByTestId('workspace-content')).toBeVisible();
+        expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+        const pendingMode = mode();
+        expect(pendingMode).toBeDisabled();
+        fireEvent.click(pendingMode);
+        expect(screen.queryByRole('button', { name: 'Vibe Mode' })).not.toBeInTheDocument();
+        expect(switches).toEqual([first]);
+        if (scenario === 'rejected') {
+          acknowledge();
+          await vi.advanceTimersByTimeAsync(5000);
+          expect(switches).toEqual([first]);
+          expect(mode()).toBeEnabled();
+          dashboard();
+          fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
+          await vi.advanceTimersByTimeAsync(0);
+          expect(switches).toEqual([first, first]);
+          return;
+        }
+        published = true;
+        if (scenario === 'unacknowledged') acknowledge();
+        await vi.advanceTimersByTimeAsync(5000);
+      }
+      if (scenario === 'superseded') {
+        await waitFor(() => expect(switches).toEqual([first, first]));
+        return;
+      }
+      const frame = unpublished ? screen.getByTitle('Pi Chat') : await screen.findByTitle('Pi Chat');
+      expect(frame).not.toBeVisible();
+      expect(screen.getByTestId('workspace-content')).toBeVisible();
+      if (!(frame instanceof HTMLIFrameElement)) throw new Error('Expected the stock Chat frame');
+      if (!unpublished) vi.useFakeTimers();
+      const doc = document.implementation.createHTMLDocument();
+      Object.defineProperty(doc, 'URL', { value: frame.src });
+      doc.body.innerHTML = '<pi-web-app></pi-web-app>';
+      Object.defineProperty(frame, 'contentDocument', { value: doc });
+      fireEvent.load(frame);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(frame).toBeVisible();
+      expect(switches).toEqual([first]);
+    } finally { acknowledge(); cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); }
+  });
+
+  it.each(['workspace', 'Dashboard'] as const)('returns from %s Profile Usage to the same Chat without another writer request', async origin => {
+    navigationRendering.realTerminalArea = true;
+    navigationRendering.realDashboard = true;
+    navigationRendering.realHeader = true;
+    const id = 'abcdef0123456789';
+    appAuth.getUser.mockResolvedValue({ email: 'owner@example.com', role: 'user', authenticated: true });
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    const switches: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.includes('/_switch')) switches.push(url);
+      return url.endsWith('/_switch?generation=7')
+        ? Response.json({ phase: 'active', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` })
+        : Response.json({});
+    });
+    try {
+      render(() => <App />);
+      const frame = await screen.findByTitle('Pi Chat');
+      await waitFor(() => expect(frame).toBeVisible());
+      const src = frame.getAttribute('src');
+      if (origin === 'Dashboard') {
+        fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+        const dashboard = await screen.findByTestId('dashboard');
+        await waitFor(() => expect(dashboard).toBeVisible());
+        fireEvent.click(within(dashboard).getByRole('button', { name: 'User menu' }));
+        expect(await screen.findByTestId('header-user-dropdown-overlay')).toBeVisible();
+      } else {
+        fireEvent.click(screen.getByRole('button', { name: 'User menu' }));
+        expect(frame).toBeVisible();
+      }
+      const menu = within(await screen.findByTestId('header-user-dropdown'));
+      fireEvent.click(menu.getByRole('link', { name: /^Usage/ }));
+      const back = await screen.findByRole('link', { name: 'Back to Dashboard' });
+      expect(window.location.pathname).toBe('/app/usage');
+      expect(screen.queryByTestId('header-user-dropdown-overlay')).not.toBeInTheDocument();
+      expect(frame).toBeInTheDocument();
+      expect(frame).not.toBeVisible();
+      fireEvent.click(back);
+      const session = await screen.findByRole('button', { name: 'Activate session Test Session' });
+      expect(window.location.pathname).toBe('/app/');
+      expect(frame).not.toBeVisible();
+      fireEvent.click(session);
+      await waitFor(() => expect(frame).toBeVisible());
+      expect(screen.getByTitle('Pi Chat')).toBe(frame);
+      expect(frame).toHaveAttribute('src', src);
+      expect(switches).toEqual([]);
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  });
+
+  it('keeps the source Chat during a waiting switch without a cancel button', async () => {
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    const prefix = `/api/pi-web/${id}/`;
+    const chatUrl = `${prefix}g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    let phase = 'active';
+    let requestId: string | undefined;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (url === `${prefix}_switch` && init?.method === 'POST') {
+        requestId = JSON.parse(String(init.body)).requestId;
+        phase = 'waiting';
+      } else if (url !== `${prefix}_switch?generation=7`) return Response.json({});
+      return Response.json({ phase, surface: 'chat', chatUrl, ...(requestId && { requestId, target: 'terminal' }) });
+    });
+    try {
+      render(() => <Layout />);
+      const frame = await screen.findByTitle('Pi Chat');
+      fireEvent.click(screen.getByRole('button', { name: 'Workspace mode: Vibe Mode' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Code Mode' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Code Mode' })).toBeDisabled());
+      expect(screen.queryByRole('button', { name: 'Cancel switch' })).not.toBeInTheDocument();
+      expect(screen.getByTitle('Pi Chat')).toBe(frame);
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  });
+
+  it('keeps Vibe visible after Host confirms Code until its terminal attaches', async () => {
+    navigationRendering.realTerminalArea = true;
+    navigationRendering.terminalAutoFocus = true;
+    const id = 'abcdef0123456789';
+    const prefix = `/api/pi-web/${id}/`;
+    const chatUrl = `${prefix}g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
+    const { terminalStore, reconnectOnVisibilityReturn } = await import('../../stores/terminal');
+    const [connection, setConnection] = createSignal<'connected' | 'disconnected'>('disconnected');
+    const [initializing, setInitializing] = createSignal(false);
+    vi.mocked(terminalStore.getConnectionState).mockImplementation(connection);
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation(initializing);
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    mockVisiblePanes = [{ sessionId: id, terminalId: '3' }];
+    mockTerminalsForSession = { tabs: [{ id: '1' }, { id: '2' }, { id: '3' }], activeTabId: '3' };
+    mockTilingForSession = { enabled: true, layout: '2-split' };
+    mockTabOrder = ['1', '2', '3'];
+    vi.mocked(sessionStore.setActiveTerminalTab).mockImplementation((_id, tab) => {
+      mockTerminalsForSession = { ...mockTerminalsForSession, activeTabId: tab };
+      bumpSessionStoreVersion();
+    });
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    let requestId: string | undefined;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (url !== `${prefix}_switch?generation=7` && url !== `${prefix}_switch`) return Response.json({});
+      if (init?.method === 'POST') requestId = JSON.parse(String(init.body)).requestId;
+      return Response.json(requestId ? { phase: 'complete', surface: 'terminal', target: 'terminal', requestId }
+        : { phase: 'active', surface: 'chat', chatUrl });
+    });
+    try {
+      render(() => <Layout />);
+      const source = await screen.findByTitle('Pi Chat');
+      const vibe = screen.getByRole('button', { name: 'Workspace mode: Vibe Mode' });
+      await waitFor(() => expect(vibe).toBeEnabled());
+      fireEvent.click(vibe);
+      fireEvent.click(screen.getByRole('button', { name: 'Code Mode' }));
+      const pane = await screen.findByTestId('workspace-content-1');
+      expect(screen.getByTestId('workspace-content-2')).toHaveAttribute('data-connect', 'false');
+      expect(pane).toHaveAttribute('data-connect', 'true');
+      expect(screen.queryByTestId('workspace-content-3')).not.toBeInTheDocument();
+      const visible = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      try { document.dispatchEvent(new Event('visibilitychange')); } finally { visible.mockRestore(); }
+      expect(reconnectOnVisibilityReturn).toHaveBeenCalledWith(undefined, [`${id}:1`]);
+      expect(pane).not.toBeVisible();
+      expect(pane).toHaveAttribute('data-focused', 'false');
+      expect(source).toBeVisible();
+      expect(within(screen.getByRole('group', { name: 'Vibe Chat' })).getByTitle('Pi Chat')).toBe(source);
+      expect(screen.getByRole('button', { name: 'Code Mode' })).toBeDisabled();
+      setConnection('connected');
+      await waitFor(() => expect(pane).toBeVisible());
+      expect(pane).toHaveAttribute('data-focused', 'true');
+      expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'Vibe Chat' })).not.toBeInTheDocument();
+      const code = screen.getByRole('button', { name: 'Workspace mode: Code Mode' });
+      expect(code).toBe(vibe);
+      expect(code).toHaveFocus();
+      // Initialization is a dependency of the real terminal autofocus effect.
+      setInitializing(true);
+      expect(screen.queryByTestId('workspace-content-1')).not.toBeInTheDocument();
+      setInitializing(false);
+      const input = within(await screen.findByTestId('workspace-content-1')).getByRole('textbox', { name: 'Terminal input' });
+      expect(code).toHaveFocus();
+      input.focus();
+      expect(input).toHaveFocus();
+    } finally {
+      navigationRendering.terminalAutoFocus = false;
+      cleanup();
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+      vi.mocked(sessionStore.setActiveTerminalTab).mockReset();
+      vi.unstubAllGlobals();
+      vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
+    }
+  });
+
+  it('keeps the repository restore notice visible across Classic Chat and Terminal switches', async () => {
+    navigationRendering.realTerminalArea = true;
+    const sessionId = 'abcdef0123456789';
+    const prefix = `/api/pi-web/${sessionId}/`;
+    const chatUrl = `${prefix}g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
+    let surface = 'chat';
+    let requestId: string | undefined;
+    const { terminalStore } = await import('../../stores/terminal');
+    vi.mocked(terminalStore.getConnectionState).mockReturnValue('connected');
+    mockSessions = [createMockSession({ id: sessionId, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    mockVisiblePanes = [{ sessionId, terminalId: '1' }];
+    mockRepositoryNotices = { [sessionId]: { status: 'restoring' } };
+    window.history.replaceState(null, '', `/app/session/${sessionId}`);
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (url !== `${prefix}_switch?generation=7` && url !== `${prefix}_switch`) return Response.json({});
+      if (init?.method === 'POST') ({ target: surface, requestId } = JSON.parse(String(init.body)));
+      return Response.json({ phase: requestId ? 'complete' : 'active', surface,
+        ...(requestId && { requestId, target: surface }), ...(surface === 'chat' && { chatUrl }) });
+    });
+    try {
+      render(() => <Layout />);
+      const original = await screen.findByTitle('Pi Chat');
+      if (!(original instanceof HTMLIFrameElement)) throw new Error('Expected the original stock Chat frame');
+      const notice = screen.getByText('Restoring repositories…');
+      const vibe = screen.getByRole('button', { name: 'Workspace mode: Vibe Mode' });
+      await waitFor(() => expect(vibe).toBeEnabled());
+      fireEvent.click(vibe);
+      fireEvent.click(screen.getByRole('button', { name: 'Code Mode' }));
+      await waitFor(() => expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument());
+      expect(notice).toBeVisible();
+      const code = await screen.findByRole('button', { name: 'Workspace mode: Code Mode' });
+      await waitFor(() => expect(code).toBeEnabled());
+      if (code.getAttribute('aria-expanded') === 'false') fireEvent.click(code);
+      fireEvent.click(screen.getByRole('button', { name: 'Vibe Mode' }));
+      const waiting = await screen.findByTitle('Pi Chat');
+      if (!(waiting instanceof HTMLIFrameElement)) throw new Error('Expected the replacement stock Chat frame');
+      expect(waiting).not.toBe(original);
+      expect(waiting).not.toBeVisible();
+      expect(screen.getByTestId('workspace-content')).toBeVisible();
+      vi.useFakeTimers();
+      const attachDocument = (frame: HTMLIFrameElement) => {
+        const doc = document.implementation.createHTMLDocument();
+        Object.defineProperty(doc, 'URL', { value: frame.src });
+        doc.body.innerHTML = '<pi-web-app></pi-web-app>';
+        Object.defineProperty(frame, 'contentDocument', { value: doc });
+        return doc;
+      };
+      const doc = attachDocument(waiting);
+      doc.documentElement.setAttribute('data-pi-web-loading', '');
+      fireEvent.load(waiting);
+      attachDocument(original);
+      fireEvent.load(original);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(waiting).not.toBeVisible();
+      doc.documentElement.removeAttribute('data-pi-web-loading');
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(waiting).toBeVisible();
+      expect(screen.queryByTestId('workspace-content')).not.toBeInTheDocument();
+      expect(notice).toBeVisible();
+      const { sessionStore } = await import('../../stores/session');
+      expect(sessionStore.updatePreferences).toHaveBeenCalledWith({ defaultPiSurface: 'terminal' });
+      expect(sessionStore.updatePreferences).toHaveBeenCalledWith({ defaultPiSurface: 'chat' });
+    } finally {
+      cleanup(); vi.useRealTimers(); vi.unstubAllGlobals();
+      vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
+    }
+  });
+
+  it.each([{ herdrEnabled: true }, { defaultWorkspace: 'vscode' }])('withdraws switch retry without replacing the running Chat when settings change to %j', async preferences => {
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (!url.startsWith(`/api/pi-web/${id}/_switch`)) return Response.json({});
+      if (init?.method === 'POST') requests.push(url);
+      return Response.json({ phase: 'failed', surface: 'chat', target: 'terminal',
+        requestId: 'd00c2f0c-c268-44ad-a23a-384e27941ad1', chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` });
+    });
+    try {
+      render(() => <Layout />);
+      const retry = await screen.findByRole('button', { name: 'Retry switch' });
+      const frame = screen.getByTitle('Pi Chat');
+      mockPreferences = preferences;
+      bumpSessionStoreVersion();
+      expect(screen.queryByRole('button', { name: 'Retry switch' })).not.toBeInTheDocument();
+      fireEvent.click(retry);
+      expect(requests).toEqual([]);
+      expect(screen.getByTitle('Pi Chat')).toBe(frame);
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  });
+
+  it('keeps the original native terminal reachable when a post-quit terminal switch needs a retry', async () => {
+    navigationRendering.realTerminalArea = true;
+    const sessionId = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id: sessionId, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    mockVisiblePanes = [{ sessionId, terminalId: '1' }];
+    window.history.replaceState(null, '', `/app/session/${sessionId}`);
+    const requestId = 'd00c2f0c-c268-44ad-a23a-384e27941ad1';
+    const requests: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (url !== `/api/pi-web/${sessionId}/_switch?generation=7` && url !== `/api/pi-web/${sessionId}/_switch`) {
+        return Response.json({});
+      }
+      if (init?.method === 'POST') requests.push(JSON.parse(String(init.body)));
+      return Response.json({ phase: 'failed', target: 'terminal', surface: null, requestId });
+    });
+    try {
+      render(() => <Layout />);
+      const retry = await screen.findByRole('button', { name: 'Retry switch' });
+      expect(screen.getByTestId('workspace-content')).toBeVisible();
+      expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+      fireEvent.click(retry);
+      await waitFor(() => expect(requests).toEqual([{ generation: 7, requestId, target: 'terminal' }]));
+    } finally { cleanup(); vi.unstubAllGlobals(); }
   });
 
   it('REQ-ENTERPRISE-323: shares clone notices and preserves retry acknowledgment when returning to Dashboard', async () => {
@@ -568,6 +1595,32 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       vi.mocked(sessionStore.loadSessions).mockReset();
       Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
     }
+  });
+
+  it.each(['Stop', 'Delete'] as const)('REQ-SESSION-006: dropdown %s returns to Dashboard before the request settles', async action => {
+    navigationRendering.realHeader = true;
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id, status: 'running' })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    const { sessionStore } = await import('../../stores/session');
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    const command = vi.mocked(action === 'Stop' ? sessionStore.stopSession : sessionStore.deleteSession);
+    command.mockReturnValueOnce(pending);
+    try {
+      render(() => <Layout />);
+      await waitFor(() => expect(mockActiveSessionId).toBe(id));
+      fireEvent.click(screen.getByTestId('session-switcher'));
+      fireEvent.click(within(screen.getByTestId('session-dropdown')).getByRole('button', { name: 'Session actions' }));
+      fireEvent.click(screen.getByRole('button', { name: action }));
+      if (action === 'Delete') fireEvent.click(screen.getByRole('button', { name: 'Are you sure?' }));
+      expect(window.location.pathname).toBe('/app/');
+      expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeVisible();
+      expect(mockActiveSessionId).toBeNull();
+      expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
+      expect(command).toHaveBeenCalledWith(id);
+    } finally { finish(); }
   });
 
   describe('REQ-TERM-027 AC3: canonical session deep links', () => {
@@ -919,6 +1972,168 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     });
   });
 
+  describe('Vault on VS Code Dashboard cards', () => {
+    it('prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)', async () => {
+      navigationRendering.realDashboard = navigationRendering.realTerminalArea = vaultRendering.realLifecycle = true;
+      mockPreferences = { sessionMode: 'advanced', defaultWorkspace: 'terminal' };
+      const first = 'abcdef0123456789';
+      const second = 'fedcba9876543210';
+      const terminal = '1234567890abcdef';
+      const third = '0123456789abcdef';
+      mockSessions = [
+        createMockSession({ id: first, workspace: 'vscode', editorReady: true }),
+        createMockSession({ id: second, workspace: 'vscode', editorReady: false }),
+        createMockSession({ id: terminal, workspace: 'terminal' }),
+        createMockSession({ id: third, workspace: 'vscode', editorReady: true }),
+      ];
+      vi.stubGlobal('fetch', async (input: string | URL | Request) => Response.json({
+        vaultReady: [first, second, third].some(id => input === `/api/vault/${id}/status`),
+      }));
+      let confirmKey!: (recoverable: boolean) => void;
+      vaultLocalReadinessMock.keyRecoverable.mockImplementation(id => id === first
+        ? new Promise(resolve => { confirmKey = resolve; })
+        : Promise.resolve(false));
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      const focus = vi.spyOn(window, 'focus').mockImplementation(() => {});
+      const frame = () => document.querySelector<HTMLIFrameElement>('iframe[title="Vault prewarm"]');
+      const proveReady = (iframe: HTMLIFrameElement) => {
+        const doc = iframe.contentDocument!;
+        doc.open();
+        doc.write(`<base href="${vaultPrewarmProof.scope}">`);
+        doc.close();
+        window.dispatchEvent(new MessageEvent('message', {
+          origin: window.location.origin, source: iframe.contentWindow,
+          data: { source: 'codeflare-vault-prewarm', status: 'ready', proof: vaultPrewarmProof,
+            prewarmId: new URL(iframe.src).searchParams.get('prewarmId') },
+        }));
+      };
+
+      try {
+        render(() => <Layout />);
+        const a = () => within(screen.getByTestId(`session-stat-card-${first}`));
+        const b = () => within(screen.getByTestId(`session-stat-card-${second}`));
+        const waiting = a().getByRole('button', { name: 'Vault waiting for this session' });
+        expect(waiting).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.click(waiting);
+        expect(frame()).toBeNull();
+
+        const available = await a().findByRole('button', { name: 'Open your Vault' });
+        const other = await b().findByRole('button', { name: 'Open your Vault' });
+        expect(within(screen.getByTestId(`session-stat-card-${terminal}`)).queryByRole('button', { name: /Vault/i })).toBeNull();
+        expect(frame()).toBeNull();
+        available.focus();
+        expect(available).toHaveFocus();
+        available.click();
+        const attempt = frame()!;
+        expect(new URL(attempt.src).pathname).toBe(`/api/vault/${first}/.codeflare-bootstrap`);
+        expect(available).toHaveAttribute('aria-disabled', 'true');
+        expect(available).not.toHaveAttribute('title');
+        expect(a().queryByTestId('header-vault-status')).toBeNull();
+        fireEvent.click(available);
+        fireEvent.click(other);
+        expect(frame()).toBe(attempt);
+        expect(open).not.toHaveBeenCalled();
+
+        proveReady(attempt);
+        expect(available).toHaveAccessibleName('Preparing your Vault…');
+        expect(available).toHaveAttribute('aria-disabled', 'true');
+        expect(frame()).toBeNull();
+        expect(open).not.toHaveBeenCalled();
+        confirmKey(true);
+        const armed = await a().findByRole('button', { name: 'Vault ready; another Vault is preparing' });
+        const secondAttempt = frame()!;
+        expect(new URL(secondAttempt.src).pathname).toBe(`/api/vault/${second}/.codeflare-bootstrap`);
+        expect(other).toHaveAccessibleName('Preparing your Vault…');
+        expect(armed).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.click(armed);
+        expect(a().queryByTestId('header-vault-status')).toBeNull();
+        expect(b().queryByTestId('header-vault-status')).toBeNull();
+        expect(open).not.toHaveBeenCalled();
+        expect(frame()).toBe(secondAttempt);
+
+        const thirdCard = within(screen.getByTestId(`session-stat-card-${third}`));
+        fireEvent.click(await thirdCard.findByRole('button', { name: 'Open your Vault' }));
+        vi.useFakeTimers();
+        proveReady(secondAttempt);
+        await vi.advanceTimersByTimeAsync(300_000);
+        const retry = b().getByRole('button', { name: 'Retry Vault preparation' });
+        expect(retry).toHaveAttribute('aria-disabled', 'false');
+        expect(new URL(frame()!.src).pathname).toBe(`/api/vault/${third}/.codeflare-bootstrap`);
+        fireEvent.click(retry);
+        expect(new URL(frame()!.src).pathname).toBe(`/api/vault/${third}/.codeflare-bootstrap`);
+        mockSessions = mockSessions.map(session => session.id === third ? { ...session, status: 'stopping' } : session);
+        bumpSessionStoreVersion();
+        const retryAttempt = frame()!;
+        expect(new URL(retryAttempt.src).pathname).toBe(`/api/vault/${second}/.codeflare-bootstrap`);
+        expect(new URL(retryAttempt.src).searchParams.get('prewarmId')).not.toBe(new URL(secondAttempt.src).searchParams.get('prewarmId'));
+
+        mockSessions = mockSessions.map(session => session.id === second
+          ? { ...session, status: 'stopping' } : session);
+        bumpSessionStoreVersion();
+        expect(frame()).toBeNull();
+        expect(b().getByRole('button', { name: 'Vault waiting for this session' })).toHaveAttribute('aria-disabled', 'true');
+        expect(b().getByRole('button', { name: 'Session actions' })).toBeEnabled();
+        expect(armed).toHaveAccessibleName('Your Vault is ready.');
+        expect(a().queryByTestId('header-vault-status')).toBeNull();
+        expect(open).not.toHaveBeenCalled();
+        armed.click();
+        expect(open).toHaveBeenLastCalledWith(`/api/vault/${first}/.codeflare-bootstrap`, '_blank', 'noopener');
+        open.mockClear();
+        mockSessions = mockSessions.map(session => session.id === first
+          ? { ...session, status: 'running', lifecycle: 'stopped', generation: 7, cardStoppedGeneration: 7 } : session);
+        bumpSessionStoreVersion();
+        const stoppedVault = a().getByRole('button', { name: 'Vault waiting for this session' });
+        expect(stoppedVault).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.click(stoppedVault);
+        expect(open).not.toHaveBeenCalled();
+        expect(screen.getByTestId('dashboard')).toBeVisible();
+        expect(mockActiveSessionId).toBeNull();
+      } finally {
+        cleanup();
+        vi.unstubAllGlobals();
+        vi.useRealTimers();
+        open.mockRestore();
+        focus.mockRestore();
+      }
+    });
+
+    it('keeps the renamed card selector and Vault, status, and menu in order (REQ-IDE-054)', async () => {
+      navigationRendering.realDashboard = navigationRendering.realTerminalArea = true;
+      mockPreferences = { sessionMode: 'advanced', defaultWorkspace: 'vscode' };
+      const id = 'abcdef0123456789';
+      const renamed = 'A much longer renamed session — '.repeat(3) + 'last';
+      mockSessions = [createMockSession({ id, name: 'Pi #1', workspace: 'vscode', editorReady: true })];
+      vi.mocked(sessionStore.renameSession).mockImplementationOnce(async (_id, name) => {
+        mockSessions = [{ ...mockSessions[0], name }];
+        bumpSessionStoreVersion();
+      });
+      const open = vi.spyOn(window, 'open').mockReturnValue({ closed: false, focus: () => {} } as Window);
+      try {
+        render(() => <Layout />);
+        const card = () => within(screen.getByTestId(`session-stat-card-${id}`));
+        fireEvent.click(card().getByRole('button', { name: 'Session actions' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+        const input = screen.getByRole('textbox', { name: 'Session name' });
+        fireEvent.input(input, { target: { value: renamed } });
+        fireEvent.submit(input.closest('form')!);
+        const selector = await card().findByRole('button', { name: `Activate session ${renamed}` });
+        const vault = card().getByRole('button', { name: 'Vault waiting for this session' });
+        const status = card().getByRole('status', { name: 'Session running' });
+        const menu = card().getByRole('button', { name: 'Session actions' });
+        expect(vault.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(status.compareDocumentPosition(menu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(selector).not.toContainElement(vault);
+        expect(open).not.toHaveBeenCalled();
+        selector.click();
+        expect(open).toHaveBeenLastCalledWith(`/api/vscode/${id}/`, `codeflare-vscode-${id}`);
+
+        mockPreferences = { sessionMode: 'default', defaultWorkspace: 'vscode' };
+        bumpSessionStoreVersion();
+        expect(card().queryByRole('button', { name: /Vault/i })).toBeNull();
+      } finally { open.mockRestore(); }
+    });
+  });
+
   describe('Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)', () => {
     it('does NOT pass onVaultOpen (vault button hidden) when active session is default mode', () => {
       mockSessions = [createMockSession({ status: 'running' })];
@@ -1034,8 +2249,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         // Click 2 (intent === 'armed'): opens synchronously without re-verification or a second prewarm.
         const prewarmCallsBeforeOpen = vaultPrewarmMock.start.mock.calls.length;
         const keyChecksBeforeOpen = vaultLocalReadinessMock.keyRecoverable.mock.calls.length;
-        await (window as any).__headerProps.onVaultOpen();
+        const openResult = (window as any).__headerProps.onVaultOpen();
         expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
+        await openResult;
         expect(vaultPrewarmMock.start.mock.calls.length).toBe(prewarmCallsBeforeOpen);
         expect(vaultLocalReadinessMock.keyRecoverable.mock.calls.length).toBe(keyChecksBeforeOpen);
       } finally {
@@ -1631,6 +2847,27 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
     });
 
+    it.each([
+      ['saved Vibe default', { defaultPiSurface: 'chat' }, 'pi', 'classic', undefined, ['chat']],
+      ['saved Code default', { defaultPiSurface: 'terminal' }, 'pi', 'classic', undefined, ['terminal']],
+      ['explicit choice', { defaultPiSurface: 'chat' }, 'pi', 'classic', 'terminal', ['terminal']],
+      ['Herdr preference', { defaultPiSurface: 'chat', herdrEnabled: true }, 'pi', 'classic', undefined, []],
+      ['VS Code default', { defaultPiSurface: 'chat', defaultWorkspace: 'vscode' }, 'pi', 'classic', undefined, []],
+      ['stale explicit choice with Herdr', { herdrEnabled: true }, 'pi', 'classic', 'chat', []],
+      ['stale explicit choice with VS Code default', { defaultWorkspace: 'vscode' }, 'pi', 'classic', 'chat', []],
+      ['existing Herdr session', { defaultPiSurface: 'chat' }, 'pi', 'herdr', undefined, []],
+      ['non-Pi session', { defaultPiSurface: 'chat' }, 'bash', 'classic', undefined, []],
+    ] as const)('applies the eligible Pi surface at Dashboard Start: %s', async (_label, preferences, agentType, terminalMode, explicit, expected) => {
+      const { sessionStore } = await import('../../stores/session');
+      const id = 'abcdef0123456789';
+      mockSessions = [createMockSession({ id, status: 'stopped', workspace: 'terminal', agentType, terminalMode })];
+      mockPreferences = preferences;
+      vi.mocked(sessionStore.startSession).mockResolvedValue(undefined as never);
+      render(() => <Layout />);
+      (window as any).__terminalAreaProps.onDashboardSessionSelect(id, explicit);
+      expect(sessionStore.startSession).toHaveBeenCalledWith(id, ...expected);
+    });
+
     it('REQ-IDE-049 AC1: stopped VS Code selection starts while remaining on dashboard', async () => {
       const { sessionStore } = await import('../../stores/session');
       mockSessions = [createMockSession({ id: 'sess-vscode', status: 'stopped', workspace: 'vscode' })];
@@ -1695,6 +2932,26 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__terminalAreaProps.viewState).toBe('collapsing');
     });
 
+    it.each(['Dashboard', 'dropdown'] as const)('REQ-SESSION-043: %s selection starts the runtime shown as stopped', async surface => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [
+        createMockSession({ id: 'sess1', status: 'running' }),
+        createMockSession({ id: 'sess2', status: 'running', lifecycle: 'stopped', generation: 7, cardStoppedGeneration: 7 }),
+      ];
+      if (surface === 'dropdown') {
+        mockActiveSessionId = 'sess1';
+        mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+        mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+      }
+      vi.mocked(sessionStore.startSession).mockResolvedValue(undefined);
+      render(() => <Layout />);
+      const select = () => surface === 'dropdown' ? (window as any).__headerProps?.onSelectSession
+        : (window as any).__terminalAreaProps?.onDashboardSessionSelect;
+      await waitFor(() => expect(select()).toBeTypeOf('function'));
+      select()('sess2');
+      expect(sessionStore.startSession).toHaveBeenCalledWith('sess2');
+    });
+
     it('REQ-TERM-011: selecting a stopped session from the header switcher opens the starting terminal surface', async () => {
       const { sessionStore } = await import('../../stores/session');
       mockSessions = [
@@ -1739,6 +2996,228 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       expect((window as any).__terminalAreaProps.showTerminal).toBe(false);
       expect((window as any).__terminalAreaProps.viewState).toBe('dashboard');
+    });
+
+    it.each([{ herdrEnabled: true }, { defaultWorkspace: 'vscode' }])('does not submit a stale explicit Chat choice on create with settings %j', async preferences => {
+      const { sessionStore } = await import('../../stores/session');
+      mockPreferences = preferences;
+      const id = 'abcdef0123456789';
+      const session = createMockSession({ id, status: 'stopped', agentType: 'pi',
+        workspace: 'defaultWorkspace' in preferences ? 'vscode' : 'terminal',
+        terminalMode: 'herdrEnabled' in preferences ? 'herdr' : 'classic' }) as SessionWithStatus;
+      vi.mocked(sessionStore.createSession).mockResolvedValue(session);
+      vi.mocked(sessionStore.startSession).mockResolvedValue(undefined);
+      render(() => <Layout />);
+      await (window as any).__terminalAreaProps.onCreateSession('New Session', 'pi', undefined, 'chat');
+      expect(sessionStore.createSession).toHaveBeenCalledWith('New Session', 'pi', undefined);
+      expect(sessionStore.startSession).toHaveBeenCalledWith(id);
+    });
+
+    it.each([
+      ['pi', 'terminal', ['chat']],
+      ['bash', 'terminal', []],
+      ['pi', 'vscode', []],
+    ] as const)('uses the saved Vibe default only when the newly created %s workspace (%s) is eligible', async (agentType, workspace, startArgs) => {
+      const { sessionStore } = await import('../../stores/session');
+      mockPreferences = { defaultPiSurface: 'chat' };
+      const id = 'abcdef0123456789';
+      vi.mocked(sessionStore.createSession).mockResolvedValue(createMockSession({ id, status: 'stopped', agentType,
+        workspace, terminalMode: 'classic' }) as SessionWithStatus);
+      vi.mocked(sessionStore.startSession).mockResolvedValue(undefined);
+      render(() => <Layout />);
+      await (window as any).__terminalAreaProps.onCreateSession('New Session', agentType);
+      expect(sessionStore.createSession).toHaveBeenCalledWith('New Session', agentType, undefined);
+      expect(sessionStore.startSession).toHaveBeenCalledWith(id, ...startArgs);
+    });
+
+    it.each(['settles', 'is stopped'])('keeps New Session locked after Dashboard return until a Vibe launch %s', async outcome => {
+      navigationRendering.realTerminalArea = true;
+      navigationRendering.realDashboard = true;
+      mockPreferences = { defaultPiSurface: 'chat' };
+      const id = 'abcdef0123456789';
+      const session: SessionWithStatus = { ...createMockSession({ id }), status: 'initializing', workspace: 'terminal', agentType: 'pi' };
+      vi.mocked(sessionStore.createSession).mockImplementationOnce(async () => {
+        mockSessions = [session];
+        bumpSessionStoreVersion();
+        return session;
+      });
+      let finish!: () => void;
+      const starting = new Promise<void>(resolve => { finish = resolve; });
+      vi.mocked(sessionStore.startSession).mockReturnValueOnce(starting);
+      render(() => <Layout />);
+      const initial = await screen.findByRole('button', { name: 'Create new session' });
+      fireEvent.click(initial);
+      await waitFor(() => expect(initial).not.toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+      const returned = await screen.findByRole('button', { name: 'Create new session' });
+      expect(returned).toBeDisabled();
+      fireEvent.click(returned);
+      expect(returned).toBeVisible();
+      if (outcome === 'is stopped') {
+        vi.mocked(sessionStore.stopSession).mockImplementationOnce(async () => {
+          mockSessions = [{ ...session, status: 'stopped' }];
+          bumpSessionStoreVersion();
+          finish();
+        });
+        fireEvent.click(screen.getByTestId(`session-stat-card-${id}-menu`));
+        fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+      } else finish();
+      await waitFor(() => expect(returned).toBeEnabled());
+    });
+
+    it('opens an explicitly created workspace from the picker while Vibe is pending', async () => {
+      navigationRendering.realHeader = true;
+      const sessions = [
+        createMockSession({ id: 'abcdef0123456789', status: 'initializing', workspace: 'terminal', agentType: 'pi' }),
+        createMockSession({ id: 'fedcba9876543210', status: 'initializing', workspace: 'terminal', agentType: 'bash' }),
+      ] as SessionWithStatus[];
+      vi.mocked(sessionStore.createSession).mockImplementationOnce(async () => {
+        mockSessions = [sessions[0]];
+        bumpSessionStoreVersion();
+        return sessions[0];
+      }).mockImplementationOnce(async () => {
+        mockSessions = sessions;
+        bumpSessionStoreVersion();
+        return sessions[1];
+      });
+      let finish!: () => void;
+      vi.mocked(sessionStore.startSession).mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }))
+        .mockResolvedValueOnce(undefined);
+      render(() => <Layout />);
+      const pending = (window as any).__terminalAreaProps.onCreateSession('Vibe', 'pi', undefined, 'chat', true);
+      try {
+        await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${sessions[0].id}`));
+        fireEvent.click(await screen.findByTestId('session-switcher'));
+        fireEvent.click(screen.getByRole('button', { name: 'New Session' }));
+        fireEvent.click(await screen.findByTestId('csd-agent-bash'));
+        await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${sessions[1].id}`));
+      } finally { finish(); await pending; }
+    });
+
+    it('REQ-GITHUB-327: the age control starts a fresh Vibe session with the selected clone target', async () => {
+      navigationRendering.realTerminalArea = true;
+      navigationRendering.realDashboard = true;
+      mockPreferences = { defaultPiSurface: 'chat' };
+      const id = 'abcdef0123456789';
+      const { _resetForTests: resetGithub } = await import('../../stores/github');
+      resetGithub();
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url === '/api/github/status') {
+          return Response.json({ enabled: true, connected: true, login: 'octocat', source: 'app' });
+        }
+        if (url === '/api/github/owned-repo-counts') return Response.json({ counts: null });
+        if (url === '/api/github/repos?page=1') {
+          return Response.json({ repos: [{
+            name: 'newest', full_name: 'team/newest', owner: 'team', private: true,
+            visibility: 'private', default_branch: 'main', updated_at: '2026-03-01T00:00:00Z',
+          }], page: 1, hasMore: false });
+        }
+        return Response.json({});
+      });
+      try {
+        render(() => <Layout />);
+        const shortcut = await screen.findByRole('button', { name: 'Clone into a session: team/newest' });
+        vi.mocked(sessionStore.createSession).mockResolvedValueOnce(createMockSession({ id, status: 'stopped', agentType: 'pi', workspace: 'terminal' }) as SessionWithStatus);
+        vi.mocked(sessionStore.startSession).mockResolvedValueOnce(undefined);
+        fireEvent.click(shortcut);
+        await waitFor(() => {
+          expect(sessionStore.createSession).toHaveBeenCalledWith('newest', 'pi', undefined, { repo: 'team/newest' }, 'chat');
+          expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'chat');
+          expect(window.location.pathname).toBe(`/app/session/${id}`);
+        });
+      } finally {
+        cleanup();
+        resetGithub();
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it.each([['age', 'ready'], ['drawer', 'ready'], ['age', 'error'], ['drawer', 'stopped'], ['age', 'newer route'], ['age', 'back then forward']] as const)('navigates to the new Vibe clone from the %s picker (%s)', async (entry, outcome) => {
+      navigationRendering.realTerminalArea = true;
+      navigationRendering.realDashboard = true;
+      mockPreferences = { defaultPiSurface: 'chat' };
+      const id = 'abcdef0123456789';
+      mockSessions = [createMockSession({ id: 'fedcba9876543210', agentType: 'pi', workspace: 'terminal' })];
+      const { _resetForTests: resetGithub } = await import('../../stores/github');
+      const { cloneAttempt, setCloneAttempt } = await import('../../stores/clone-attempts');
+      resetGithub();
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url === '/api/github/status') return Response.json({ enabled: true, connected: true, login: 'octocat', source: 'app' });
+        if (url === '/api/github/owned-repo-counts') return Response.json({ counts: null });
+        if (url === '/api/github/repos?page=1') return Response.json({ repos: [{
+          name: 'newest', full_name: 'team/newest', owner: 'team', private: true,
+          visibility: 'private', default_branch: 'main', updated_at: '2026-03-01T00:00:00Z',
+        }], page: 1, hasMore: false });
+        if (url === `/api/pi-web/${id}/_switch?generation=7`) return Response.json({
+          phase: 'complete', surface: 'chat', chatUrl: `/api/pi-web/${id}/g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`,
+        });
+        return Response.json({});
+      });
+      let finishStart!: () => void;
+      const pendingStart = new Promise<void>(resolve => { finishStart = resolve; });
+      vi.mocked(sessionStore.createSessionWithClone).mockImplementationOnce(async (repo, _agent, surface) => {
+        const attempt = cloneAttempt(repo, surface);
+        if (attempt?.phase !== 'creating') throw new Error('Missing clone launch');
+        setCloneAttempt(repo, { ...attempt, sessionId: id }, surface);
+        mockSessions = [...mockSessions, createMockSession({ id, status: 'stopped', agentType: 'pi', workspace: 'terminal' })];
+        sessionStore.setActiveSession(id);
+        mockSessions = mockSessions.map(session => session.id === id ? { ...session, status: 'initializing' } : session);
+        bumpSessionStoreVersion();
+        await pendingStart;
+        const status = outcome === 'ready' ? 'running' : outcome === 'stopped' ? 'stopped' : 'error';
+        mockSessions = mockSessions.map(session => session.id === id ? { ...session, status, generation: 7 } : session);
+        bumpSessionStoreVersion();
+        return { sessionId: id, started: outcome === 'ready' };
+      });
+      try {
+        render(() => <Layout />);
+        if (entry === 'drawer') {
+          fireEvent.click(await screen.findByRole('button', { name: 'Show GitHub & Storage' }));
+          fireEvent.click(await screen.findByRole('button', { name: 'Clone' }));
+        } else fireEvent.click(await screen.findByRole('button', { name: 'Clone into a session: team/newest' }));
+        fireEvent.click(await screen.findByRole('button', { name: /^New Pi session/ }));
+        await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${id}`));
+        expect(await screen.findByText('Preparing Chat…')).toBeInTheDocument();
+        const nextPath = '/app/session/fedcba9876543210';
+        if (outcome === 'newer route') window.history.pushState(null, '', nextPath);
+        if (outcome === 'back then forward') {
+          window.history.back();
+          expect(await screen.findByTestId('session-stat-card-fedcba9876543210-select')).toBeVisible();
+          expect(window.location.pathname).toBe('/app/');
+          window.history.forward();
+          await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${id}`));
+          expect(await screen.findByText('Preparing Chat…')).toBeInTheDocument();
+        }
+        finishStart();
+        if (outcome === 'ready') expect(await screen.findByTitle('Pi Chat')).toBeInTheDocument();
+        else {
+          expect(await screen.findByTestId(`session-stat-card-${id}-select`)).toBeVisible();
+          expect(window.location.pathname).toBe(outcome === 'newer route' ? nextPath : '/app/');
+        }
+      } finally {
+        finishStart();
+        cleanup();
+        setCloneAttempt('team/newest', undefined, 'chat');
+        resetGithub();
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('preserves the last explicitly chosen agent when Vibe launches Pi', async () => {
+      mockPreferences = { lastAgentType: 'bash', defaultPiSurface: 'chat' };
+      const id = 'abcdef0123456789';
+      vi.mocked(sessionStore.createSession).mockResolvedValue(createMockSession({ id, status: 'stopped', agentType: 'pi', workspace: 'terminal' }) as SessionWithStatus);
+      vi.mocked(sessionStore.startSession).mockResolvedValue(undefined);
+      vi.mocked(sessionStore.updatePreferences).mockImplementationOnce(async preferences => {
+        mockPreferences = { ...mockPreferences, ...preferences };
+        bumpSessionStoreVersion();
+      });
+      render(() => <Layout />);
+      await (window as any).__terminalAreaProps.onCreateSession('New Session', 'pi', undefined, 'chat', true);
+      expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'chat');
+      render(() => <CreateSessionDialog isOpen onSelect={() => {}} onClose={() => {}} />);
+      expect(screen.getByTestId('csd-agent-bash')).toHaveClass('csd-agent-btn--last-used');
+      expect(screen.getByTestId('csd-agent-pi')).not.toHaveClass('csd-agent-btn--last-used');
     });
 
     it('REQ-TERM-014: creating a session from terminal view keeps the starting surface visible', async () => {

@@ -321,7 +321,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 1. Image construction prepares both managed extensions for startup and fails when either required startup cache is absent. <!-- @impl: Dockerfile::subagents_source --> <!-- @impl: Dockerfile::mcp_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
 
-2. Image construction rejects missing path-correct caches for local TypeScript extensions, Open TUI and the RPIV trio. The native JavaScript web-access entrypoint follows AC4's required native-import evidence. <!-- @impl: Dockerfile::advisor_source --> <!-- @impl: Dockerfile::open_tui_source --> <!-- @impl: Dockerfile::web_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects a local cache warmed at the wrong path despite a matching basename) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
+2. Image construction rejects missing path-correct caches for local TypeScript extensions, Open TUI, the RPIV trio, and the Pi Web handoff extension at its installed path. The native JavaScript web-access entrypoint follows AC4's required native-import evidence. <!-- @impl: Dockerfile::advisor_source --> <!-- @impl: Dockerfile::open_tui_source --> <!-- @impl: Dockerfile::web_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects a local cache warmed at the wrong path despite a matching basename) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects a missing cache for the installed Pi Web handoff extension) -->
 3. A second fresh warm-up process must report a JITI cache hit for every TypeScript entrypoint and no cache misses, including imported dependencies; construction fails without that evidence or when either process reports an extension-load error, even with exit code zero. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (REQ-AGENT-210: image extension cache reuse) -->
 4. Native JavaScript entrypoints and declared helper dependencies are warmed without requiring a JITI artifact; their native import must be observed. <!-- @impl: Dockerfile::context_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (warms native JavaScript without requiring a nonexistent JITI artifact) -->
 5. Managed extension dependency compatibility survives image construction, startup updates and repair without changing unrelated package metadata. <!-- @impl: scripts/patch-rpiv-host-peers.mjs::patchRpivHostPeers --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyRpivExtensionStartup --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs::verifyRpivExtensionStartup --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-host-peers.test.js (REQ-AGENT-210: RPIV declares host TypeBox as a wildcard peer without changing other package contracts) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-210: Fast Start updates cannot restore conflicting RPIV host dependencies) -->
@@ -372,7 +372,6 @@ These compatibility anchors resolve dated changelog references to retired review
 
 ---
 
-<a id="req-agent-111-native-goal-workflow-in-pi-sessions"></a>
 ### REQ-AGENT-111: Native Todo Loop Workflow in Pi Sessions
 
 **Intent:** Pi sessions can continue work on their existing RPIV todo list without cold-transpiling the continuation extension on first use.
@@ -381,35 +380,94 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Startup registers the exact-pinned `@dumbmice/pi-todo-loop` once in both Pi modes, independently of context-mode. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (loads stock Todo Loop once and drops restored managed Goal registrations) -->
-2. Image construction loads and warms the unmodified package's declared `src/index.ts` entrypoint at its actual installed path. A fresh Pi process loads it from the baked cache. <!-- @impl: Dockerfile::todo_loop_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @manual: Check complete-image warm and fresh-process cache replay using the installed Todo Loop entrypoint. -->
+1. Startup registers the exact-pinned `@dumbmice/pi-todo-loop` once in both Pi modes, independently of context-mode. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-111 / REQ-AGENT-293: loads stock Todo Loop and managed Goal once in both Pi modes) -->
+2. Image construction loads and warms the managed package's declared `src/index.ts` entrypoint at its actual installed path. A fresh Pi process loads it from the baked cache. <!-- @impl: Dockerfile::todo_loop_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @manual: documentation/lanes/container.md#agent-packaged-runtime-acceptance -->
 3. Image construction fails when the required path-correct Todo Loop cache artifact is missing. <!-- @impl: Dockerfile::todo_loop_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects a missing @dumbmice/pi-todo-loop entrypoint artifact and accepts the expected artifact) --> <!-- @manual: Inspect an authorized controlled build with the expected Todo Loop cache artifact omitted or replaced. -->
 4. Todo Loop reads the current session's RPIV `todo` list without modifying it. <!-- @manual: Compare the task list before and after an authorized disposable continuation. -->
-5. The stock loop can request another turn after a successful reply with open tasks and stops requesting turns when none remain. <!-- @manual: Observe turns with an open and cleared RPIV todo list. -->
+5. After explicit resume, the loop can request another turn after a successful reply with open tasks and stops requesting turns when none remain. <!-- @manual: documentation/lanes/container.md#agent-packaged-runtime-acceptance -->
 6. `/todoloop` reports and controls the loop; `todo_loop_block` waits for a person or already-started work with a reason. <!-- @manual: In an authorized disposable candidate-image Pi session, observe continuation with an open RPIV todo list, no continuation with a cleared list, and status/pause/resume and the stock block tool with work still open. -->
+
+7. Each new or reopened Pi session starts with Todo Loop paused. Automatic continuation requires an explicit `/todoloop resume` in that running session. <!-- @impl: scripts/patch-pi-todo-loop-default-pause.mjs::patchTodoLoopDefaultPause --> <!-- @test: host/__tests__/pi-todo-loop-default-pause.test.js (REQ-AGENT-111: Pi registers Todo Loop paused for startup, new and resumed sessions) --> <!-- @manual: documentation/lanes/container.md#agent-packaged-runtime-acceptance -->
 
 **Constraints:**
 
-- The upstream package is exact-pinned and SHA-512 integrity-locked. Codeflare applies no source transform, fork, or Goal compatibility bridge to it. <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@dumbmice/pi-todo-loop -->
-- Todo Loop uses its stock settings behavior. Codeflare does not migrate `pi-goal.json` or carry over Goal's pacing, stalled-work limits, or tool-visibility policy. The registered Todo Loop tool follows normal capability discovery and activation, not a special bootstrap exception.
+- The upstream package is exact-pinned and SHA-512 integrity-locked. The image applies only the version- and source-guarded initial pause transform, without a fork or Goal compatibility bridge. <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@dumbmice/pi-todo-loop -->
+- Todo Loop uses its stock settings behavior. It does not read `pi-goal.json` or inherit Goal's pacing, stalled-work limits, or tool-visibility policy. The registered Todo Loop tool follows normal capability discovery and activation, not a special bootstrap exception.
 - Lock-backed upgrades use the existing Pi-extension shadow-pin workflow.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-081](#req-agent-081-rpiv-todo-session-isolation), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Automated: [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
+**Verification:** Automated: [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js), [Todo Loop default pause](../../host/__tests__/pi-todo-loop-default-pause.test.js); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
 ---
 
+<a id="req-agent-111-native-goal-workflow-in-pi-sessions"></a>
 <a id="req-agent-178-goal-and-plan-session-ownership"></a>
 <a id="req-agent-129-goal-continuation-settings-policy"></a>
+
+### REQ-AGENT-293: Managed Goal alongside Todo Loop
+
+**Intent:** Pi offers session-owned Goals without replacing or reconfiguring the managed Todo Loop.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Both Pi modes register one managed Goal alongside the managed Todo Loop registration. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-111 / REQ-AGENT-293: loads stock Todo Loop and managed Goal once in both Pi modes) -->
+2. The image warms the installed, transformed Goal extension and verifies reuse in a fresh process; missing Goal cache fails the build. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-293 AC2: rejects a missing managed Goal startup cache) --> <!-- @manual: Agent packaged-runtime acceptance -->
+3. Startup defaults missing preferences to Goal tools after the first Goal and unlimited automatic turns, preserving explicit preferences other than the [managed safety settings](#req-agent-294-managed-goal-continuation-safety). <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-293: creates every Codeflare-owned Goal startup default when config is absent) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-293: enforces five-minute pacing while preserving unrelated preferences) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-293 AC3: treats five minutes as a floor and preserves explicit retry preferences) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-293: repairs disabled or legacy stall safety even when cadence is already correct) -->
+4. Startup applies a five-minute interval floor to valid Goal settings without shortening longer intervals. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-293: creates every Codeflare-owned Goal startup default when config is absent) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-293: enforces five-minute pacing while preserving unrelated preferences) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-293 AC3: treats five minutes as a floor and preserves explicit retry preferences) -->
+5. The compact Goal footer reports the state and shows accumulated duration only while active. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::preparePiGoalSources --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC7: publishes concise Goal status without changing accounting or continuation details) --> <!-- @manual: Agent packaged-runtime acceptance -->
+6. Progress and completion may change only the current Goal in its owned run; stale or unrelated calls cannot change it. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::preparePiGoalSources --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/178: progress rejects an owned run whose workflow session has been replaced) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/178: progress rejects empty, oversized, invalid, stale, inactive and non-owned reports without mutation) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-293: the prepared entrypoint lazily exposes Goal tools and shares session ownership with Plan) -->
+7. Starting Goal while Plan owns the session, or starting Plan while Goal owns it, is refused without replacing the incumbent workflow. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::preparePiGoalSources --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-293: the prepared entrypoint lazily exposes Goal tools and shares session ownership with Plan) -->
+
+**Constraints:**
+
+- Goal stays exact-pinned and integrity-locked; shadow pin upgrades must pass the source transform before opening the update PR.
+- Todo Loop does not inherit Goal settings or source transforms.
+- Startup normalization preserves prior Goal session history.
+- Startup leaves malformed Goal settings byte-for-byte unchanged. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-293: preserves malformed Goal config byte-for-byte) -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-111](#req-agent-111-native-todo-loop-workflow-in-pi-sessions), [REQ-AGENT-248](#req-agent-248-managed-goal_wait-exclusion)
+
+**Verification:** Automated: [Pi package assembly](../../host/__tests__/pi-settings-packages.test.js), [Pi warm cache](../../host/__tests__/pi-lockstep.test.js), [Goal startup defaults](../../host/__tests__/entrypoint-runtime-behavior.test.js), [Prepared Goal runtime](../../host/__tests__/pi-goal-review-control-patch.test.js); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
+
+**Status:** Implemented
+
+---
+
 <a id="req-agent-130-goal-continuation-runtime-pacing"></a>
 <a id="req-agent-236-goal-stalled-work-bound"></a>
 
-The former REQ-AGENT-178, REQ-AGENT-129, REQ-AGENT-130, and REQ-AGENT-236 covered managed Goal/Plan mutual exclusion, Goal settings, continuation pacing, and stalled-work bounds. These Goal-specific contracts are retired, not inherited by [Todo Loop](#req-agent-111-native-todo-loop-workflow-in-pi-sessions). [Plan Mode](#req-agent-152-native-plan-mode-workflow-in-pi-sessions) retains its independent managed policy. Historical requirements remain in Git history.
+### REQ-AGENT-294: Managed Goal continuation safety
+
+**Intent:** Pace automatic Goal work and stop stalled work without interrupting unrelated runs.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Automatic Goal continuations respect the configured interval, with a five-minute floor. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: full preparation respects a configured interval above five minutes and caps stalls at the deadline) -->
+2. Goal blocks after five stalled automatic runs or 25 minutes stalled, whichever comes first. The 25-minute deadline applies even with no automatic attempts. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: full preparation respects a configured interval above five minutes and caps stalls at the deadline) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129/178: fifth paraphrased stalled automatic run blocks, cancels queued work and releases workflow) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129: manual stalled report starts a 25-minute deadline without inventing automatic attempts) -->
+3. The blocker accepts only a runtime-verified count of five: four completed automatic stalls plus a stalled report from the current owned automatic run. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressTools --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129: terminal blocker tool rejects retired and unearned attempt counts) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-293 AC3/AC4: blocker requires four completed stalls and an evidenced automatic fifth (${origin})) -->
+4. At the 25-minute stall deadline, Goal aborts only the matching in-flight Goal run, including during provider retry backoff. Unrelated runs and their retries can continue. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressLifecycle --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-293 AC3: an in-flight automatic run is aborted at the stalled deadline without a lifecycle event) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-293 AC5: the stalled deadline aborts an owned provider retry in backoff) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-293 AC3: a stall expires while an unrelated run is busy without aborting it) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-293 AC5: the stalled deadline leaves an unrelated custom provider retry alone) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-294 AC2: retryable agent_end at the stall deadline aborts before native retry) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-294 AC2: a queued Goal prompt takes over a custom-triggered run before stall expiry) -->
+5. Startup sets the stalled-run limit to five in valid Goal settings. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-293: repairs disabled or legacy stall safety even when cadence is already correct) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-293](#req-agent-293-managed-goal-alongside-todo-loop)
+
+**Verification:** Automated: [Prepared Goal runtime](../../host/__tests__/pi-goal-review-control-patch.test.js), [Goal startup stall-limit repair](../../host/__tests__/entrypoint-runtime-behavior.test.js)
+
+**Status:** Implemented
 
 ---
 
@@ -562,7 +620,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 <a id="req-agent-117-goal-independent-review-restoration"></a>
 <a id="req-agent-144-review-owned-goal-pause-command-compatibility"></a>
 
-The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-AGENT-144 covered review's relationship to the managed Goal lifecycle. Goal-specific control, continuation, and restoration are retired; [review ingress](#req-agent-171-user-scoped-review-completion-and-common-consent) and [exact-round completion](#req-agent-244-exact-round-review-completion) remain independent and unchanged. The [registration migration](#req-agent-209-retired-pi-package-migration) leaves historical session records intact.
+The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-AGENT-144 covered review's relationship to the managed Goal lifecycle. Review-owned Goal control, continuation, and restoration remain retired; [review ingress](#req-agent-171-user-scoped-review-completion-and-common-consent) and [exact-round completion](#req-agent-244-exact-round-review-completion) remain independent and unchanged. The [registration migration](#req-agent-209-retired-pi-package-migration) leaves historical session records intact.
 
 ---
 
@@ -650,8 +708,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 2. A successful clone checks only the repository target it produced. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::latestBoundary --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (resolves a successful clone destination before repository lookup) -->
 3. The checked-out branch name and local full `HEAD` are resolved without deriving a source or destination from command arguments. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::gh_pr_state --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) -->
 4. Automatic or clone-confirmed review applies only to an open protected-base PR whose branch and authoritative head exactly equal the checked-out branch and local `HEAD`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
-5. A delivery whose authoritative head is still synchronizing queries immediately and retries after 1, 3, 5, 10, and 15 seconds. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::RETRY_DELAY --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (retries delivery while the authoritative PR head is synchronizing) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (retries delivery until the authoritative PR head catches up) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (gives up silently after bounded authoritative-head retries) -->
-6. Synchronization opens the round once the authoritative head matches; exhausting retries leaves the mismatched head ineligible. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (retries delivery while the authoritative PR head is synchronizing) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (retries delivery until the authoritative PR head catches up) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (gives up silently after bounded authoritative-head retries) -->
+5. A delivery whose authoritative head is still synchronizing queries immediately and retries after 1, 3, 5, 10, and 15 seconds. A match opens the round; a persistent mismatch stays ineligible. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::RETRY_DELAY --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (retries delivery while the authoritative PR head is synchronizing) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (retries delivery until the authoritative PR head catches up) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (gives up silently after bounded authoritative-head retries) -->
+6. Local Pi retries transient delivery lookup failures and warns without granting clearance if verification stays unavailable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (delivers one exact-head plan when PR lookup %s fails transiently) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (warns without launching an unverified plan when PR lookups keep failing after push) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) -->
 7. Non-delivery activity never retries the authoritative query and never waits. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::BOUNDARY_KIND --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (asks on non-delivery exposures but keeps inert commands silent) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (keeps consent and omits CI for a non-delivery exposure) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (never retries authoritative state for non-delivery exposure) -->
 
 **Constraints:**
@@ -730,7 +788,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. Session creation accepts an optional coding-agent selection. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) -->
 2. Invalid agent types are rejected at session creation. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) -->
 3. The selected agent type is persisted in the session record. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) --> <!-- @manual -->
-4. Among available choices, the UI highlights the saved last explicitly selected agent without selecting it automatically. Creating a session without an explicit agent does not replace that preference. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @impl: web-ui/src/components/Layout.tsx::handleCreateSession --> <!-- @impl: web-ui/src/stores/session.ts::createSessionWithClone --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (highlights last used agent type) --> <!-- @manual -->
+4. Among available choices, the UI highlights the saved last explicitly selected agent without selecting it automatically. Creating a session without an explicit agent does not replace that preference. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @impl: web-ui/src/components/Layout.tsx::handleCreateSession --> <!-- @impl: web-ui/src/stores/session.ts::createSessionWithClone --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (highlights last used agent type) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (preserves the last explicitly chosen agent when Vibe launches Pi) --> <!-- @manual -->
 5. When `agentType` is omitted, creation leaves a sparse record for installed Claude Code and otherwise records the first selectable coding agent or Bash. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC5: session created without agentType has no agentType field in response) --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-AGENT-002 AC5: an omitted agentType falls back to the first installed coding agent) -->
 6. The session-creation UI renders a `beta` badge on agents in preview status: `antigravity` and `opencode` carry the badge; all other agents (Claude Code, Codex, Copilot, Pi, Bash) render without one. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (Agent type selection) -->
 7. Session creation rejects a valid agent type whose shared launcher is omitted from the deployment image. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-AGENT-002 AC7: omitted agentType '%s' is rejected) -->
@@ -745,7 +803,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated: [session-agent-allowlist.test.ts](../../src/__tests__/routes/session-agent-allowlist.test.ts), [session-agent-type.test.ts](../../src/__tests__/routes/session-agent-type.test.ts), [CreateSessionDialog.test.tsx](../../web-ui/src/__tests__/components/CreateSessionDialog.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
+**Verification:** Automated: [session-agent-allowlist.test.ts](../../src/__tests__/routes/session-agent-allowlist.test.ts), [session-agent-type.test.ts](../../src/__tests__/routes/session-agent-type.test.ts), [CreateSessionDialog.test.tsx](../../web-ui/src/__tests__/components/CreateSessionDialog.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -814,13 +872,13 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 ### REQ-AGENT-003: Agent CLI Auto-Started in Tab 1
 
-**Intent:** When a session starts, the selected agent's CLI must be running and ready in the first terminal tab without manual user intervention.
+**Intent:** A native agent start makes the selected CLI available in the first terminal tab without manual user intervention.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The container passes the selected agent's fixed launch identity to classic tab-1 autostart or to the Herdr launcher, which submits it once in the initial pane. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1 dynamic: an agy (Antigravity) tab emits its launch command into .bashrc) -->
+1. Ordinary native startup launches the configured CLI once in the initial pane. Managed Pi follows the surface and saved-pane rules in [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff). <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1 dynamic: an agy (Antigravity) tab emits its launch command into .bashrc) -->
 2. Claude Code starts in permissions-bypass mode appropriate for an isolated sandbox container. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1+AC2+AC4: default layout writes the claude --dangerously-skip-permissions launch line + hardened PATH into .bashrc) -->
 3. User-created classic manual tabs and Herdr-created tabs or panes open plain Bash and do not auto-start another agent. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC3: generated .bashrc guards autostart with the MANUAL_TAB skip branch) -->
 4. The agent CLI is findable on the system PATH in all terminal sessions. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1+AC2+AC4: default layout writes the claude --dangerously-skip-permissions launch line + hardened PATH into .bashrc) -->
@@ -850,16 +908,18 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Acceptance Criteria:**
 
-1. A new Classic session starts one empty native conversation under a newly generated UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
-2. Fresh Classic Pi startup does not report that its deliberate new session ID is missing. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-AGENT-211 AC2: complete-image smoke rejects Pi missing-session warnings for a seeded Classic ID) -->
-3. Restoring that Codeflare session starts its immutable tab-1 agent with the same UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-211 AC3: persists only the current classic agent-session binding) -->
-4. The restored native agent resumes its synced transcript. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
+1. A new native Classic launch starts one empty conversation under a newly generated UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
+2. Fresh Classic Pi startup opens the seeded transcript with its exact ID and path. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: scripts/ci/smoke-openvscode-sidebar-image.mjs (packaged Pi opens the exact seeded Classic transcript) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
+3. Restoring a retained conversation to native Terminal starts the immutable tab-1 agent with the same UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-211 AC3: persists only the current classic agent-session binding) -->
+4. Native restore resumes the retained synced transcript. If launch validation finds the saved Pi transcript has aged out, report it unavailable without launching Pi. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC4: standalone restore reports unavailable without launching a substitute) -->
 5. A different Codeflare session receives a different native conversation UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC5: a different Codeflare session starts empty under a different native ID) -->
-6. Every successful Classic Pi `/resume` switch atomically replaces that Codeflare session's binding with the selected root transcript ID, including repeated switches. <!-- @impl: preseed/agents/pi/extensions/classic-session-binding.ts::adoptClassicResumedSession --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (REQ-AGENT-211 AC6: Classic Pi adopts every explicit resumed transcript) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC6: restarts Classic Pi with its last explicitly resumed named session) -->
+6. Standalone Classic Pi `/resume` atomically adopts an eligible saved workspace transcript, including a valid native fork and repeated selections. <!-- @impl: preseed/agents/pi/extensions/classic-session-binding.ts::adoptClassicResumedSession --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (REQ-AGENT-211 AC6: Classic Pi adopts every explicit resumed transcript) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC6: restarts Classic Pi with its last explicitly resumed named session) -->
 
 **Constraints:**
 
-- The binding is scoped only by the immutable Codeflare session ID and changes only after initial creation or an explicit successful Pi resume.
+- The binding is scoped only by the immutable Codeflare session ID.
+- Only initial creation or an explicit successful Pi resume changes an ordinary native binding.
+- [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff) owns alternate-writer startup and binding changes for managed Pi. A known managed binding without a unique matching native root transcript is unavailable on Resume; it does not select another transcript or start empty. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
 - Historical Classic sessions without a binding start empty rather than guessing from the newest transcript.
 - Herdr keeps its own native session-reference lifecycle and does not use this Classic bootstrap.
 
@@ -867,9 +927,582 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [entrypoint-tab-autostart.test.js](../../host/__tests__/entrypoint-tab-autostart.test.js), [pi-classic-session-binding.test.ts](../../src/__tests__/lib/pi-classic-session-binding.test.ts)
+**Verification:** Automated: [Packaged Pi RPC probe](../../scripts/ci/smoke-openvscode-sidebar-image.mjs), [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [entrypoint-tab-autostart.test.js](../../host/__tests__/entrypoint-tab-autostart.test.js), [pi-classic-session-binding.test.ts](../../src/__tests__/lib/pi-classic-session-binding.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-272: Pi Chat and Terminal transcript handoff
+
+**Intent:** Continue one managed Pi conversation across browser Chat and native Terminal without concurrent writers.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Explicit surface choice determines which writer starts or resumes Pi in a Classic Terminal workspace. When the Start request omits the surface, Classic starts in Terminal, including with an empty body. <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-AGENT-272 AC1: forwards $terminalMode $surface with Start body $body) --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-AGENT-272 AC1: explicit Chat cannot override Herdr mode; ordinary Pi creation still works) --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-272 AC1: a fresh Chat-first Classic boot does not create a CLI conversation) --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-AGENT-272 AC1: Classic Terminal starts after profile restore while cloning continues) -->
+2. Classic switches to the same conversation and branch, including an empty conversation, only after the previous writer closes. A failed transfer keeps the binding; if a destination may have obtained write access, another writer cannot start until ownership is resolved. <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-273: a possibly consumed native re-entry remains fenced) --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272: an unconfirmed Chat startup retirement cannot dispatch another writer) --> <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2: an empty conversation switches without another prompt) --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2: an ambiguous launch rejects new owners until the original launch is resolved) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-272 AC2: a configured secondary Classic Pi never receives the primary conversation) --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-AGENT-272 AC2: idle ${mode} primary remains available for a Chat-to-Terminal switch after orphan expiry) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+3. Switching surfaces blocks new prompts and automatically stops current execution without waiting for a normal reply. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC3: ${source} requests abort before ${target} may open the saved conversation) -->
+4. Above the phone breakpoint, open Vibe Chat keeps the same-width session header directly above the frame. The pair is centered except during [tablet keyboard fit](#req-agent-292-tablet-chat-keyboard-fit). <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. Only the authenticated owner using the current eligible generation reaches that generation’s Chat transport. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272 AC5: submits, reads, and cancels only the owned generation’s exact handoff request) --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (REQ-AGENT-272 AC5: reconnect after Pi web’s private process exits cannot start a new generation) --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272 AC5: stale stock prompts and reconnects cannot attach to a replacement writer) -->
+6. Cancel switch can preserve the current turn only before Abort is committed. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC6: cancellation before abort keeps the turn; after abort it cannot undo the stop) --> <!-- @test: host/__tests__/pi-web-native-stop.test.js (REQ-AGENT-272 AC3+AC6: stopping fences the terminal and aborts the admitted pre-stream turn before release) -->
+7. Chat opens even when the restored profile contains the bundled Pi Web Workflows registration. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyRestoredBundledWorkflows) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance -->
+
+**Constraints:**
+
+- [REQ-AGENT-287](#req-agent-287-empty-and-restored-vibe-layout) owns responsive panel sizing.
+- Pi Chat handoff is available only in Classic Terminal workspaces. <!-- @impl: src/container/pi-web.ts::isPiWebEligible --> <!-- @test: src/__tests__/container/session-stop.test.ts (REQ-AGENT-272 AC1: the DO refuses a handoff Start with $stored stored and $requested requested) --> <!-- @test: host/__tests__/repository-restore-order.test.js (REQ-TERM-033 AC2: real host prewarm waits for restored snapshot bytes and the init flag) -->
+- Malformed nonempty JSON is rejected before Start claims the session. <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (rejects malformed nonempty Start JSON before claiming the session) -->
+- Use unmodified pi-web and the installed Pi runtime.
+- A live turn does not move between processes.
+- Default open paths, independently opened panes and VS Code retain their behavior and Git capabilities.
+- [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity) owns handoff feedback and native re-entry.
+- [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls) owns retained stock controls.
+- [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup) owns startup readiness and frame reload.
+- [REQ-AGENT-283](#req-agent-283-initial-chat-service-recovery) owns retry after an initial service failure.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-211](#req-agent-211-classic-agent-transcript-resume), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace), [REQ-IDE-048](browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SEC-012](security.md#req-sec-012-container-auth-token-per-do-lifecycle)
+
+**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Workspace layout](../../web-ui/src/__tests__/components/Layout.test.tsx), [Chat panel](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Classic startup](../../host/__tests__/entrypoint-tab-autostart.test.js), [Host switch coordinator](../../host/__tests__/pi-web-handoff.test.js), [Native abort](../../host/__tests__/pi-web-native-stop.test.js), [Primary readiness](../../host/__tests__/prewarm-orphan-expiry.test.js), [Worker creation](../../src/__tests__/routes/session-workspace.test.ts), [Worker Start](../../src/__tests__/routes/container-lifecycle.test.ts), [Classic eligibility at DO Start](../../src/__tests__/container/session-stop.test.ts), [Classic eligibility at Host startup](../../host/__tests__/repository-restore-order.test.js), [Worker ingress](../../src/__tests__/routes/pi-web-auth-chain.test.ts), [native DO relay](../../src/__tests__/container/terminal-ws-relay.test.ts), [Stock service smoke](../../scripts/ci/smoke-pi-web-services.mjs); Manual: [Packaged Chat handoff acceptance](../../documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance)
+
+**Status:** Planned
+
+---
+
+<a id="req-agent-273-pi-chat-continuity-and-controls"></a>
+### REQ-AGENT-273: Pi handoff continuity
+
+**Intent:** Present accessible handoff feedback and preserve native user interaction while resuming a managed Pi conversation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. While a switch is pending, the destination mode label shuffles using the Dashboard title effect unless reduced motion is requested. Announce the pending destination without adding visible status text or a spinner. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (shows pending feedback in the destination option while retaining the current mode) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+2. Passive refresh or reconnect cannot acquire a writer or wake a stopped container. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2+AC5: an admitted web request cannot outlive the writer or let a stale tab reopen it) --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (REQ-AGENT-272 AC5: reconnect after Pi web’s private process exits cannot start a new generation) -->
+3. The destination opens the saved history without replaying the interrupted prompt or queue. <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC3: ${source} requests abort before ${target} may open the saved conversation) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+4. Terminal text recovered by Abort returns as an editable, unsent draft. <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+5. Ordinary quit returns to a usable shell in the same Terminal pane. <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
+6. Explicit Terminal re-entry opens the exact saved transcript after the previous writer exits. If interrupted, the shell stays selected and re-entry is retryable only after the unused launch is safely revoked. <!-- @impl: host/src/pi-web-runtime.ts::rearmSelectedTerminal --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-273: a safely revoked native re-entry leaves Terminal selected) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
+7. Returning from Chat after an ordinary quit resumes the exact transcript only when a fresh launcher is ready in the original Terminal pane. <!-- @impl: host/src/pi-web-runtime.ts::waitingWrapper --> <!-- @manual: documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi -->
+
+**Constraints:** [REQ-AGENT-280](#req-agent-280-attachment-gated-workspace-reveal) owns destination display readiness.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
+
+**Verification:** Automated: [Mode dropdown](../../web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx), [Workspace panes](../../web-ui/src/__tests__/components/Layout.test.tsx), [Chat panel](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Host handoff coordinator](../../host/__tests__/pi-web-handoff.test.js), [DO relay](../../src/__tests__/container/terminal-ws-relay.test.ts); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time), [Quit and reopen native Pi](../../documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-280: Attachment-gated workspace reveal
+
+**Intent:** Keep the outgoing view visible until the destination can be used.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. During a successful handoff, retain the outgoing view until Code connects or Vibe clears the stock loading gate. Native startup questions and Chat load recovery can reveal Vibe early. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+2. Code reveal selects the already-connected destination pane, including an off-grid fallback, without remounting or reconnecting within the same session generation. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (keeps the prepared tiled socket through Code reveal and retires it on workspace change) -->
+3. The workspace mode menu does not show a cancel action during a waiting switch. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the source Chat during a waiting switch without a cancel button) -->
+4. Returning to the same session generation during an unfinished Terminal-to-Chat handoff keeps Code visible until Chat attaches, without requesting another writer. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (restores the matching Chat attachment gate or saved preference after a %s handoff) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+5. On return to the same session generation before the Host reports the interrupted Terminal-to-Chat handoff, the workspace mode control stays disabled while the original switch request is still outstanding. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (restores the matching Chat attachment gate or saved preference after a %s handoff) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+
+**Constraints:** Hidden terminal attachment follows [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections); Chat sizing follows [REQ-AGENT-287](#req-agent-287-empty-and-restored-vibe-layout).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity)
+
+**Verification:** Automated: [Workspace handoff](../../web-ui/src/__tests__/components/Layout.test.tsx), [Tiled socket lifetime](../../web-ui/src/__tests__/components/Terminal.test.tsx); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-287: Empty and restored Vibe layout
+
+**Intent:** Keep the composer easy to find in a fresh conversation without shrinking a restored conversation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A ready, empty Chat starts with the composer centered and no history space. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+2. The first visible message expands Chat from its center to its normal limits. Reduced motion skips the animation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+3. A restored Chat with populated history opens at full size. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+4. On phones, compact Chat centers in the space below the top-edge session header. Expanding Chat does not move that header. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. On phones, the keyboard inset does not collapse the empty Chat composer. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps an empty Chat usable when the visual viewport shrinks (tablet: %s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+6. Returning to a live Chat after screen lock refits the existing frame to the visible viewport without reopening the conversation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (refits the existing Chat frame on %s without a viewport resize event) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+7. If an empty Chat measurement would clip the composer or status controls, Chat uses its normal size rather than collapsing or reloading. <!-- @impl: web-ui/src/components/PiWebChat.tsx::watchCompactHistory --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) -->
+
+**Constraints:**
+
+- On desktop, the open Chat panel uses 80% of available width and the frame uses 80% of height left after the header, capped at 800px wide and 1200px tall. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- Outside phones, views up to 760px wide or 480px tall use 12px plus safe-area gutters instead of proportional sizing, retaining the same caps. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- On phones, the single header spans the screen at the top, respecting the safe area; full-size Chat fills the remaining area without a border or rounding. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- The composer stays operable, including with the mobile keyboard or browser zoom. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-280](#req-agent-280-attachment-gated-workspace-reveal)
+
+**Verification:** Automated: [Chat sizing fallback](../../web-ui/src/__tests__/components/PiWebChat.test.tsx); Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-275: Classic Pi Chat startup
+
+**Intent:** Open the selected Classic Pi conversation without waiting on unrelated repository restoration.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Chat Start and Resume preload the stock frame behind the standard startup screen. Once the Host confirms Chat and five seconds have elapsed since the stock loading screen disappeared, Open reveals the same frame. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (waits five seconds after the stock loader disappears, not after iframe load) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+2. Waiting to click Open does not expire Chat startup. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+3. Once the Pi profile and transcript are restored, either Classic surface can open while repositories still clone. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+4. Classic Chat and Terminal can switch in either direction while repositories clone. <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+5. Switching between Classic Chat and Terminal does not dismiss the active repository restore notice. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+6. Reload Chat is offered only when the scoped frame fails to load the stock document. It retries the same frame URL without starting another handoff. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (reloads the same Chat frame only after a failed navigation, without switching writers) -->
+7. Verified native question evidence for the same opening attempt pauses attachment timeout within the stock question-time allowance. Writer confirmation and the single-writer fence still apply. <!-- @impl: image/pi-web/handoff-extension.ts::publishStartupQuestion --> <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+
+**Constraints:**
+
+- Chat-first service preparation follows profile restore and never opens a writer.
+- Only revealed Vibe Chat uses the grouped panel; Open retains the existing header and frame. Dashboard, startup, Code, and Terminal retain their own layouts. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (groups the existing header with the same Chat frame only after Open) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) -->
+- The stock-loader gate is best effort, not proof of live synchronization.
+- [REQ-TERM-049](terminal.md#req-term-049-shared-workspace-startup-progress) owns startup status copy.
+- [REQ-GITHUB-320](github.md#req-github-320-nonblocking-terminal-repository-restore-notice) owns restore outcome reporting and notice lifecycle.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
+
+**Verification:** Automated: [Ready and Open](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Chat frame](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Restore notification](../../web-ui/src/__tests__/components/Layout.test.tsx), [Packaged Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer), [Held startup question](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-284: Pi Web image prewarm
+
+**Intent:** Reduce cold stock Chat service startup work without opening a conversation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In Pi-enabled images, fresh launches of both the stock gateway and session daemon accept their entrypoints from the baked Node compile cache. <!-- @impl: Dockerfile::image/pi-web/warm-compile-cache.mjs --> <!-- @test: image/pi-web/warm-compile-cache.mjs (verifyBakedCache) -->
+2. Image prewarming starts no Pi conversation. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: image/pi-web/warm-compile-cache.mjs (measureStartup) -->
+
+**Constraints:** Use an empty disposable profile and the installed package; no separate Pi Web version pin.
+
+**Priority:** P1
+
+**Dependencies:** None.
+
+**Verification:** Automated: [Image cache bake](../../image/pi-web/warm-compile-cache.mjs)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-283: Initial Chat service recovery
+
+**Intent:** Recover an interrupted Chat-first start without replacing the conversation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After a recoverable initial Chat service failure, explicit retry opens the same bound transcript without starting a second writer. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272: timeout of the initial Chat writer exposes only the verified same-transcript retry) -->
+2. An already-occupied Chat gateway rejects startup without changing the restored Pi profile. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (verifyOccupiedGatewayPreservesProfile) -->
+
+3. Before cleanup, a failed stock service boot records the preparation operation, elapsed time and available bounded failure codes in Host logs. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyPackageListFailureDiagnostic) -->
+4. Shutdown cancels in-flight stock service startup requests, including response-body reads, without emitting a boot-failure warning for the cancellation. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyPendingBootRequestCancellation) -->
+5. On successful stock service boot, Host logs cumulative elapsed milliseconds to child launch, observed gateway and daemon listen markers, pair health, package listing, and service readiness. Unobserved listen markers are null and do not gate readiness. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (verifyStockListenTimings) --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyStartupWithoutDaemonMarker) -->
+6. On successful Chat writer confirmation, Host logs elapsed milliseconds for service wait, project/workspace setup, URL publication to first qualifying startup request admission, and admission to writer confirmation. Without observed admission, the last two durations are null, not zero. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
+7. When info logging is enabled, Worker timing logs cover successful authorized stock Chat document GETs and sample other successful stock GETs. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (reports bounded proxy timings only for a successful authorized document) --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (samples successful stock GETs but does not time non-success responses) -->
+
+**Constraints:**
+
+- The previous attempt must be confirmed closed before retry.
+- Do not log raw errors, child output, profile data or response bodies.
+- Worker timing data contains only request category and separate durations for authentication, session eligibility, and authorized dispatch through receipt of response headers. <!-- @impl: src/routes/pi-web.ts::handlePiWebRequest --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (reports bounded proxy timings only for a successful authorized document) --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (samples successful stock GETs but does not time non-success responses) -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
+
+**Verification:** Automated: [Handoff coordinator](../../host/__tests__/pi-web-handoff.test.js), [Packaged Host handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs), [Stock service smoke](../../scripts/ci/smoke-pi-web-services.mjs), [Worker proxy](../../src/__tests__/routes/pi-web-auth-chain.test.ts)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-276: Vibe and Code workspace preference
+
+**Intent:** Select Chat or Terminal without changing the workspace kind or starting a different writer unintentionally.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The authenticated user can save and read a Chat or Terminal Pi surface preference independently of the default workspace and Herdr preferences. <!-- @impl: src/routes/preferences.ts::mergePreferences --> <!-- @test: src/__tests__/routes/preferences.test.ts (persists the Pi surface default %s independently of workspace and Herdr settings) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (retains the persisted Pi surface %s in GET and PATCH responses) -->
+2. Dashboard mode selection saves the default without opening a session. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (saves the mode from Dashboard without selecting a session) -->
+3. In an eligible running workspace, header mode selection saves the default and switches the current conversation through the existing handoff. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) -->
+4. The header omits mode selection while Herdr or the VS Code default is active. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (hides Dashboard mode navigation with settings %j) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (hides the running workspace mode selector with settings %j) -->
+5. The session card menu retains lifecycle actions but offers no Chat or Terminal override. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (keeps lifecycle actions but no mode actions in a %s Pi card menu) -->
+6. With no explicit choice, starting an eligible saved or newly created session uses the saved preference unless Herdr or the VS Code default workspace is active. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (applies the eligible Pi surface at Dashboard Start: %s) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (uses the saved Vibe default only when the newly created %s workspace (%s) is eligible) -->
+7. Cold Dashboard Open of an eligible running session uses the saved preference when Herdr and the VS Code default are inactive. A different confirmed surface uses the existing handoff; a matching surface stays open without a switch. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens a running Pi workspace using preference %s from %s with settings %j) -->
+
+**Constraints:**
+
+- The Code-mode agent picker offers Pi without Chat or Terminal overrides. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (starts Pi from the agent picker without surface override buttons (Herdr: %s)) -->
+- Starting or opening from a card preserves the saved preference and workspace kind. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps saved preferences and workspace kind after a Dashboard card %s) -->
+- A refresh never requests a switch.
+- Same-generation warm return follows [REQ-AGENT-277](#req-agent-277-retained-chat-on-dashboard-return).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
+
+**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx), [Preferences API](../../src/__tests__/routes/preferences.test.ts), [API client](../../web-ui/src/__tests__/api/client.test.ts)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-278: Narrow workspace header fallback
+
+**Intent:** Keep essential workspace actions reachable when optional actions no longer fit.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. If the narrow workspace-mode header still cannot fit after optional actions overflow into Profile, the remaining utilities wrap to a second row without shrinking 44px touch targets. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/styles/header.css::.header-with-workspace-mode --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
+2. The Dashboard and workspace mode dropdown sits immediately before Profile. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (places the labeled desktop mode dropdown immediately before Profile) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (places the labeled desktop mode dropdown immediately before Profile) -->
+3. The dropdown labels the current mode when it fits on desktop or tablet. Phones and cramped headers use an icon instead. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (compacts a desktop selector when Profile leaves too little room and restores it when the header expands) --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (restores the shorter Vibe label after switching modes without resizing the header) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
+4. The open dropdown offers **Vibe Mode** and **Code Mode** and visibly marks only the current mode, even during a pending switch. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (offers the same exclusive choices in %s form) --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (shows pending feedback in the destination option while retaining the current mode) -->
+5. Profile is icon-only on Dashboard and workspace headers. The account email appears at the top of the open Profile menu. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (shows the Profile email only at the top of the open workspace menu) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows the Profile email only at the top of the open Dashboard menu in %s) -->
+6. An open mode dropdown dismisses and returns focus to its trigger when the destination activates, not when the switch is requested. <!-- @impl: web-ui/src/components/PiWorkspaceMode.tsx::PiWorkspaceMode --> <!-- @test: web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx (shows pending feedback in the destination option while retaining the current mode) --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (keeps keyboard focus in the header when a handoff terminal becomes active) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-276](#req-agent-276-vibe-and-code-workspace-preference)
+
+**Verification:** Automated: [Header](../../web-ui/src/__tests__/components/Header.test.tsx), [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Mode dropdown](../../web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx); Manual: [Workspace header acceptance](../../documentation/lanes/terminal-and-ide.md#workspace-header-acceptance)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-277: Retained Chat on Dashboard return
+
+**Intent:** Reveal the same already-open Chat without a new writer when returning from Dashboard or switching between two running Chats.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Dashboard can hide and retain an already-open Chat frame for the same running session and generation. Returning reveals the same frame without requesting a new writer. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (reuses the open Chat frame on Dashboard return and discards it on %s) -->
+2. Stop, a generation change, or confirmed loss of Chat ownership discards only the affected retained frame. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (switches between two running Chats without replacing either frame or requesting a writer, then handles %s) -->
+
+3. Opening Usage from Profile parks an already-open Chat just like Dashboard. Returning to its running session in the same generation reveals the same frame without requesting a writer. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (returns from %s Profile Usage to the same Chat without another writer request) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#return-from-profile-usage -->
+
+4. Alternating between two running, already-open Chats reveals their original frames without the startup screen or another writer request. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (switches between two running Chats without replacing either frame or requesting a writer, then handles %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-between-two-running-chats -->
+5. Page exit discards all parked Chat frames. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (switches between two running Chats without replacing either frame or requesting a writer, then handles %s) -->
+
+**Constraints:** Keep at most two mounted Chat frames in the workspace; never show both at once.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-273](#req-agent-273-pi-handoff-continuity)
+
+**Verification:** Automated: [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Return from Profile Usage](../../documentation/lanes/terminal-and-ide.md#return-from-profile-usage), [Switch between two running Chats](../../documentation/lanes/terminal-and-ide.md#switch-between-two-running-chats)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-279: Direct Vibe session launch
+
+**Intent:** Start Pi Chat directly without duplicating a pending launch or changing the last explicitly chosen agent.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In Vibe, New Session starts an eligible Pi Chat without showing the agent picker. Existing creation limits still apply. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (starts Pi Chat directly in Vibe unless the session limit is reached (%s)) -->
+2. Dashboard New Session stays locked while a direct Vibe launch is pending, even across navigation. Completion or Stop releases the lock, subject to existing creation limits. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/session.ts::startSession --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps New Session locked after Dashboard return until a Vibe launch %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (settles a cancelled Start without publishing Ready when Stop takes over) -->
+3. The workspace picker can still create a session explicitly during a pending Vibe launch. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens an explicitly created workspace from the picker while Vibe is pending) -->
+4. A direct Vibe launch leaves the last explicitly selected agent unchanged. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (preserves the last explicitly chosen agent when Vibe launches Pi) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-276](#req-agent-276-vibe-and-code-workspace-preference)
+
+**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx), [Session store](../../web-ui/src/__tests__/stores/session.test.ts)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-282: Stock Pi Chat navigation and footer defaults
+
+**Intent:** Keep the embedded stock Chat focused on conversation and files.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In a fresh browser, the stock navigation pins Chat and Files only on both desktop and phone. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+2. Reopening Chat preserves previously saved browser navigation choices. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions --> <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (seeds stock navigation only when no browser preference exists (%s)) -->
+3. The stock Chat footer shows token and context usage without the USD display. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+4. Chat hides SYSTEM transcript rows from both live and saved history without changing the saved transcript. <!-- @manual: documentation/lanes/terminal-and-ide.md#verify-system-rows-are-hidden-in-chat -->
+5. Embedded Chat hides the stock Refresh and Actions controls on desktop and mobile without hiding navigation or failure-only Reload Chat. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+6. In the Codeflare theme, the session-start summary, composer, model label, and footer token and context counters match the regular message body font size. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+7. In the Codeflare theme, the beginning-of-session summary has space above it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+
+**Constraints:** No stock Pi Web patch or change to the required Terminal plugin.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
+
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout), [Stock controls](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [SYSTEM row visibility](../../documentation/lanes/terminal-and-ide.md#verify-system-rows-are-hidden-in-chat)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-289: Embedded Chat chrome
+
+**Intent:** Keep only the controls needed in a Codeflare workspace.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The embedded sidebar hides Projects and its resize divider. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+2. The stock machine title and mark are hidden in the sidebar and mobile context header. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+3. Hide the hamburger and its focus stop only in mobile Sessions when Chat and Files are both directly available. Keep the stock menu available in Chat and Files so users can change pins, and in Sessions if either tab is unpinned. <!-- @impl: image/pi-web/codeflare-chrome/browser/index.js::hideRedundantNavigation --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+4. The stale-conversation warning is hidden without hiding a failed refresh or disabling background refresh. <!-- @impl: image/pi-web/codeflare-chrome/browser/index.js::hideStaleConversationNotice --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. The composer’s Jump to top and Jump to end controls are hidden and cannot take keyboard focus. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+6. Attach files matches Send and Stop in both button and icon size. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+7. The embedded header hides only the empty-session `(no messages)` title. The Sessions picker and its accessible label remain available, and real titles appear when stock provides them, even when the text equals the placeholder. <!-- @impl: image/pi-web/codeflare-chrome/browser/index.js::hideEmptySessionTitle --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+
+**Constraints:** Chat, Files, Sessions, New session, and the sidebar toggle remain available. No change to stock Pi Web, writer admission, or transcript persistence.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
+
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-290: Embedded mobile workspace context
+
+**Intent:** Remove redundant workspace context from the narrow Chat header.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On narrow screens, the stock context header hides the project and workspace selectors while leaving Sessions reachable. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+
+**Constraints:** None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-289](#req-agent-289-embedded-chat-chrome)
+
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-291: Mobile focus on new Chat Open
+
+**Intent:** Let phone users type immediately after opening a new empty Vibe Chat.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A phone touch tap on startup **Open** for a newly created, confirmed-empty Chat focuses the stock prompt in the revealed frame during that tap. <!-- @impl: web-ui/src/components/Layout.tsx::handleChatStartupOpen --> <!-- @impl: web-ui/src/components/PiWebChat.tsx::focusStockStartupPrompt --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens the retained Chat in place: %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+2. Resume, surface switching, desktop activation, and blocking stock UI do not trigger this focus behavior. <!-- @impl: web-ui/src/components/Layout.tsx::handleChatStartupOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens the retained Chat in place: %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-275: only the original successful clone launch can authorize focus (%s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+3. Keyboard activation of startup **Open**, or startup **Open** with unknown or populated history, does not focus the composer. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @impl: web-ui/src/components/PiWebChat.tsx::focusStockStartupPrompt --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens the retained Chat in place: %s) -->
+
+**Constraints:** Preserve the retained frame and native dialogs. No delayed focus attempt.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-275](#req-agent-275-classic-pi-chat-startup)
+
+**Verification:** Automated: [Startup focus guards](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Choose the starting writer](../../documentation/lanes/terminal-and-ide.md#choose-the-starting-writer)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-285: Scoped slash commands in Pi Chat
+
+**Intent:** Run installed Pi slash commands in the active Chat conversation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Chat runs a registered slash command with its arguments in the bound conversation and workspace. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
+2. A different conversation or workspace, a releasing Chat writer, and the stock Clone and Fork commands cannot start command work through the bound Chat. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
+
+3. A successful command updates idle activity. Rejected or unsupported commands and read-only `/tree` do not. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
+
+**Constraints:** Stock Pi retains command dispatch; no alternate writer or session creation route.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls), [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
+
+**Verification:** Automated: [Packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-274: Stock Pi Chat controls
+
+**Intent:** Retain native Pi interactions in the stock browser app.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Chat retains Files and `@` references for workspace files. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+2. Chat starts in Quiet mode and allows the user to change it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+3. Native questions are answerable in the live Chat frame. During startup, the original frame shows the question before Open appears. <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+4. The Chat composer saves attachments to the active conversation’s workspace, up to 16 attachments and 10,000,000 decoded bytes total. An over-limit batch writes no files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+5. The machine name defaults to Codeflare. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+6. Managed Chat does not expose optional Info, Updates, MCP Manager, Tasks, or Relays panels. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+7. Attachment requests above 14 MiB are rejected without writing any files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
+
+**Constraints:**
+
+- [REQ-AGENT-288](#req-agent-288-codeflare-chat-theme) owns the Chat theme.
+
+- [REQ-AGENT-286](#req-agent-286-classic-chat-conversation-selection) owns creating and selecting Chat conversations.
+- Chat does not expose Git or worktree controls at any point in the session. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (verifyRestoredBundledWorkflows) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+- Before Chat attaches, the supervisor dismisses newly provisioned MCP Manager only when the managed adapter selection is unambiguous and preexisting entries and filters are unchanged, except for the exact bundled Workflows registration successfully dismissed under [REQ-AGENT-272 AC7](#req-agent-272-pi-chat-and-terminal-transcript-handoff). <!-- @impl: host/src/pi-web-services.ts::createPiWebServices -->
+- [REQ-AGENT-281](mcp.md#req-agent-281-bundled-mcp-manager-registration-retirement) owns reconciliation of restored MCP registrations.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
+
+**Verification:** Automated: [14 MiB attachment request-body limit](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Stock controls, composer attachments, and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-292: Tablet Chat keyboard fit
+
+**Intent:** Keep more conversation history visible while typing on a tablet.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. With the tablet keyboard open, populated Chat uses the available height above the keyboard within its normal cap. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat[data-chat-keyboard='open'] --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+2. Chat follows the keyboard without jitter or snapping and returns to its prior sizing on close, preserving the frame, focus and transcript. <!-- @impl: web-ui/src/components/Layout.tsx::visibleChatKeyboardInset --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (fits tablet Chat outside the frame through keyboard open, close and reopen) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+3. With reduced motion enabled, tablet keyboard fit applies without added animation. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+4. When the tablet keyboard opens, empty Chat retains compact sizing only if the measured composer and status controls fit; otherwise it uses normal keyboard-fit sizing per [REQ-AGENT-287 AC7](#req-agent-287-empty-and-restored-vibe-layout). <!-- @impl: web-ui/src/components/PiWebChat.tsx::innerKeyboardInset --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (keeps an empty Chat usable when the visual viewport shrinks (tablet: %s)) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+5. With the tablet keyboard open, the workspace halves its normal top gutter without cutting into the safe area. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat[data-chat-keyboard='open'] --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit -->
+
+**Constraints:** Preserve phone and desktop layout. Do not reserve permanent history space in an empty Chat.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-287](#req-agent-287-empty-and-restored-vibe-layout)
+
+**Verification:** Manual: [Tablet keyboard fit](../../documentation/lanes/terminal-and-ide.md#check-tablet-chat-keyboard-fit)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-288: Codeflare Chat theme
+
+**Intent:** Present Codeflare’s default Chat appearance while preserving later browser choices.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In a fresh browser, Chat opens with Codeflare selected and active. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+2. On first open after the change, a browser with a previously saved theme returns to the Codeflare default. <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+3. An explicit browser theme choice made after that first open survives reload and reopening Chat. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+4. The active Codeflare theme has a dark, 80%-transparent base. <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-bg = #18181833 --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+5. The active Codeflare theme visually distinguishes user messages from agent replies. <!-- @impl: image/pi-web/codeflare-chrome/browser/graphite.css::--pi-chat-user-bg = #00baff30 --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+
+6. In Chat, the focused prompt outline follows the active Codeflare accent, including changes while Chat stays open. The unfocused border is unchanged. <!-- @impl: web-ui/src/components/PiWebChat.tsx::updatePromptAccent --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (updates the retained Stock Chat document when the shell accent changes) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-accent-preferences -->
+
+**Constraints:** Use stock Pi Web theme support without locking subsequent theme choices.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
+
+**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout), [Prompt focus accent](../../documentation/lanes/terminal-and-ide.md#check-accent-preferences)
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-286: Classic Chat conversation selection
+
+**Intent:** Change conversations in one running workspace without transferring transcript authority through passive navigation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The stock Sessions `+` opens a durable empty conversation in the same running Codeflare session and workspace, without a temporary row. <!-- @impl: image/pi-web/codeflare-chrome/browser/transcript-intent.js::activateTranscriptIntent --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+2. A pointer or keyboard activation of an eligible history row selects that exact transcript in the same workspace. The Host releases the previous writer and commits the selection before admitting work. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @impl: image/pi-web/codeflare-chrome/browser/transcript-intent.js::activateTranscriptIntent --> <!-- @test: src/__tests__/routes/pi-web-auth-chain.test.ts (REQ-AGENT-272/274: only a current owned attachment can submit a valid transcript intent) --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272/274: explicit Chat selection releases first and Stop joins the exact transfer) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
+3. Retrying a Chat conversation change after the outgoing writer fails to drain preserves the original create or select intent. The original writer must release before the candidate is prepared or opened. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272 AC2: retry after a failed Chat drain releases the source and opens the original candidate) -->
+4. Chat history lists only retained root transcripts associated with the current Codeflare session. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
+5. Deep links, browser history, programmatic selection, and raw stock creation cannot replace the current writer. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) -->
+6. A retired attachment cannot read or write the conversation even after the user selects the same transcript again. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
+
+**Constraints:** Chat history excludes native forks, even when standalone Classic Terminal can resume them.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
+
+**Verification:** Automated: [Stock browser controls](../../scripts/ci/smoke-pi-web-system-rows.mjs), [Packaged handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs), [Host coordinator](../../host/__tests__/pi-web-handoff.test.js); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time)
+
+**Status:** Planned
 
 ---
 
@@ -1178,11 +1811,13 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 4. Deploy credentials are persisted in durable storage scoped to the user's bucket and are encrypted at rest when platform-level credential encryption is configured. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
 5. Non-Enterprise direct credential management discovers Cloudflare accounts from the stored token without manual ID entry, automatically selecting a sole account and returning choices when multiple accounts are accessible. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (stores Cloudflare token and auto-selects single account) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (returns account list when multiple Cloudflare accounts) -->
 6. Non-Enterprise direct credential management persists an explicit Cloudflare account choice only after validating it against that token. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (sets cloudflareAccountId after validating it against the stored token) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (rejects a cloudflareAccountId not accessible with the stored token) -->
+7. A direct write that replaces an OAuth grant with a Cloudflare PAT or clears the grant stores none of the previous OAuth source, refresh token, or expiry. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (REQ-AGENT-010: an expiring Cloudflare OAuth grant %s by a PAT cannot renew the old grant) -->
 
 **Constraints:**
 
 - Direct storage is non-Enterprise only; [REQ-ENTERPRISE-306](security.md#req-enterprise-306-enterprise-direct-deploy-credential-boundary) owns Enterprise denial before validation or credential access and excludes legacy token migration or invalidation.
 - Persist only tokens validated against the provider's API; an unreachable provider returns an upstream error and the credential is not stored.
+- A token and account submitted together use one provider validation. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (REQ-AGENT-010 AC1/AC6: co-submitted token and downstream account selection reuse a single provider response (%j)) -->
 
 **Priority:** P1
 
@@ -1471,7 +2106,7 @@ None.
 
 1. Settings panel uses accordion groups (appearance, session, deploy, LLM, admin). <!-- @impl: web-ui/src/components/SettingsPanel.tsx::ACCORDION_SUBTITLES --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) -->
 2. Provider rows with SVG brand icons and inline expansion. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (renders OpenAI and Gemini provider rows after saved-key loading succeeds) --> <!-- @manual -->
-3. Appearance section with accent color picker. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) --> <!-- @manual -->
+3. Appearance offers an accent picker that defaults to cyan and preserves a saved custom color. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (shows the cyan default accent swatch when no accent is saved or after reset) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (should load accent color from localStorage on mount) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-accent-preferences -->
 4. Session section with a session-mode toggle and a sleep-timeout select; agent type is chosen at session creation, not here. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) --> <!-- @manual -->
 
 **Constraints:**
@@ -1482,7 +2117,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
+**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance), [Accent preferences](../../documentation/lanes/terminal-and-ide.md#check-accent-preferences)
 
 **Status:** Implemented
 
@@ -2194,6 +2829,7 @@ None.
 5. Root and nested SDD layouts suppress review only while transition is true and the layout-resolved import-triage queue contains an open item; ordinary review queues never suspend transition review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 6. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
 7. Each candidate remains paired with its executable shell segment and resolved repository. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (resolves a successful clone destination before repository lookup) -->
+
 
 **Constraints:**
 
@@ -3455,7 +4091,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Encrypted OAuth credentials reuse the bucket deploy-key fields without a new key. <!-- @impl: src/lib/cloudflare-token.ts::storeCloudflareConnection --> <!-- @impl: src/lib/cloudflare-token.ts::writeDeployKeys --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (connects, refreshes, selects and revokes only the owner grant without touching Browser Run or legacy credentials) --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (preserves the GitHub deploy fields when storing a cloudflare connection) -->
+1. OAuth credentials reuse the bucket deploy-key fields, preserving the stored GitHub connection; at-rest encryption applies when configured. <!-- @impl: src/lib/cloudflare-token.ts::storeCloudflareConnection --> <!-- @impl: src/lib/cloudflare-token.ts::writeDeployKeys --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (connects, refreshes, selects and revokes only the owner grant without touching Browser Run or legacy credentials) --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (preserves the GitHub deploy fields when storing a cloudflare connection) -->
 2. Exchanges use `client_secret_post`. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 3. Exchanges surface Cloudflare `error_description` on failure. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 
@@ -3580,17 +4216,52 @@ None.
 3. Composition and extraction follow explicit ownership, state, reuse, testability, and maintenance evidence. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 4. Updates prefer immutability, keep necessary mutation local, validate untrusted boundaries, and trust typed internals. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 5. CI, automated-test, deployment, and log-tail monitoring never blocks the main session; only approved safe local checks run in-session. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+6. Before declaring implementation blocked, state the required outcome and hard constraints separately from the chosen approach. On a platform limit or repeated failure, recheck the design rationale and take a smaller in-scope path if it achieves that outcome under those constraints. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+7. Escalate only unresolved blockers, with evidence and the specific decision needed, without bypassing review, authorization, or an explicit stop. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 
 **Constraints:**
 
 - The canonical constitution is authored in Claude preseed and compiled for every supported runtime; transformed files are downstream artifacts.
 - Prose correctness is not pinned by wording, heading, token-count, or snapshot tests.
+- Repository clones run in the foreground with visible progress and no agent-imposed tool or command timeout. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
 **Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-295: Guided first project delivery
+
+**Intent:** A first-time builder can turn a plain-language idea into a usable project and publish it without handling Git or deployment mechanics.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Guide unresolved project requirements and naming through the available structured questionnaire, with a grounded recommendation for each question. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 1: Agree on the brief --> <!-- @manual: Beginner ship workflow -->
+2. When authorized to publish a new repository, use the selected project name or infer one from requirements, create it privately, and choose an alternative slug automatically on a confirmed collision without touching the conflicting repository. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 4: Push to private GitHub --> <!-- @manual: Beginner ship workflow -->
+3. Include a professional README describing actual features and supported setup, test, and delivery instructions in the first push. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 4: Push to private GitHub --> <!-- @manual: Beginner ship workflow -->
+4. For new or changed interfaces, use Codeflare's design routing and the applicable project design system, with Impeccable for critique and bounded finishing when available. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 3: Build and check the project --> <!-- @manual: Beginner ship workflow -->
+5. Report a live deployment only after verifying the authorized target and intended release at its actual URL. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 6: Verify and hand off --> <!-- @manual: Beginner ship workflow -->
+6. For a Cloudflare website, offer the user's eligible connected domains and a recommended available subdomain through the questionnaire. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 2: Choose the website address --> <!-- @manual: Beginner ship workflow -->
+7. Deploy automatically to the approved hostname through the connected Cloudflare deployment path without taking over an unrelated hostname or silently choosing another. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 5: Deploy the agreed release --> <!-- @manual: Beginner ship workflow -->
+
+**Constraints:**
+
+- Private source does not imply a private deployment; publication does not authorize deployment, credential changes, or deletion beyond the approved scope.
+- Default to direct Cloudflare deployment; set up Actions deployment workflows or repository deployment secrets only on request. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 5: Deploy the agreed release --> <!-- @manual: Beginner ship workflow -->
+- For requested Actions setup, ask whether a suitable deployment token is available when access is not verified; recommend direct deployment if it is unavailable or uncertain. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 5: Deploy the agreed release --> <!-- @manual: Beginner ship workflow -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite), [REQ-AGENT-198](#req-agent-198-engineering-constitution-security-policy)
+
+**Verification:** Manual: [Beginner ship workflow](../../documentation/lanes/preseed.md#beginner-ship-workflow)
 
 **Status:** Implemented
 
@@ -4519,9 +5190,28 @@ None.
 ---
 
 <a id="req-agent-191-goal-tool-visibility-across-workflows"></a>
-<a id="req-agent-248-managed-goal_wait-exclusion"></a>
 
-The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion are retired. [REQ-AGENT-158](#req-agent-158-bounded-initial-pi-tool-exposure) still owns bootstrap and Plan tool exposure.
+### REQ-AGENT-248: Managed goal_wait exclusion
+
+**Intent:** Goal cannot use its stock wait tool under Codeflare policy. Todo Loop retains its independent wait tool.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Capability search excludes `goal_wait`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-248: Goal wait is undiscoverable and exact activation reports the policy block) -->
+2. Exact activation of `goal_wait` reports a policy denial and leaves active tools unchanged. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-248: Goal wait is undiscoverable and exact activation reports the policy block) -->
+3. `todo_loop_block` remains activatable. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-248: Goal wait is undiscoverable and exact activation reports the policy block) -->
+
+**Constraints:** The final tool-call guard rejects `goal_wait` even if a caller directly selects it. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-248: Goal wait is undiscoverable and exact activation reports the policy block) -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-158](#req-agent-158-bounded-initial-pi-tool-exposure)
+
+**Verification:** Automated: [Capability policy](../../src/__tests__/lib/pi-capabilities.test.ts)
+
+**Status:** Implemented
 
 ---
 
@@ -5026,7 +5716,7 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 **Acceptance Criteria:**
 
 1. The PR-boundary launch owner activates `subagent` before delivering its unchanged reviewer-and-CI follow-up request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (activates subagent and emits independent launch waves before ending the boundary turn) -->
-2. The memory/Vault extraction launch owner activates `subagent` before delivering unchanged extraction follow-up requests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the twentieth real prompt and emits a visible reminder without private spawn) -->
+2. The memory/Vault extraction launch owner activates `subagent` before delivering unchanged extraction follow-up requests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the twentieth real prompt and emits a model follow-up without private spawn) -->
 
 **Constraints:** Review, CI, memory and Vault follow-up requests remain unchanged and exactly once per delivery; tool activation grants no execution authorization.
 
@@ -5892,10 +6582,10 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 
 **Acceptance Criteria:**
 
-1. Startup removes explicitly retired package identities, including managed Goal, response and Usage, from persisted Pi settings. The known superseded `./local-packages/pi-todo-loop` registration (or its absolute agent-directory equivalent) converges to the single stock npm registration without deleting package files. <!-- @impl: entrypoint.sh::identity --> <!-- @test: host/__tests__/pi-settings-packages.test.js (loads stock Todo Loop once and drops restored managed Goal registrations) --> <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
+1. Startup removes explicitly retired package identities, including the retired response and Usage, from persisted Pi settings. The known superseded `./local-packages/pi-todo-loop` registration (or its absolute agent-directory equivalent) converges to the single managed npm registration without deleting package files. <!-- @impl: entrypoint.sh::identity --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-111 / REQ-AGENT-293: loads stock Todo Loop and managed Goal once in both Pi modes) --> <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
 2. Startup preserves unrelated user-added packages, credentials and history during retirement migration. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001 AC5 / REQ-AGENT-209: real restored boot migrates packages while preserving user npm metadata and credential/history bytes) -->
 
-**Constraints:** Migration changes only known managed package registrations. It does not read, rewrite, or remove `pi-goal.json`.
+**Constraints:** The retirement pass changes only known managed package registrations. It does not read, rewrite, or remove `pi-goal.json`; [Goal startup normalization](#req-agent-293-managed-goal-alongside-todo-loop) is separate.
 
 **Priority:** P1
 
@@ -6110,11 +6800,12 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 3. Exact capability activation adds the requested eligible registered tool for the next model step without removing current tools; activating `subagent` also activates `get_subagent_result` and `steer_subagent` when registered. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activationGroup --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC3: treats subagent and its controls as one additive activation group) -->
 4. A new user prompt restores bootstrap exposure while tools activated inside the current agent loop remain available for their next provider step. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 5. Provider-boundary diagnostics report registered and initially active tool names and serialized schemas separately, and real runtime measurement rejects an invalid initial active set without imposing a fixed tool-token threshold. <!-- @impl: scripts/measure-pi-runtime-context.mjs::main --> <!-- @impl: scripts/measure-pi-runtime-context.mjs::validateInitialToolExposure --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
-6. An active Plan workflow exposes only its persisted allowed tools plus `plan_mode_question` and `plan_mode_complete`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activePlanTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-152/158: preserves only a restored Plan workflow policy plus required helpers) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158: a malformed restored Plan policy keeps only bootstrap tools) -->
+6. Regardless of Goal visibility, an enabled Plan exposes only its persisted allowed tools plus `plan_mode_question` and `plan_mode_complete`. A missing or malformed restored policy exposes only bootstrap tools. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activePlanTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-152/158: preserves only the restored Plan allowlist and helpers even with Goal visibility set to always) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158: a malformed restored Plan policy keeps only bootstrap tools) -->
 7. A child session also retains upstream-registered `ask_parent` and `notify_parent` protocol tools without granting ordinary tools absent from its allowlist. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158: preserves registered child protocol without granting ordinary tools) -->
 
 **Constraints:**
 
+- The normal-turn bootstrap excludes workflow-specific exposure such as [managed Goal](#req-agent-293-managed-goal-alongside-todo-loop); that exception does not widen Plan’s allowlist.
 - Registered tools, skills, native package discovery, explicit invocation, and context-mode's explicit enablement remain available.
 - Use Pi's native `getAllTools`, `getActiveTools`, `setActiveTools`, additive tool-result availability, and `tool_call` blocking contracts; do not add a router, Pi fork, or XML rewrite.
 - Any package-source transform must be exact-version, image-owned, idempotent, and required by a focused compatibility contract.
@@ -6450,9 +7141,11 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 
 **Acceptance Criteria:**
 
-1. Supported checkout exposures resolve only the active branch's exact open protected-base PR head; valid markers stay silent, matching delivery emits one plan, and other misses offer mark-or-launch consent. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful PR creation without requiring UI) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful PR reopen without requiring UI) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (automatically emits review and CI launch instructions after push, PR creation, and PR reopen) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps unrelated PR reopen delivery inert) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) -->
+1. Supported checkout exposures resolve only the active branch's exact open protected-base PR head; valid markers stay silent, matching delivery emits one plan, and ordinary misses offer mark-or-launch consent. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful PR creation without requiring UI) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful PR reopen without requiring UI) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (automatically emits review and CI launch instructions after push, PR creation, and PR reopen) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps unrelated PR reopen delivery inert) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) -->
 2. Cancellation writes nothing; marking revalidates and writes exact identity, while launch uses contextual scope, starts reviewers together, and adds CI only for eligible delivery context. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (repeats after cancellation and stays silent after marking complete) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (acknowledges a valid zero-lane delta and emits only independent CI) -->
 3. Inert, failed, detached, unsynchronized, child-session, non-SDD, or lookup-failed activity writes no marker and launches nothing. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) -->
+4. A matching blocked local Pi delivery offers only Launch review. Consent starts a fresh evidence window with exact-head CI after one verification of the original delivery target. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (binds outage recovery to the delivery target (%s)) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) -->
+
 **Constraints:** GitHub identity resolution fails closed; root alone applies the user's choice or launches from a delivery plan.
 
 **Priority:** P1
@@ -6478,6 +7171,8 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 3. Pi and Claude use the same host-aware exact marker identity, 30-day expiry, and ten-marker repository-and-branch retention. Only root owns the marker. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (user-scoped review completion state) --> <!-- @test: host/__tests__/review-completion-state.test.js (Claude review completion helper parity) -->
 4. No executable review source reads, migrates, deletes, or writes legacy `.git/sdd-review-*` state. Linked worktrees and separate clones use the user-scoped marker root instead. <!-- @test: host/__tests__/enforce-review-spawn.test.js (REQ-AGENT-244 AC4: a separate clone honors the same user-scoped completion) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::completionPath --> <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::completionPath --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (supports linked worktrees and writes outside clone-local Git metadata) --> <!-- @test: host/__tests__/run-review-lane.test.js (never reads clone-local legacy acknowledgement state) -->
 5. A completed local Pi triage can deliver FIX on the next native turn without waiting for final settlement. It writes the same exact-head marker first and emits only once. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-244: offers FIX on the next native turn without waiting for settlement (prior continuation=%s)) -->
+
+6. Local Pi retries transient FIX verification failures. Persistent lookup or marker failure reports the reason and withholds FIX, keeping the round eligible for later settlement. Changed or ineligible identity reports the reason and discards the round. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) -->
 
 **Notes:** The existing [replacement-container marker acceptance](../../documentation/lanes/storage-and-sync.md#req-stor-027-integration-replacement-container-marker-acceptance) checks actual R2 restoration separately from local marker/filter tests. An unexecuted round trip is not a missing implementation or a passing deployment receipt.
 
@@ -6532,7 +7227,7 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 
 ### REQ-AGENT-216: Quiet Pi Subagent Defaults
 
-**Intent:** Workspace startup disables unsolicited Pi subagent mid-run messages without discarding unrelated preferences.
+**Intent:** Workspace startup reduces unsolicited Pi subagent messages without discarding preferences or hiding actionable outcomes.
 
 **Applies To:** User
 
@@ -6540,6 +7235,7 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 
 1. Every startup writes `midRunUpdates: false` to the global Pi Subagents configuration for new and restored homes, preserving other valid preferences. <!-- @impl: entrypoint.sh::configure_pi_subagent_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-216: startup disables subagent mid-run updates for new and restored homes without changing other preferences) -->
 2. Invalid configuration remains unchanged; startup warns without disclosing configuration contents. <!-- @impl: entrypoint.sh::configure_pi_subagent_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-216: invalid subagent preferences are preserved without exposing their contents) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-216 AC2: unsafe filesystem entries are preserved with a sanitized startup warning) -->
+3. Routine successful completions stay in model context and history without appearing in Chat or Terminal. Actionable notices and unsuccessful outcomes remain visible. <!-- @impl: scripts/patch-pi-subagents-notifications.mjs::patchPiSubagentsNotifications --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (REQ-AGENT-053: queued parent follow-ups cannot starve completion past the next safe turn) --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (#57: actionable completion nudges retain visibility and their payloads) -->
 
 **Constraints:**
 
@@ -6550,7 +7246,7 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 
 **Dependencies:** None.
 
-**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js)
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [native subagent notifications](../../host/__tests__/pi-subagents-notifications.test.js)
 
 **Status:** Implemented
 
@@ -6590,7 +7286,7 @@ The former REQ-AGENT-191 Goal visibility and REQ-AGENT-248 `goal_wait` exclusion
 1. When the Enterprise-mode binding is set, the selectable universe is capped at the enterprise-capable set `{copilot, pi, bash}`; session creation rejects any agent type outside it. <!-- @impl: src/lib/agent-allowlist.ts::ENTERPRISE_AGENTS --> <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC1: agentType '%s' is rejected 400 when ENTERPRISE_MODE=active) -->
 2. The wizard-selected active agents gate the selectable set: session creation and `lastAgentType` preference writes reject deactivated or uninstalled coding agents, while installed active agents and the always-on `bash` stay accepted. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC2: a KV-deactivated coding agent is rejected 400) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (AC2 (REQ-ENTERPRISE-003): a KV-deactivated lastAgentType is rejected 400 under enterprise) -->
 3. An Enterprise session created without an explicit `agentType` is stamped with the first selectable coding agent, or `bash` when none remains, and never takes the generic `claude-code` fallback. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC3: an omitted agentType is stamped with the first active coding agent) -->
-4. Every session-creation surface (CreateSession dialog and GitHub clone picker) offers exactly the active agents delivered by the authenticated user profile. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx::ClonePickerNewSession --> <!-- @impl: web-ui/src/lib/schemas.ts::UserResponseSchema --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (renders only the wizard-activated agents delivered by /api/user) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders only the wizard-activated agents delivered by /api/user in enterprise mode) --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (enterprise: allowedAgents reflects the wizard-selected active agents plus bash) -->
+4. The CreateSession dialog and Code clone picker offer exactly the authenticated profile’s active agents. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx::ClonePickerNewSession --> <!-- @impl: web-ui/src/lib/schemas.ts::UserResponseSchema --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (renders only the wizard-activated agents delivered by /api/user) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders only the wizard-activated agents delivered by /api/user in enterprise mode) --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (enterprise: allowedAgents reflects the wizard-selected active agents plus bash) -->
 5. An absent, malformed, or capable-agent-free stored selection defaults to the enterprise-capable policy set, then intersects it with installed agents; `bash` remains available. <!-- @impl: src/lib/agent-allowlist.ts::readActiveAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC5: a malformed stored selection resolves to the full enterprise set) -->
 6. When the Enterprise-mode binding and build-agent selection are unset, all seven agent types from [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) remain selectable. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @impl: src/lib/agent-allowlist.ts::installedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (flag-off: agentType '%s' is accepted 201 when ENTERPRISE_MODE unset) -->
 7. When the Enterprise-mode binding is unset, the stored active-agent selection is ignored. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC7: the KV selection is ignored outside enterprise mode) -->

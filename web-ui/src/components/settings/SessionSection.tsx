@@ -154,7 +154,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
                 aria-checked={props.defaultWorkspace() === 'terminal'}
                 data-testid="default-workspace-terminal"
               />
-              Terminal
+              Agent
             </label>
             <label class={`session-mode-option ${props.defaultWorkspace() === 'vscode' ? 'session-mode-option--selected' : ''}`}>
               <input
@@ -204,7 +204,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
         </div>
         <div class="setting-row setting-row--column-gap">
           <span class="settings-hint type-hint" data-testid="settings-herdr-hint">
-            Use Herdr for terminal workspaces, splits, panes, and built-in agent status. Leave off to use Codeflare’s standard terminal tabs and tiling. Applies to new sessions.
+            Use Herdr for terminal workspaces, splits, panes, and built-in agent status. Leave off to use Codeflare’s standard terminal tabs and tiling. Enabling Herdr disables Vibe mode and applies only to newly started sessions.
           </span>
         </div>
       </section>

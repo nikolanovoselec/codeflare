@@ -19,6 +19,7 @@
  */
 import type { Env, ManagedResourcePolicy } from '../types';
 import { getConfiguredMcpPortals } from '../lib/mcp-portals';
+import { HERMES_UPLOAD_HOST, type HermesWriter } from '../lib/hermes-retention';
 import { ForbiddenError, toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { isEnterpriseMode } from '../lib/subscription';
@@ -61,6 +62,7 @@ export interface InterceptionHost {
   _managedResourcePolicy?: ManagedResourcePolicy;
   _managedResourcePathsDigest?: string | null;
   _r2SseDisabled?: boolean;
+  hermesUpload?: HermesWriter;
   /** REQ-ENTERPRISE-016 AC1: resolved once in the DO constructor — never re-read per start. */
   _strictEgress?: boolean;
   /** Present only for a parent-bound operator session; never read from requests. */
@@ -424,6 +426,7 @@ async function resolveStrictEgress(
       ...await personalPiProps(host),
       accountId: host._r2AccountId ?? undefined,
       ...security,
+      ...(host.hermesUpload ? { hermesUpload: host.hermesUpload } : {}),
       // Keep portal ownership tied to the parent, not a refreshed R2 bucket.
       // Resolve only at wiring/refresh; generic catch-all requests need no MCP KV read.
       ...(portals.length ? { mcpPortal: { bucket: host._bucketName ?? '', portals,
@@ -443,11 +446,6 @@ async function resolveStrictEgress(
     failLog: 'Failed to wire enterprise strict Gateway egress',
   };
 }
-
-const strictEgress: InterceptorSpec = {
-  mode: 'enterprise',
-  resolve: resolveStrictEgress,
-};
 
 /** Fixed parent authority lookup for configured services in an ordinary owner Host. */
 const ownerInferenceAuthority: InterceptorSpec = {
@@ -469,7 +467,6 @@ const CONTAINER_INTERCEPTION_REGISTRY: readonly InterceptorSpec[] = [
   llm,
   github,
   browserRendering,
-  strictEgress,
 ];
 
 /** Register one resolved transport; failures log and never break container start. */
@@ -477,7 +474,7 @@ async function applyInterception(
   host: InterceptionHost,
   reg: InterceptorRegistration,
   failClosed = false,
-): Promise<void> {
+): Promise<boolean> {
   try {
     // interceptOutbound* + ctx.exports are on by default at this worker's
     // compatibility_date (enable_ctx_exports defaulted on 2025-11-17 — see
@@ -492,7 +489,7 @@ async function applyInterception(
           ? 'Mandatory outbound HTTPS interception is unavailable'
           : 'Outbound HTTPS interception is unavailable');
       }
-      return;
+      return false;
     }
     const interceptor = cctx.exports[reg.entrypoint]({ props: reg.props });
     for (const pattern of reg.hosts) {
@@ -503,9 +500,11 @@ async function applyInterception(
     } else {
       host.logger.info(reg.wiredLog);
     }
+    return true;
   } catch (err) {
     host.logger.error(reg.failLog, toError(err));
     if (reg.mandatory || failClosed) throw err;
+    return false;
   }
 }
 
@@ -524,13 +523,21 @@ export async function refreshStrictEgressInterception(
  * platform mounts the ephemeral containers CA in time for entrypoint.sh to
  * trust it (REQ-ENTERPRISE-004 / REQ-ENTERPRISE-011 pre-start ordering).
  */
-export async function wireContainerInterception(host: InterceptionHost): Promise<void> {
+export async function wireContainerInterception(host: InterceptionHost): Promise<boolean> {
   const enterprise = isEnterpriseMode(host.env);
   const registrations: InterceptorRegistration[] = [];
   for (const spec of CONTAINER_INTERCEPTION_REGISTRY) {
     if ((spec.mode === 'enterprise') !== enterprise) continue;
     const reg = await spec.resolve(host);
     if (reg) registrations.push(reg);
+  }
+  if (!host._strictEgress && host.hermesUpload && host._r2AccountId && host._bucketName) {
+    registrations.push({ entrypoint: 'EgressController', hosts: [HERMES_UPLOAD_HOST], mandatory: false,
+      props: { hermesUpload: host.hermesUpload, accountId: host._r2AccountId, bucket: host._bucketName,
+        r2AccessKeyId: host._r2AccessKeyId, r2SecretAccessKey: host._r2SecretAccessKey,
+        r2SseDisabled: host._r2SseDisabled, resourcePolicy: host._managedResourcePolicy,
+        releaseDigest: host._remoteCurationReleaseDigest, pathsDigest: host._managedResourcePathsDigest },
+      wiredLog: 'Hermes upload transport wired', failLog: 'Hermes upload transport unavailable' });
   }
   // Every deployment/session mode uses the same Worker-owned portal boundary.
   // Operators never inherit personal grants. Reject host collisions, rather than
@@ -539,7 +546,7 @@ export async function wireContainerInterception(host: InterceptionHost): Promise
   if (portals.length) {
     const hosts = [...new Set(portals.map(p => new URL(p.url).hostname))];
     const claimed = registrations.flatMap(reg => reg.hosts).filter(pattern => pattern !== '*');
-    if (hosts.some(name => claimed.some(pattern => pattern === name
+    if (hosts.some(name => name === HERMES_UPLOAD_HOST || claimed.some(pattern => pattern === name
       || (pattern.startsWith('*.') && name.endsWith(pattern.slice(1)))))) {
       throw new ForbiddenError('MCP portal host collides with an existing outbound transport');
     }
@@ -548,5 +555,13 @@ export async function wireContainerInterception(host: InterceptionHost): Promise
         operator: !!(host._operatorPolicy || host._operatorContainerProfile) },
       wiredLog: 'MCP portal interception wired', failLog: 'MCP portal interception unavailable' });
   }
-  for (const reg of registrations) await applyInterception(host, reg);
+  // Cloudflare matches hostname registrations ahead of a later wildcard, not an earlier one.
+  const catchAll = enterprise ? await resolveStrictEgress(host) : null;
+  if (catchAll) registrations.push(catchAll);
+  let hermesReady = false;
+  for (const reg of registrations) {
+    const installed = await applyInterception(host, reg);
+    if (reg.props.hermesUpload) hermesReady = installed && !!host._r2AccountId && !!host._bucketName;
+  }
+  return hermesReady;
 }

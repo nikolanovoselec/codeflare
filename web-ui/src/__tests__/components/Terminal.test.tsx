@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@solidjs/testing-library';
-import { createSignal } from 'solid-js';
+import { batch, createSignal, Show } from 'solid-js';
 import Terminal from '../../components/Terminal';
+import TerminalArea from '../../components/TerminalArea';
+import { createMigrationRetry } from '../../components/MigrationRetryNotice';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
-import type { TerminalConnectionState } from '../../types';
+import type { SessionWithStatus, TerminalConnectionState } from '../../types';
 import { isTouchDevice } from '../../lib/mobile';
 import { focusMobileTerminal } from '../../lib/terminal-mobile-input';
 
@@ -110,15 +112,31 @@ vi.mock('../../stores/session', () => ({
   },
 }));
 
+vi.mock('../../stores/terminal-workspace', () => ({
+  terminalWorkspaceStore: {
+    isTerminalSession: (session: SessionWithStatus | null) => session?.workspace === 'terminal',
+    getVisiblePanes: () => [],
+    getFocusedPaneId: () => null,
+    setSingleSessionWorkspace: () => {},
+  },
+}));
+vi.mock('../../components/Dashboard', () => ({ default: () => null }));
+vi.mock('../../components/TerminalTabs', () => ({ default: () => null }));
+vi.mock('../../components/TilingButton', () => ({ default: () => null }));
+vi.mock('../../components/FloatingTerminalButtons', () => ({ default: () => null }));
+
 // MOCK-DRIFT RISK: InitProgress is replaced with a trivial div. Real component
 // renders a multi-stage progress overlay with animations, stage timings, and
 // detail rows. Tests that depend on InitProgress internals should use the real
 // component or a more detailed mock.
 vi.mock('../../components/InitProgress', () => ({
-  default: (props: { sessionName: string; onOpen?: () => void }) => (
+  default: (props: { sessionName: string; progress?: { stage: string; message?: string }; connectingTerminal?: string; onOpen?: () => void }) => (
     <div data-testid="init-progress">
       Init Progress: {props.sessionName}
-      <button type="button" data-testid="init-progress-open-btn" onClick={props.onOpen}>Open</button>
+      <Show when={props.connectingTerminal || props.progress?.message}><p>{props.connectingTerminal || props.progress?.message}</p></Show>
+      <Show when={props.progress?.stage === 'ready' && !props.connectingTerminal}>
+        <button type="button" data-testid="init-progress-open-btn" onClick={props.onOpen}>Open</button>
+      </Show>
     </div>
   ),
 }));
@@ -163,6 +181,7 @@ describe('Terminal Component', () => {
     vi.clearAllMocks();
     // Default mock return values
     vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
+    vi.mocked(terminalStore.getRetryMessage).mockReturnValue(null);
     vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
     vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
     mockTerminalInstance._core = {};
@@ -170,6 +189,92 @@ describe('Terminal Component', () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('keeps the prepared tiled socket through Code reveal and retires it on workspace change', async () => {
+    const { terminalStore: transport } = await vi.importActual<typeof import('../../stores/terminal')>('../../stores/terminal');
+    const store = { ...terminalStore };
+    const sessions = ['abcdef0123456789', 'fedcba9876543210'].map(id => ({
+      id, name: id, generation: 1, status: 'running', workspace: 'terminal',
+      createdAt: '2026-01-01', lastAccessedAt: '2026-01-01',
+    } satisfies SessionWithStatus));
+    const [session, setSession] = createSignal(sessions[0]);
+    const [revealed, reveal] = createSignal(false);
+    const [activeTabId, setTab] = createSignal('3');
+    const [error, setError] = createSignal<string | null>(null);
+    const sessionProps = {
+      sessions,
+      getActiveSession: session,
+      get activeSessionId() { return session().id; },
+      getTilingForSession: () => ({ enabled: true, layout: '2-split' as const }),
+      getTabOrder: () => ['1', '2', '3'],
+      getTerminalsForSession: () => ({
+        activeTabId: activeTabId(), tabs: ['1', '2', '3'].map(id => ({ id, createdAt: '2026-01-01' })),
+      }),
+    };
+    const OriginalWebSocket = globalThis.WebSocket;
+    class Socket extends OriginalWebSocket {
+      readonly sent: string[] = [];
+      constructor(readonly url: string) { super(url); sockets.push(this); }
+      send(data: string) { this.sent.push(data); }
+    }
+    const sockets: Socket[] = [];
+    const forTab = (id: string, tab: string) => sockets.filter(socket => new URL(socket.url).pathname === `/api/terminal/${id}-${tab}/ws`);
+    const noop = () => {};
+    Object.assign(terminalStore, Object.fromEntries(Object.keys(store).filter(key => key !== 'layoutChangeCounter')
+      .map(key => [key, transport[key as keyof typeof transport]])));
+    const originalSessionProps = Object.getOwnPropertyDescriptors(sessionStore);
+    Object.defineProperties(sessionStore, Object.getOwnPropertyDescriptors(sessionProps));
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', Socket);
+    try {
+      render(() => <TerminalArea migrationRetry={createMigrationRetry()} showTerminal viewState="terminal"
+        showPiWebPanel={!revealed()} prepareNativeTerminal={!revealed()} handoffPending={!revealed()}
+        codeAttachment={!revealed() ? { terminalId: '1', onAttached: () => batch(() => { setTab('1'); reveal(true); }) } : undefined}
+        piWebPanel={<span>Vibe source</span>} showTilingOverlay={false} onTilingButtonClick={noop}
+        onSelectTilingLayout={noop} onCloseTilingOverlay={noop} onTileClick={setTab}
+        onOpenSessionById={noop} onStartSession={noop} onOpenVscodeSession={noop} onStopSession={noop}
+        onDeleteSession={noop} onCreateSession={noop} onTerminalError={setError} error={error()} onDismissError={noop} />);
+      const pane = screen.getByTestId('tiled-slot-1');
+      const [prepared] = forTab(sessions[0].id, '1');
+      expect(prepared).toBeDefined();
+      expect(sockets).toEqual([prepared]);
+      expect(pane).not.toBeVisible();
+      expect(screen.getByText('Vibe source')).toBeVisible();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pane).toBeVisible();
+      expect(pane).toHaveAttribute('data-active', 'true');
+      expect(forTab(sessions[0].id, '1')).toEqual([prepared]);
+      expect(prepared.readyState).toBe(WebSocket.OPEN);
+      expect(prepared.sent).toContain(JSON.stringify({ type: 'focus' }));
+
+      setSession(sessions[1]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pane).not.toBeInTheDocument();
+      expect(prepared.readyState).toBe(WebSocket.CLOSED);
+      const currentSockets = forTab(sessions[1].id, '1');
+      expect(currentSockets).toHaveLength(1);
+      const [current] = currentSockets;
+      expect(current.readyState).toBe(WebSocket.OPEN);
+
+      setSession({ ...sessions[1], generation: sessions[1].generation + 1 });
+      await vi.advanceTimersByTimeAsync(0);
+      const nextSockets = forTab(sessions[1].id, '1');
+      expect(nextSockets).toHaveLength(2);
+      expect(current.readyState).toBe(WebSocket.CLOSED);
+      expect(nextSockets[1].readyState).toBe(WebSocket.OPEN);
+    } finally {
+      cleanup();
+      transport.disposeAll();
+      Object.assign(terminalStore, store);
+      for (const key of Object.keys(sessionProps)) {
+        const original = originalSessionProps[key as keyof typeof sessionStore];
+        if (original) Object.defineProperty(sessionStore, key, original);
+        else Reflect.deleteProperty(sessionStore, key);
+      }
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+      vi.useRealTimers();
+    }
   });
 
   describe('Init Progress Overlay', () => {
@@ -283,43 +388,51 @@ describe('Terminal Component', () => {
       expect(wrapper).toHaveStyle({ position: 'relative' });
     });
 
-    it('REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal', async () => {
+    it('reports a hidden handoff pane only when it owns the connected terminal', () => {
+      const attached = vi.fn();
+      const [connection, setConnection] = createSignal<TerminalConnectionState>('connected');
+      vi.mocked(terminalStore.getConnectionState).mockImplementation(connection);
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(undefined);
+      render(() => <Terminal {...defaultProps} active={false} visible={false} connect onHandoffAttached={attached} />);
+      expect(attached).not.toHaveBeenCalled();
+      setConnection('connecting');
+      const calls = vi.mocked(terminalStore.connect).mock.calls;
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(calls[calls.length - 1]?.[2]);
+      setConnection('connected');
+      expect(attached).toHaveBeenCalled();
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(undefined);
+    });
+
+    it('REQ-TERM-043 AC4; REQ-TERM-044 AC2: OPEN reveals and focuses the already-mounted terminal', () => {
       const [initializing, setInitializing] = createSignal(true);
-      const startupCleanup = vi.fn();
-      const dimensionsUnavailable = vi.fn(() => {
-        throw new TypeError("Cannot read properties of undefined (reading 'dimensions')");
-      });
       vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => initializing());
-      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'mounting' } as any);
-      vi.mocked(terminalStore.connect)
-        .mockReturnValueOnce(startupCleanup)
-        .mockReturnValueOnce(vi.fn());
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready' } as any);
+      const [connection, setConnection] = createSignal<TerminalConnectionState>('connecting');
+      vi.mocked(terminalStore.getConnectionState).mockImplementation(connection);
+      vi.mocked(terminalStore.getRetryMessage).mockImplementation(() => connection() === 'connecting' ? 'Connecting...' : null);
       mockTerminalInstance._core = {
         _bufferService: { scrollLines: vi.fn() },
-        _viewport: { scrollToLine: dimensionsUnavailable },
+        _viewport: { scrollToLine: vi.fn(() => { throw new TypeError('Viewport dimensions are unavailable'); }) },
       };
 
       render(() => <Terminal {...defaultProps} onInitComplete={() => setInitializing(false)} />);
 
-      const startupContainer = document.querySelector<HTMLElement>('.terminal-container');
-      expect(startupContainer).not.toBeNull();
-      Object.defineProperty(startupContainer!, 'clientHeight', { value: 100 });
-      expect(startupContainer).toHaveStyle({ visibility: 'hidden' });
-      expect(terminalStore.connect).toHaveBeenCalledTimes(1);
-      expect(mockTerminalInstance.focus).not.toHaveBeenCalled();
-      dimensionsUnavailable.mockClear();
+      const startupContainer = document.querySelector<HTMLElement>('.terminal-container')!;
+      Object.defineProperty(startupContainer, 'clientHeight', { value: 100 });
+      startupContainer.tabIndex = -1;
+      mockTerminalInstance.focus.mockImplementationOnce(() => startupContainer.focus());
+      expect(startupContainer).not.toBeVisible();
+      expect(startupContainer).not.toHaveFocus();
+      expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+      expect(screen.getByText('Connecting Terminal')).toBeVisible();
 
-      fireEvent.click(screen.getByTestId('init-progress-open-btn'));
+      setConnection('connected');
+      fireEvent.click(screen.getByRole('button', { name: 'Open' }));
 
-      const openedContainer = document.querySelector<HTMLElement>('.terminal-container');
-      expect(openedContainer).not.toBeNull();
-      Object.defineProperty(openedContainer!, 'clientHeight', { value: 100 });
-      expect(openedContainer).not.toBe(startupContainer);
-      expect(openedContainer).toHaveStyle({ visibility: 'visible' });
-      expect(startupCleanup).toHaveBeenCalledTimes(1);
-      expect(terminalStore.connect).toHaveBeenCalledTimes(2);
-      await vi.waitFor(() => expect(dimensionsUnavailable).toHaveBeenCalled());
-      expect(mockTerminalInstance.focus).toHaveBeenCalledTimes(1);
+      expect(document.querySelector('.terminal-container')).toBe(startupContainer);
+      expect(startupContainer).toBeVisible();
+      expect(startupContainer).toHaveFocus();
+      expect(screen.queryByText('Connecting...')).not.toBeInTheDocument();
     });
 
     it('REQ-TERM-043 AC6: OPEN leaves foreign-session terminal instances unchanged', () => {
@@ -328,6 +441,8 @@ describe('Terminal Component', () => {
         'other-session': true,
       });
       vi.mocked(sessionStore.isSessionInitializing).mockImplementation((sessionId) => initializing()[sessionId] === true);
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready' } as any);
+      vi.mocked(terminalStore.getConnectionState).mockReturnValue('connected');
 
       render(() => (
         <>
@@ -340,7 +455,7 @@ describe('Terminal Component', () => {
       fireEvent.click(screen.getAllByTestId('init-progress-open-btn')[0]);
       const openedContainers = [...document.querySelectorAll<HTMLElement>('.terminal-container')];
 
-      expect(openedContainers[0]).not.toBe(startupContainers[0]);
+      expect(openedContainers[0]).toBe(startupContainers[0]);
       expect(openedContainers[1]).toBe(startupContainers[1]);
     });
 

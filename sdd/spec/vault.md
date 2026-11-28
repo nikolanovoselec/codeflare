@@ -459,9 +459,9 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Acceptance Criteria:**
 
-1. The workspace header shows the Vault control only with a selected session and an advanced effective mode preference. The readiness probe additionally requires the selected session to be running. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/components/Layout.tsx::activeRunningSid --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) --> <!-- @test: web-ui/src/__tests__/components/preferences-hydration.test.tsx (REQ-SESSION-014 / REQ-VAULT-033 / REQ-IDE-003: HTTP preference hydration) -->
+1. The workspace header or its Profile overflow shows the Vault control only with a selected session and an advanced effective mode preference. The readiness probe additionally requires the selected session to be running. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/components/Layout.tsx::activeRunningSid --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) --> <!-- @test: web-ui/src/__tests__/components/preferences-hydration.test.tsx (REQ-SESSION-014 / REQ-VAULT-033 / REQ-IDE-003: HTTP preference hydration) -->
 2. On a cold available control, the first click prepares the current session's proxied editor and arms the control; the second click opens it. An already armed/ready control opens on the first click. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
-3. The eligible Vault control stays visible while its server probe is unavailable and shows click or tap feedback without opening the editor. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (REQ-VAULT-033 AC3: unavailable $status control stays visible and explains the wait without opening) -->
+3. The eligible Vault control remains accessible in the toolbar or Profile overflow while its server probe is unavailable and shows click or tap feedback without opening the editor. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (moves VS Code, Operators, then Vault into Profile and restores them in reverse order) --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (REQ-VAULT-033 AC3: unavailable $status control stays visible and explains the wait without opening) -->
 4. The first preparation click requests best-effort persistent browser storage. Denial does not block preparation. <!-- @impl: web-ui/src/lib/browser-storage-persistence.ts::requestBrowserStoragePersistence --> <!-- @test: web-ui/src/__tests__/lib/browser-storage-persistence.test.ts (requests persistence when not already persisted) --> <!-- @test: web-ui/src/__tests__/lib/browser-storage-persistence.test.ts (does not treat a denied persistence request as fatal) -->
 
 **Constraints:**
@@ -472,7 +472,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing)
 
-**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [VaultButton.test.tsx](../../web-ui/src/__tests__/components/VaultButton.test.tsx), [preferences-hydration.test.tsx](../../web-ui/src/__tests__/components/preferences-hydration.test.tsx), [browser-storage-persistence.test.ts](../../web-ui/src/__tests__/lib/browser-storage-persistence.test.ts)
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [VaultButton.test.tsx](../../web-ui/src/__tests__/components/VaultButton.test.tsx), [preferences-hydration.test.tsx](../../web-ui/src/__tests__/components/preferences-hydration.test.tsx), [browser-storage-persistence.test.ts](../../web-ui/src/__tests__/lib/browser-storage-persistence.test.ts)
 
 **Status:** Implemented
 
@@ -722,24 +722,25 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 ### REQ-VAULT-022: Vault armed-state open flow and persistence
 
-**Intent:** Once the Vault is proven ready in the current dashboard lifetime, opening and re-opening it must be instant and must never re-litigate that proof. Every fresh page load begins white and requires the explicit two-click on-demand flow, even though SilverBullet reuses the canonical worker and databases internally. This prevents stale browser markers or a service-worker-cached shell from silently arming the button. A one-time controlled reload still self-heals an editor tab that boots before its service worker takes control.
+**Intent:** Once the Vault is proven ready in the current dashboard lifetime, opening and re-opening it must be instant and must never re-litigate that proof. Every fresh page load starts with an unprepared control and requires the explicit two-click on-demand flow, even though SilverBullet reuses the canonical worker and databases internally. This prevents stale browser markers or a service-worker-cached shell from silently arming the button. A one-time controlled reload still self-heals an editor tab that boots before its service worker takes control.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Clicking the green ('armed') control, including the second click of the prepare/open flow, opens the vault synchronously through the bootstrap hop without per-open re-verification of local readiness or key recoverability. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC1 + REQ-VAULT-022 AC1: a cold-path armed click opens without re-verification) -->
+1. An admitted click on the green ('armed') control opens the Vault synchronously through the bootstrap hop without re-verifying local readiness or key recoverability. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC1 + REQ-VAULT-022 AC1: a cold-path armed click opens without re-verification) -->
 2. Fresh dashboards start available without a prewarm iframe; legacy readiness markers cannot auto-arm, while explicit preparation may reuse canonical browser stores. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-018: stays available (no auto-prewarm) until click 1, then breathes preparing -> armed) -->
 3. Timeout and error do not retry or arm while the active view is unchanged. A click retries. Returning to a running session can also retry if the earlier preparation intent and server-ready latch remain. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (retries a timed-out prewarm only after another user click) -->
-4. The control shows available, accent preparation with focus warning, then green readiness with five-second confirmation. Reduced motion keeps state colors without animation. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/styles/header.css::.header-vault-button--armed --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (preparing auto-surfaces the status region without a click and wires aria-describedby) --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (armed auto-surfaces the ready region on the genuine preparing->armed transition, then auto-hides after 5s while the breathing class stays) --> <!-- @manual -->
+4. The control uses the neutral secondary text color when available at rest, accent during preparation, then green when ready. Reduced motion keeps colors without animation. <!-- @impl: web-ui/src/components/Layout.tsx::vaultButtonStatus --> <!-- @impl: web-ui/src/styles/header.css::.header-vault-button--armed --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
 5. A top-level Vault reloads once only when its canonical worker is active but missed first-paint control and the one-shot marker can be read, written and read back successfully. Inaccessible, missing or failed session storage prevents automatic reload; all other states remain stable. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_CONTROLLED_RELOAD_SOURCE --> <!-- @impl: src/lib/vault-view.ts::injectVaultControlledReload --> <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (performs the exact-scope one-shot reload from bundled injected bytes) --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (keeps bundled controlled reload inert for prewarm, first boot, orphaned scope, and a spent one-shot) --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (REQ-VAULT-022 AC5: %s storage failure stays stable across uncontrolled navigations) -->
 6. Once armed, the control remains green across dashboard departure/return and the mobile visibility-return dashboard bounce while authoritative session status remains running. <!-- @impl: web-ui/src/components/Layout.tsx::vaultButtonStatus --> <!-- @impl: web-ui/src/components/Layout.tsx::pruneNonRunningSessionState --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-022 AC6: preserves a running session readiness latch across dashboard departure and return) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-022 AC6: preserves armed state through the mobile visibility-return dashboard bounce) -->
-7. The ready tooltip auto-surfaces only on the genuine preparing-to-armed transition, so dashboard departure/return does not re-pop it. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (a fresh already-armed remount does not re-pop the ready tooltip) -->
+7. The open-session tooltip’s ready confirmation appears only on a genuine preparing-to-armed transition and hides after five seconds; an already-armed remount does not show it. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (armed auto-surfaces the ready region on the genuine preparing->armed transition, then auto-hides after 5s while the breathing class stays) --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (a fresh already-armed remount does not re-pop the ready tooltip) -->
 
 **Notes:** Rendered armed color under sticky touch hover remains a protected-browser observation separate from component and bundle tests; [Vault](../../documentation/lanes/vault.md) owns that behavior.
 
 **Constraints:**
 
+- Dashboard card admission and tooltip suppression are governed by [REQ-VAULT-037](#req-vault-037-vault-on-vs-code-dashboard-cards).
 - No persistent readiness marker or automatic prewarm may bypass the explicit first click after a page load.
 
 **Priority:** P0
@@ -752,6 +753,33 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 ---
 
+### REQ-VAULT-037: Vault on VS Code Dashboard cards
+
+**Intent:** Open a session’s Vault from the Dashboard without opening its editor.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In Advanced mode, only VS Code session cards show the Vault control. <!-- @impl: web-ui/src/components/Layout.tsx::renderDashboardVault --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)) -->
+2. Clicking an available card control requests preparation for its own running session. <!-- @impl: web-ui/src/components/Layout.tsx::renderDashboardVault --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)) -->
+3. A key-recovery timeout releases the preparation slot. Explicit retry starts a fresh attempt. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)) -->
+4. Dashboard Vault controls retain accessible state labels and the same colors and motion without tooltips. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)) --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
+5. An admitted armed click opens that card’s Vault in a new tab without selecting the card. If another Vault owns preparation, opening requires a fresh click after the preparation slot is free. <!-- @impl: web-ui/src/components/Layout.tsx::renderDashboardVault --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (prepares and opens only the selected card’s Vault (REQ-VAULT-018/019/022/036)) --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
+6. Hovering the enabled card Vault button with a mouse highlights its background without changing its ready color or opening Vault. <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
+
+**Constraints:** Reuse the header’s on-demand flow; never use another session’s readiness.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-VAULT-022](#req-vault-022-vault-armed-state-open-flow-and-persistence)
+
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vault control presentation](../../documentation/lanes/vault.md#vault-control-presentation)
+
+**Status:** Planned
+
+---
+
 ### REQ-VAULT-019: Vault key-recoverable open gate
 
 **Intent:** The Vault button greens only when the encryption key can serve the editor — verified at the cold-path arming poll, before the control turns green — so a green button then opens directly without re-verifying on the click.
@@ -760,9 +788,9 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Acceptance Criteria:**
 
-1. Auth-gated encryption-key recoverability is verified at the cold-path arming poll before the control greens, so a green control opens without re-verifying the key on click. <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC1 + REQ-VAULT-022 AC1: a cold-path armed click opens without re-verification) -->
+1. Auth-gated encryption-key recoverability is verified at the cold-path arming poll before the control greens, so an admitted open does not re-verify the key. <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC1 + REQ-VAULT-022 AC1: a cold-path armed click opens without re-verification) -->
 2. If the key is not recoverable, the control enters a non-openable preparing state. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC2: completed prewarm cannot arm or open a Vault without a recoverable key) -->
-3. When the prewarm proof and key recoverability both hold, the cold-path arming poll marks the control armed (green) and the next click opens it synchronously inside the click gesture. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
+3. When the prewarm proof and key recoverability both hold, the cold-path poll marks the control armed. Admitted opens follow [REQ-VAULT-022 AC1](#req-vault-022-vault-armed-state-open-flow-and-persistence). <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
 
 **Constraints:**
 
@@ -815,6 +843,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 3. The parent hidden iframe returns focus to the previously focused terminal/input whenever the iframe holds parent focus, including a same-origin steal that produces no window `blur` or document `focusin` event. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol) -->
 4. The focus reclaim stops once prewarm tears down. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (stops focusout + poll focus reclaim after teardown) -->
 5. When detaching the prewarm iframe orphans the top-level document, window focus and the terminal input are re-asserted after the iframe is removed; the reassert is inert when the window kept focus. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (re-asserts window focus and re-focuses the terminal AFTER detaching when removal orphaned the document (REQ-VAULT-020 AC5)) -->
+6. The open-session control automatically shows a tooltip warning that terminal input may pause briefly during Vault preparation. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (preparing auto-surfaces the status region without a click and wires aria-describedby) -->
 
 **Constraints:**
 
@@ -825,7 +854,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-MOB-014](terminal.md#req-mob-014-mobile-background-surface-focus-isolation)
 
-**Verification:** Automated: [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault-prewarm.test.ts](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts)
+**Verification:** Automated: [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault-prewarm.test.ts](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [VaultButton.test.tsx](../../web-ui/src/__tests__/components/VaultButton.test.tsx)
 
 **Status:** Implemented
 
@@ -929,7 +958,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 3. Before registering the canonical worker, the user-initiated bootstrap enumerates same-origin registrations and unregisters every Vault scope except the exact canonical scope; unrelated service workers are untouched. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_UNREGISTER_STALE_WORKERS_SOURCE --> <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_REGISTER_CANONICAL_WORKER_SOURCE --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (removes stale workers, registers the canonical worker, persists encryption, and redirects) -->
 4. The ready bridge reports the canonical scope together with completed runtime, sync, index, required-file, and file-list evidence. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_PREWARM_BRIDGE_SOURCE --> <!-- @impl: src/lib/vault-view.ts::injectVaultPrewarmBridge --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (posts ready only after two complete bundled bridge polls) --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (withholds bundled ready proof when any acceptance-critical gate is incomplete) -->
 5. Missing, superseded, or orphaned worker-scope evidence cannot trigger the controlled-reload path. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_CONTROLLED_RELOAD_SOURCE --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (keeps bundled controlled reload inert for prewarm, first boot, orphaned scope, and a spent one-shot) -->
-6. Scope cutover preserves the white, accent-preparing, green-ready, instant-second-click lifecycle. A fresh Dashboard still requires an explicit first preparation request. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-018: stays available (no auto-prewarm) until click 1, then breathes preparing -> armed) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC1 + REQ-VAULT-022 AC1: a cold-path armed click opens without re-verification) -->
+6. Scope cutover preserves the Vault control lifecycle in [REQ-VAULT-022 AC1, AC2 and AC4](#req-vault-022-vault-armed-state-open-flow-and-persistence), with Dashboard admission governed by [REQ-VAULT-037](#req-vault-037-vault-on-vs-code-dashboard-cards). <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-018: stays available (no auto-prewarm) until click 1, then breathes preparing -> armed) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC1 + REQ-VAULT-022 AC1: a cold-path armed click opens without re-verification) --> <!-- @manual: documentation/lanes/troubleshooting.md#vault-button-re-indexes-on-every-click-after-the-first-then-returns-gr -->
 7. After stale-worker removal, the bootstrap re-enumerates registrations and fails closed if any stale same-origin Vault worker remains. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_UNREGISTER_STALE_WORKERS_SOURCE --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (fails closed before registration when a stale Vault worker remains) -->
 
 **Constraints:**
@@ -941,7 +970,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-022](#req-vault-022-vault-armed-state-open-flow-and-persistence), [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap), [REQ-VAULT-035](#req-vault-035-bucket-stable-vault-runtime-preservation)
 
-**Verification:** Automated: [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-bucket-token.test.ts](../../src/__tests__/lib/vault-bucket-token.test.ts), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault-prewarm.test.ts](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts)
+**Verification:** Automated: [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-bucket-token.test.ts](../../src/__tests__/lib/vault-bucket-token.test.ts), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault-prewarm.test.ts](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts); Manual: [Stale-worker recovery](../../documentation/lanes/troubleshooting.md#vault-button-re-indexes-on-every-click-after-the-first-then-returns-gr)
 
 **Status:** Implemented
 
@@ -1020,7 +1049,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 <a id="req-vault-027-pi-vault-extraction-has-a-bounded-lifecycle"></a>
 ### REQ-VAULT-027: Pi vault extraction delivery is visible and transactional
 
-**Intent:** Pi must deliver user-curated Vault changes through visible, reload-safe background work without advancing the committed extraction high-water mark until the exact request succeeds.
+**Intent:** Pi must deliver user-curated Vault changes through reload-safe background work that remains visible to the model and durable in the transcript, without advancing the committed extraction high-water mark until the exact request succeeds.
 
 **Applies To:** System
 

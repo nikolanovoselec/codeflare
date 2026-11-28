@@ -24,12 +24,13 @@ const SelectableSessionCard: Component<SelectableSessionCardProps> = (props) => 
       data-disabled={props.disabled ? 'true' : 'false'}
       class={`session-dropdown__selectable-card ${props.selected ? 'session-dropdown__selectable-card--selected' : ''} ${props.disabled ? 'session-dropdown__selectable-card--disabled' : ''}`}
       onClick={(event) => {
-        if (event.target === event.currentTarget) props.onSelect();
+        if (event.target === event.currentTarget && !props.disabled && !props.session.shutdownPhase) props.onSelect();
       }}
     >
       <SessionStatCard
         session={props.session}
         isActive={props.isActive}
+        resumeDisabled={props.selecting}
         onSelect={props.onSelect}
         onStop={props.onStop}
         onDelete={props.onDelete}

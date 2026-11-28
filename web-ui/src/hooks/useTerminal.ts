@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, createSignal, createMemo } from 'solid-js';
+import { onMount, onCleanup, createEffect, createSignal, createMemo, untrack } from 'solid-js';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -39,6 +39,8 @@ export interface UseTerminalOptions {
   onActivate?: () => void;
   onError?: (error: string) => void;
   onInitComplete?: () => void;
+  onHandoffAttached?: () => void;
+  preserveDomFocus?: () => boolean;
 }
 
 interface UseTerminalResult {
@@ -450,6 +452,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     notificationDisposable = t.parser.registerOscHandler(777, () => true);
     if (isHerdr()) {
       clipboardDisposable = t.parser.registerOscHandler(52, (data) => {
+        if (!isVisible()) return true;
         const text = parseOsc52ClipboardWrite(data);
         const terminal = term;
         if (text === null || !terminal) return true;
@@ -645,10 +648,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     });
   });
 
-  // The terminal server is available at mounting. Attach once there so tab 1
-  // adopts the prewarmed PTY before its bounded orphan window expires. OPEN
-  // remounts TerminalInstance; this hook cleans up the startup attachment and
-  // the new instance receives authoritative host replay.
+  // Attach at mounting so tab 1 adopts the prewarmed PTY before its orphan
+  // window expires. OPEN lifts the focus/display gate on this same attachment.
   createEffect(() => {
     const initializing = isInitializing();
     const stage = initProgress()?.stage;
@@ -673,6 +674,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         !isHerdr() && tab?.manual === true,
         !isHerdr(),
         isHerdr(),
+        ...(untrack(() => props.onHandoffAttached) ? [() => isVisible() && props.active] as const : [] as const),
       );
     }
   });
@@ -686,7 +688,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     }
     terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
     terminalStore.startUrlDetection(props.sessionId, props.terminalId);
-    if (!isTouchDevice()) focusedTerm.focus();
+    if (!isTouchDevice() && !untrack(() => props.preserveDomFocus?.())) focusedTerm.focus();
     if (focusedTerm.cols > 0 && focusedTerm.rows > 0) {
       terminalStore.resize(props.sessionId, props.terminalId, focusedTerm.cols, focusedTerm.rows);
     }

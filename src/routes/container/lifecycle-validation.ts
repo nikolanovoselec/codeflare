@@ -40,7 +40,7 @@ export async function validateSessionAndCheckLimits(params: {
   accessTier?: string;
   billingStatus?: string;
   billingPeriodEnd?: string;
-}): Promise<Session & { lifecycleGeneration: number }> {
+}): Promise<Session & { lifecycleGeneration: number; boundaryActivityId?: string }> {
   const { env, bucketName, sessionId, maxSessions, subscriptionTier, accessTier, billingStatus, billingPeriodEnd } = params;
 
   const repository = new D1SessionRepository(env.USAGE_DB);
@@ -48,7 +48,7 @@ export async function validateSessionAndCheckLimits(params: {
   if (!d1Session) throw new NotFoundError('Session', sessionId);
   const sessionData = {
     id: d1Session.sessionId, name: d1Session.name, userId: d1Session.ownerKey,
-    lifecycleGeneration: d1Session.lifecycleGeneration,
+    lifecycleGeneration: d1Session.lifecycleGeneration, boundaryActivityId: d1Session.boundaryActivityId,
     createdAt: d1Session.createdAt, lastAccessedAt: d1Session.lastAccessedAt,
     status: d1Session.lifecycleState === 'running' ? 'running' as const : 'stopped' as const,
     agentType: d1Session.agentType, workspace: d1Session.workspace,

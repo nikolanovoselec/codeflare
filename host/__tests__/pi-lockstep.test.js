@@ -250,6 +250,7 @@ const piPackage = JSON.parse(
 const NPM_ROOT = '/opt/codeflare/pi-agent/npm/node_modules';
 const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'todo_loop', package: '@dumbmice/pi-todo-loop', entrypoint: 'src/index.ts' },
+  { variable: 'goal', package: '@narumitw/pi-goal', entrypoint: 'src/index.ts' },
   { variable: 'open_tui', package: 'pi-open-tui', entrypoint: 'extensions/open-tui/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
   { variable: 'codex_fast', package: '@calesennett/pi-codex-fast', entrypoint: 'extensions/codex-fast.ts' },
@@ -264,12 +265,15 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'context', package: 'context-mode', entrypoint: 'pi/index.js' },
 ];
 
-function runImageWarmFixture(omitPackage = '', wrongLocalPath = false) {
+function runImageWarmFixture(omitPackage = '', wrongLocalPath = false, omitHandoffCache = false) {
   const directory = mkdtempSync(join(tmpdir(), 'codeflare-image-warm-'));
   try {
     const imageRoot = join(directory, 'image');
     const home = join(directory, 'home');
     const npmRoot = join(imageRoot, 'pi-agent/npm');
+    const handoffSource = join(imageRoot, 'pi-web/handoff-extension.ts');
+    mkdirSync(dirname(handoffSource), { recursive: true });
+    writeFileSync(handoffSource, 'export const name: string = "handoff-extension";\n');
     const localSource = join(imageRoot, 'pi-agent/extensions/local.ts');
     mkdirSync(dirname(localSource), { recursive: true });
     writeFileSync(localSource, 'export const name: string = "local";\n');
@@ -310,6 +314,7 @@ const retainedHelperUrl = ${JSON.stringify(pathToFileURL(helperSource).href)};
 for (let source of sources) {
   if (process.env.WRONG_LOCAL_PATH === '1' && source === process.env.FIXTURE_LOCAL_SOURCE) source = process.env.WRONG_LOCAL_SOURCE;
   if (process.env.OMIT_PACKAGE && source.includes('/node_modules/' + process.env.OMIT_PACKAGE + '/')) continue;
+  if (process.env.OMIT_HANDOFF_CACHE === '1' && source === ${JSON.stringify(handoffSource)}) continue;
   const artifact = execFileSync(process.execPath, [${JSON.stringify(script)}, '--jiti-cache-path', source, join(process.env.TMPDIR, 'jiti')], { encoding: 'utf8' }).trim();
   mkdirSync(dirname(artifact), { recursive: true });
   // The cache execution assertion runs after the synthetic warm home is removed.
@@ -334,9 +339,9 @@ for (let source of sources) {
       .replaceAll('/opt/codeflare', imageRoot).replaceAll('/home/user', home);
     const result = spawnSync('bash', ['-e', '-c', command], {
       encoding: 'utf8', timeout: 30_000,
-      env: { ...process.env, OPENAI_API_KEY: 'fixture-not-a-real-key', FIXTURE_LOCAL_SOURCE: join(home, '.pi/agent/extensions/local.ts'), OMIT_PACKAGE: omitPackage, WRONG_LOCAL_PATH: wrongLocalPath ? '1' : '0', WRONG_LOCAL_SOURCE: localSource },
+      env: { ...process.env, OPENAI_API_KEY: 'fixture-not-a-real-key', FIXTURE_LOCAL_SOURCE: join(home, '.pi/agent/extensions/local.ts'), OMIT_PACKAGE: omitPackage, WRONG_LOCAL_PATH: wrongLocalPath ? '1' : '0', WRONG_LOCAL_SOURCE: localSource, OMIT_HANDOFF_CACHE: omitHandoffCache ? '1' : '0' },
     });
-    return { directory, imageRoot, result, localRuntimeSource: join(home, '.pi/agent/extensions/local.ts'), sources: [...sources, { source: localSource, name: 'local' }, { source: secondLocalSource, name: 'second' }] };
+    return { directory, imageRoot, result, localRuntimeSource: join(home, '.pi/agent/extensions/local.ts'), handoffSource, sources: [...sources, { source: localSource, name: 'local' }, { source: secondLocalSource, name: 'second' }, { source: handoffSource, name: 'handoff-extension' }] };
   } catch (error) {
     rmSync(directory, { recursive: true, force: true });
     throw error;
@@ -364,6 +369,25 @@ describe('REQ-AGENT-111/REQ-AGENT-056/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
     try {
       assert.notEqual(fixture.result.status, 0);
       assert.match(fixture.result.stderr, /jiti cache artifact is missing at .*extensions-local/);
+    } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
+  });
+
+  it('rejects a missing cache for the installed Pi Web handoff extension', () => {
+    const fixture = runImageWarmFixture('', false, true);
+    try {
+      const artifact = resolveCachePath(fixture.handoffSource, join(fixture.imageRoot, 'jiti-warm-tmp/jiti'));
+      assert.notEqual(fixture.result.status, 0);
+      assert.ok(fixture.result.stderr.includes(`jiti cache artifact is missing at ${artifact}`), fixture.result.stderr);
+    } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
+  });
+
+  it('REQ-AGENT-293 AC2: rejects a missing managed Goal startup cache', () => {
+    const fixture = runImageWarmFixture('@narumitw/pi-goal');
+    try {
+      const source = join(fixture.imageRoot, 'pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts');
+      const artifact = resolveCachePath(source, join(fixture.imageRoot, 'jiti-warm-tmp/jiti'));
+      assert.notEqual(fixture.result.status, 0);
+      assert.equal(fixture.result.stderr, `jiti cache artifact is missing at ${artifact}\n`);
     } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
   });
 

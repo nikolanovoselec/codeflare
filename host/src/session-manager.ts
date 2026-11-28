@@ -17,6 +17,7 @@ export const PREWARM_SESSION_ID = 'prewarm-1';
 export class SessionManager {
   sessions: Map<string, Session>;
   cleanupInterval: ReturnType<typeof setInterval> | null;
+  private closingForMerge = false;
   private readonly _options: SessionOptions;
   private readonly _maxSessions: number;
   private readonly _ptyCleanupIntervalMs: number;
@@ -79,6 +80,7 @@ export class SessionManager {
    * Get or create a session
    */
   getOrCreate(id: string, name: string, manual = false): Session | null {
+    if (this.closingForMerge) return null;
     let session = this.sessions.get(id);
 
     if (session) {
@@ -173,6 +175,12 @@ export class SessionManager {
       }
     }
     return allClients;
+  }
+
+  /** Close inputs without killing the foreground Pi before its final flush. */
+  quiesceForHermesMerge(): void {
+    this.closingForMerge = true;
+    for (const socket of this.clients.values()) socket.terminate();
   }
 
   /**

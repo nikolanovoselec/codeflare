@@ -136,7 +136,6 @@ describe('getValidGithubToken', () => {
     mockKV._set(KEY, {
       githubToken: 'gho_fresh',
       githubTokenSource: 'app',
-      githubRefreshToken: 'ghr',
       githubTokenExpiresAt: Date.now() + 3_600_000,
     } satisfies DeployKeys);
     expect(await getValidGithubToken(env(APP_ENV), BUCKET)).toBe('gho_fresh');
@@ -330,7 +329,7 @@ describe('authorizeUrl', () => {
     const url = new URL(
       (await getGithubProvider(env(OAUTH_ENV)))!.authorizeUrl({ state: 's', redirectUri: 'https://cf/cb' }),
     );
-    expect(url.searchParams.get('scope')).toBe('repo gist read:org workflow');
+    expect(url.searchParams.get('scope')).toBe('repo gist read:org workflow read:user');
   });
 
   it('honours the GITHUB_HOST override for data-residency tenants', async () => {

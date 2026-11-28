@@ -84,7 +84,7 @@ export interface MemoryVaultPi extends ToolActivationPi {
     message: {
       customType: string;
       content: string;
-      display: true;
+      display: boolean;
       details: { items: Array<Record<string, unknown>> };
     },
     options: { deliverAs: "followUp"; triggerTurn: boolean },
@@ -709,7 +709,7 @@ function sendDueExtractionMessages(
         JSON.stringify(launches, null, 2),
         "</extraction-items-json>",
       ].join("\n"),
-      display: true,
+      display: false,
       details: { items: launches },
     }, { deliverAs: "followUp", triggerTurn: true });
     for (const item of launches) queued.add(`${String(item.jobType)}:${String(item.requestId)}:${String(item.reminder)}`);

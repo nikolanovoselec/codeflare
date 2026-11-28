@@ -3,6 +3,8 @@ import { Hono } from 'hono';
 import type { Env, DeployKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { AppError, AuthError } from '../../lib/error-types';
+import { getValidCloudflareToken } from '../../lib/cloudflare-token';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 
 const mockIdentity = vi.hoisted(() => ({ role: 'user' as 'user' | 'admin' }));
 
@@ -633,30 +635,57 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(res.status).toBe(400);
     });
 
-    it('REQ-AGENT-010 AC1: co-submitted Cloudflare token and account selection succeed without a second validation', async () => {
-      // The provider permits this validation once; another request hits the
-      // default rejecting boundary. Success verifies reuse through the response.
-      mockGlobalFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          result: [{ id: 'acct-a', name: 'A' }, { id: 'acct-b', name: 'B' }],
-        }),
-      });
+    it.each([{ ids: ['acct-a'] }, { ids: ['acct-a', 'acct-b'] }])(
+      'REQ-AGENT-010 AC1/AC6: co-submitted token and downstream account selection reuse a single provider response (%j)', async ({ ids }) => {
+        const selected = ids.at(-1)!;
+        const accounts = ids.map(id => ({ id, name: id }));
+        // A second validation receives the fixture's default upstream failure.
+        mockGlobalFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, result: accounts }) });
+        const res = await createTestApp().request('/api/deploy-keys', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cloudflareApiToken: 'cf-new', cloudflareAccountId: selected }),
+        });
+        expect(res.status).toBe(200);
+        const body = await res.json() as Record<string, unknown>;
+        expect(body.cloudflareAccountId).toBe(selected);
+        expect(body.cloudflareAccounts).toEqual(ids.length > 1 ? accounts : undefined);
+        expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toEqual({
+          cloudflareApiToken: 'cf-new', cloudflareAccountId: selected,
+        });
+      },
+    );
 
-      const app = createTestApp();
-      const res = await app.request('/api/deploy-keys', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cloudflareApiToken: 'cf-multi', cloudflareAccountId: 'acct-b' }),
-      });
-      expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
-      expect(body.cloudflareAccountId).toBe('acct-b');
-      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toEqual({
-        cloudflareApiToken: 'cf-multi', cloudflareAccountId: 'acct-b',
-      });
-    });
+    it.each(['replaced', 'cleared first'] as const)(
+      'REQ-AGENT-010: an expiring Cloudflare OAuth grant %s by a PAT cannot renew the old grant', async action => {
+        mockKV._set('deploy-keys:test-bucket', {
+          githubToken: 'github-unchanged', cloudflareApiToken: 'old-oauth', cloudflareTokenSource: 'oauth',
+          cloudflareRefreshToken: 'old-refresh', cloudflareTokenExpiresAt: Date.now() - 1000,
+        } satisfies DeployKeys);
+        const app = createTestApp();
+        const put = (cloudflareApiToken: string | null) => app.request('/api/deploy-keys', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cloudflareApiToken }),
+        });
+        if (action === 'cleared first') {
+          expect((await put(null)).status).toBe(200);
+          expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toEqual({ githubToken: 'github-unchanged' });
+        }
+        mockGlobalFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, result: [{ id: 'acct-pat', name: 'PAT' }] }) });
+        expect((await put('replacement-pat')).status).toBe(200);
+        expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toEqual({
+          githubToken: 'github-unchanged', cloudflareApiToken: 'replacement-pat', cloudflareAccountId: 'acct-pat',
+        });
+        const providerPaths: string[] = [];
+        mockGlobalFetch.mockImplementation(async input => {
+          providerPaths.push(new URL(String(input)).pathname);
+          throw new Error('Unexpected provider request while resolving PAT');
+        });
+        mockKV._set(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, 'client');
+        mockKV._set(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, { secret: 'secret' });
+        const env = { KV: mockKV } as unknown as Env;
+        expect(await getValidCloudflareToken(env, 'test-bucket')).toBe('replacement-pat');
+        expect(providerPaths).toEqual([]);
+      },
+    );
 
     it('REQ-AGENT-010 AC3: clearing all keys removes persisted credentials', async () => {
       mockKV._set('deploy-keys:test-bucket', {

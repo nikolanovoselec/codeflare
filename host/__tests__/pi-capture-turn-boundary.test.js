@@ -14,7 +14,8 @@ test('REQ-MEM-015 AC3: frozen capture dispatch and correlated finalization progr
   fs.writeFileSync(paths.memoryPromptFile,'Capture frozen scope');fs.writeFileSync(paths.vaultPromptFile,'Extract scope');
   const handlers=new Map(),sent=[];const ctx={sessionManager:{getSessionId:()=> 'fixture',getSessionFile:()=>file,getHeader:()=>rows[0]}};
   const append=row=>{const e={id:'e'+rows.length,parentId:rows.length===1?null:rows.at(-1).id,timestamp:'2026-11-04T00:00:00Z',...row};rows.push(e);fs.appendFileSync(file,jsonl([e]));};
-  const pi={on(name,fn){handlers.set(name,fn);},events:{emit(){}},getActiveTools:()=>[],getAllTools:()=>[],setActiveTools(){},sendMessage(message){sent.push(message);}};
+  const deliveries=[];
+  const pi={on(name,fn){handlers.set(name,fn);},events:{emit(){}},getActiveTools:()=>[],getAllTools:()=>[],setActiveTools(){},sendMessage(message,options){sent.push(message);deliveries.push(options);}};
   registerMemoryVault(pi,{paths,now:()=>Date.parse('2026-11-04T00:00:00Z'),randomUUID:()=> '00000000-0000-4000-8000-000000000001'});
   const emit=(name,event={})=>handlers.get(name)?.(event,ctx);emit('session_start');
   append({type:'message',message:{role:'user',content:'prompt 1'}});emit('before_agent_start',{prompt:'prompt 1'});
@@ -28,6 +29,11 @@ test('REQ-MEM-015 AC3: frozen capture dispatch and correlated finalization progr
   const vars=join(paths.cacheDir,`memory-capture.fixture.${pointer.requestId}.vars`),frozen=fs.readFileSync(vars);
   const request=JSON.parse(frozen);assert.equal(request.promptCount,21);
   const launch=sent.find(m=>m.customType==='background-extraction-launch');assert.ok(launch);
+  assert.equal(launch.display,false,'routine extraction launch is hidden in display-aware clients');
+  assert.deepEqual(deliveries[sent.indexOf(launch)],{deliverAs:'followUp',triggerTurn:true});
+  const payload=launch.content.match(/<extraction-items-json>\n(.+)\n<\/extraction-items-json>/s);
+  assert.ok(payload);
+  assert.deepEqual(JSON.parse(payload[1]),launch.details.items);
   assert.ok(launch.details.items.some(item => item.jobType === 'memory-capture'));
   emit('turn_end',stop);emit('agent_settled');
   assert.deepEqual(sent.filter(m=>m.customType==='background-extraction-launch'),[launch]);

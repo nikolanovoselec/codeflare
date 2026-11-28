@@ -175,23 +175,16 @@ Example: If the user wants to build a meme site, create `~/workspace/meme-site/`
 
 ## Step 3: After Building — Ask About Publishing
 
-Once the project is built and working, **always ask the user what they want to do with it:**
+Once the project is built, use `ship` for any requested publication or deployment. If the delivery choice is unresolved, use its questionnaire to recommend and distinguish keeping the project local, saving it to private GitHub, and putting it online. Do not ask again if the choice is already clear.
 
-"Your [website/app/project] is ready! Would you like to:"
-- **"Put it online"** — so anyone with the link can see it
-- **"Keep it for myself"** — just download it or keep working on it
-
-**If they want to put it online:** Tell them "Let me set that up for you." Make sure the current working directory is the project directory (e.g., `~/workspace/my-project/`), then invoke the `/ship` skill. This will guide them through GitHub setup (version control + CI) first, then Cloudflare deployment. The order matters — GitHub/CI must be configured before deployment.
-
-**If they want to keep it:** Tell them "Your project is saved here and you can keep working on it anytime. If you want to download the files, you can use the Storage panel. Whenever you are ready to put it online, just tell me to ship it."
+For an authorized Cloudflare deployment, `ship` uses the connected integration directly by default. GitHub Actions deployment setup is opt-in; required checks still apply. For local-only work, explain where the files are saved and how to download them through Storage.
 
 ## How the Skills Work Together
 
 1. User describes their idea → **Step 1: Discovery** — understand requirements, steer toward Cloudflare-achievable scope
 2. Agent confirms requirements with user → **Step 2: Build** — using Cloudflare-compatible technologies
-3. Agent asks if user wants to publish → **Step 3: Post-build** — "put it online or keep it?"
-4. If online → **/ship** handles GitHub CI setup first, then Cloudflare deployment
-5. Result: a live `.workers.dev` URL
+3. **Step 3: Delivery** — carry forward the user's choice or resolve it with `ship`.
+4. If deployment is authorized → **`ship`** deploys through the connected Cloudflare integration by default and verifies the agreed URL.
 
 This skill owns the entire pre-build and build phase. `/ship` owns the infrastructure and deployment phase — including automatically creating D1 databases, R2 buckets, and KV namespaces when the project uses them. If the user has connected their Cloudflare account in Settings > Push & Deploy, `/ship` provisions these resources without any manual steps.
 

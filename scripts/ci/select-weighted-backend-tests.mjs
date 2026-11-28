@@ -51,7 +51,29 @@ export function selectBackendGroup(group, weightDocument = JSON.parse(readFileSy
   if (!Number.isSafeInteger(index) || index < 1 || index > count) throw new Error('group index is out of range');
   const nodeFiles = new Set(NODE_SUITE_FILES);
   const files = collectTests(join(ROOT, 'src')).filter((file) => !nodeFiles.has(file));
-  const groups = assignWeightedFiles(files, weightDocument.weights, count, weightDocument.fileOverheadMs);
+  const sqlCapacity = 'src/__tests__/operators/dispatcher-production-capacity-sql.test.ts';
+  const separateCapacity = count === 11 && files.includes(sqlCapacity);
+  // Keep the historical weighted placement for the existing files. Schedule
+  // the measured SQL capacity case separately on a leg with headroom.
+  const groups = assignWeightedFiles(separateCapacity ? files.filter(file => file !== sqlCapacity) : files,
+    weightDocument.weights, count, weightDocument.fileOverheadMs);
+  if (separateCapacity) {
+    groups[1].push(sqlCapacity);
+    groups[1].sort();
+  }
+  // Runs 45899555552 and 45900111651 put both of shard 8's longest files
+  // together. Move the smaller workload to a leg with headroom without
+  // reshuffling the rest of the matrix or changing coverage.
+  if (count === 11) {
+    const file = 'src/__tests__/operators/application-execution.test.ts';
+    const source = groups[7];
+    const position = source.indexOf(file);
+    if (position !== -1 && source.includes('src/__tests__/operators/dispatcher-production-capacity.test.ts')) {
+      source.splice(position, 1);
+      groups[0].push(file);
+      groups[0].sort();
+    }
+  }
   if (groups[index - 1].length === 0) throw new Error(`weighted backend group ${group} is empty`);
   return groups[index - 1];
 }

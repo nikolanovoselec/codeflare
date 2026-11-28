@@ -29,11 +29,37 @@
 
 /* Name truncation (font/color via .type-section-header) */
 .session-stat-card__name {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Keep the Vault control above the whole-card selector. Its 36px width,
+   12px gap and the 8px dot put the centers 34px apart at the default scale. */
+.session-stat-card__vault {
+  flex: none;
+  margin-inline-end: var(--space-1);
+}
+
+.session-stat-card__vault .header-vault-button {
+  position: relative;
+  z-index: 2;
+  width: calc(var(--space-8) + var(--space-1));
+  height: var(--space-8);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .session-stat-card__vault .header-vault-button:hover:not([aria-disabled="true"]) {
+    background: var(--color-accent-muted);
+  }
+}
+
+.session-stat-card__vault .header-vault-button--armed[aria-disabled="true"] {
+  color: var(--color-success);
+  cursor: progress;
+  opacity: 1;
 }
 
 /* Status dot */
@@ -154,9 +180,100 @@
   }
 }
 
+.dashboard-session-list > .session-stat-card {
+  flex-shrink: 0;
+}
+
+.session-stat-card__body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* Reserve the three running metric rows even without metrics. Each row uses
+     a 1.4 line height, two value paddings, and 2px of outer padding. */
+  min-block-size: calc(4.2 * var(--text-xs) + 6 * var(--space-1) + 6px);
+}
+
 /* Progress bar for initializing */
 .session-stat-card__progress {
   margin-top: 4px;
+}
+
+.session-stat-card--shutting-down .stat-card__header > :not(.session-stat-card__menu-trigger),
+.session-stat-card--shutting-down .stat-card__metrics {
+  opacity: 0.6;
+}
+
+.session-stat-card--shutting-down {
+  container-type: inline-size;
+}
+
+.session-stat-card__shutdown-notice {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding-inline: var(--space-2);
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  line-height: 1.125;
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  color: var(--color-text-primary);
+}
+
+.session-stat-card__subtitle-word {
+  box-sizing: border-box;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+  text-align: center;
+  background: #000;
+  padding: var(--space-1) var(--space-2);
+}
+
+.session-stat-card__announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.session-stat-card--recovery .session-stat-card__shutdown-notice {
+  inset-block: var(--space-6) 44px;
+}
+
+.session-stat-card__retry {
+  position: relative;
+  z-index: 2;
+  margin: 0 calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
+}
+
+.session-stat-card__retry .button {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 0 0 calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px);
+  text-transform: uppercase;
+}
+
+/* Let subtitles reflow on narrow cards. */
+@container (max-width: 11rem) {
+  .session-stat-card__shutdown-notice:has(.session-stat-card__subtitle-word) {
+    position: static;
+    padding-inline: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .session-stat-card:not(.session-stat-card--recovery) .session-stat-card__subtitle-word > span {
+    animation: dashboard-icon-glow 3s ease-in-out infinite;
+  }
 }
 
 /* Mobile: menu trigger always visible */

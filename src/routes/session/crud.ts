@@ -5,9 +5,12 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { getContainer } from '@cloudflare/containers';
-import { AgentTypeSchema, resolveSessionWorkspace, resolveTerminalMode, type Env, type Session, type TerminalMode, type UserPreferences } from '../../types';
+import { AgentTypeSchema, PiSurfaceSchema, resolveSessionWorkspace, resolveTerminalMode, type Env, type Session, type TerminalMode, type UserPreferences } from '../../types';
+import { isPiWebEligible } from '../../container/pi-web';
 import { getPreferencesKey, generateSessionId, sanitizeSessionName } from '../../lib/kv-keys';
 import { D1SessionRepository, type D1Session } from '../../lib/session-repository';
+import { shutdownProjection } from '../../lib/session-shutdown';
+import { maybeQueueShutdown } from './shutdown';
 import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { fencePendingBoundaryStart } from './boundary-stop';
 import { AuthVariables } from '../../middleware/auth';
@@ -41,6 +44,7 @@ function validateTabConfigForMode(entries: Session['tabConfig'], terminalMode: T
 const CreateSessionBody = z.object({
   name: z.string().trim().min(1, 'Session name cannot be blank').max(MAX_SESSION_NAME_LENGTH).optional(),
   agentType: AgentTypeSchema.optional(),
+  surface: PiSurfaceSchema.optional(),
   tabConfig: SubmittedTabConfig.optional(),
   // REQ-GITHUB-004: optional GitHub repo to clone at container start. The repo
   // shape is owner/name; ref is an optional branch/tag. Cloning is best-effort
@@ -82,7 +86,7 @@ function toWorkspaceApiSession(session: Session | D1Session) {
   } : session;
   return {
     ...toApiSession(normalized),
-    ...('sessionId' in session ? { lifecycle: session.lifecycleState, generation: session.lifecycleGeneration, revision: session.responseRevision, unreachableDeadlineMs: session.unreachableDeadlineMs } : {}),
+    ...('sessionId' in session ? { ...shutdownProjection(session), lifecycle: session.lifecycleState, generation: session.lifecycleGeneration, revision: session.responseRevision, unreachableDeadlineMs: session.unreachableDeadlineMs } : {}),
     workspace: resolveSessionWorkspace(normalized.workspace),
     terminalMode: resolveTerminalMode(normalized.terminalMode),
   };
@@ -132,7 +136,7 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
   const body = await parseJsonBody(c, CreateSessionBody);
   const preferences = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
   const effectiveSessionMode = await resolveEffectiveSessionMode(preferences, c.get('user'), c.env);
-  const workspace = preferences?.defaultWorkspace === 'vscode' && effectiveSessionMode === 'advanced'
+  const workspace = !body.surface && preferences?.defaultWorkspace === 'vscode' && effectiveSessionMode === 'advanced'
     ? 'vscode'
     : 'terminal';
   const terminalMode: TerminalMode = preferences?.herdrEnabled === true ? 'herdr' : 'classic';
@@ -154,6 +158,9 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
     ?? (!selectableAgents.includes('claude-code')
       ? (selectableAgents.find((agent) => agent !== 'bash') ?? 'bash')
       : undefined);
+  if (body.surface && !isPiWebEligible({ agentType, workspace, tabConfig: body.tabConfig, terminalMode })) {
+    throw new ValidationError('Surface selection requires a Classic Pi Terminal workspace');
+  }
 
   // Storage quota check — block session start if over quota. Enterprise users
   // are unlimited (custom tier, no storage cap), so the gate is skipped entirely.
@@ -241,6 +248,9 @@ app.patch('/:id', async (c) => {
  * Delete a session
  */
 app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
+  if (c.req.query('discardMemory') !== undefined) {
+    return c.json({ error: 'Memory discard is not supported' }, 409);
+  }
   const reqLogger = logger.child({ requestId: c.get('requestId') });
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
@@ -250,6 +260,8 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   if (!session) throw new NotFoundError('Session not found');
 
   const generation = session.lifecycleGeneration;
+  const queued = await maybeQueueShutdown(c.env, session, true);
+  if (queued) return queued;
   if (session.lifecycleState === 'stopped') {
     await fencePendingBoundaryStart(c.env, repository, session);
   } else {

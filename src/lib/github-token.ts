@@ -153,15 +153,35 @@ interface TokenResponse {
   error_description?: string;
 }
 
+class GithubTokenEndpointUnavailable extends Error {}
+
 async function postToken(env: Env, body: Record<string, string>): Promise<TokenResponse> {
-  const res = await fetch(`https://${webHost(env)}/login/oauth/access_token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10000),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`https://${webHost(env)}/login/oauth/access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch {
+    throw new GithubTokenEndpointUnavailable('GitHub token endpoint unavailable');
+  }
+  if (res.status === 429 || res.status >= 500) {
+    throw new GithubTokenEndpointUnavailable(`GitHub token endpoint returned ${res.status}`);
+  }
   if (!res.ok) throw new Error(`GitHub token endpoint returned ${res.status}`);
-  const data = (await res.json()) as TokenResponse;
+  let data: TokenResponse;
+  try {
+    data = (await res.json()) as TokenResponse;
+  } catch (err) {
+    // Invalid JSON is not a transport interruption.
+    if (err instanceof SyntaxError) throw err;
+    throw new GithubTokenEndpointUnavailable('GitHub token response body unavailable');
+  }
+  if (data.error === 'temporarily_unavailable' || data.error === 'server_error') {
+    throw new GithubTokenEndpointUnavailable('GitHub token endpoint temporarily unavailable');
+  }
   if (data.error || !data.access_token) {
     throw new Error(`GitHub token exchange failed: ${data.error ?? 'no access_token'}`);
   }
@@ -340,32 +360,49 @@ export async function getGithubProvider(env: Env): Promise<GithubOAuthProvider |
 
 // --- orchestration ---------------------------------------------------------
 
-/**
- * Return a currently-valid GitHub access token for the user, refreshing an App token
- * that is at/near expiry. Returns null when not connected or when an expired App token
- * cannot be refreshed — fail closed: never returns a stale token.
- */
+export const GITHUB_REFRESH_UNAVAILABLE = Symbol('GitHub refresh unavailable');
+type GithubTokenResolution = string | null | typeof GITHUB_REFRESH_UNAVAILABLE;
+
+function needsAppRenewal(connection: GithubConnection): boolean {
+  return connection.source === 'app' && !!connection.expiresAt
+    && !(Date.now() < connection.expiresAt - REFRESH_SKEW_MS);
+}
+
+/** Profile counts are optional and never start a second token renewal. */
+export async function readGithubProfileGrant(env: Env, bucketName: string): Promise<{ login: string; accessToken: string } | null> {
+  const connection = readConnection(await readDeployKeys(env, bucketName));
+  if (!connection?.login || (connection.source !== 'oauth' && connection.source !== 'app')
+      || needsAppRenewal(connection)) return null;
+  return { login: connection.login, accessToken: connection.accessToken };
+}
+
+/** Return the currently usable token, or fail closed. */
 export async function getValidGithubToken(env: Env, bucketName: string): Promise<string | null> {
+  const result = await resolveGithubToken(env, bucketName);
+  return typeof result === 'string' ? result : null;
+}
+
+/** Distinguish temporary refresh outages without admitting expired credentials. */
+export async function resolveGithubToken(env: Env, bucketName: string): Promise<GithubTokenResolution> {
   const conn = readConnection(await readDeployKeys(env, bucketName));
   if (!conn) return null;
+  if (!needsAppRenewal(conn)) return conn.accessToken;
 
-  // Manual PAT and long-lived OAuth tokens have no expiry.
-  if (conn.source !== 'app' || !conn.expiresAt) return conn.accessToken;
-
-  if (Date.now() < conn.expiresAt - REFRESH_SKEW_MS) return conn.accessToken;
-
-  // Expiring/expired App token — refresh, or fail closed.
-  if (!conn.refreshToken) return null;
-  const provider = await getGithubProvider(env);
-  if (!provider || provider.source !== 'app') return null;
+  const refreshToken = conn.refreshToken;
+  if (!refreshToken) return null;
   try {
-    const refreshed = await provider.refresh(conn.refreshToken);
-    if (!refreshed.login) refreshed.login = conn.login;
+    const provider = await getGithubProvider(env);
+    if (!provider || provider.source !== 'app') return null;
+    const refreshed = await provider.refresh(refreshToken);
+    const current = readConnection(await readDeployKeys(env, bucketName));
+    // Refuse a replacement already visible to this read; KV is not an atomic write fence.
+    if (current?.source !== 'app' || current.refreshToken !== refreshToken) return null;
+    refreshed.login ??= conn.login;
     await storeGithubConnection(env, bucketName, refreshed);
     return refreshed.accessToken;
   } catch (err) {
     logger.warn('GitHub App token refresh failed; failing closed', { err: String(err) });
-    return null;
+    return err instanceof GithubTokenEndpointUnavailable ? GITHUB_REFRESH_UNAVAILABLE : null;
   }
 }
 

@@ -10,6 +10,7 @@ const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
 import { baseFetch, ApiError } from '../../api/fetch-helper';
+import { getGithubRepos } from '../../api/github';
 
 function json401() {
   return {
@@ -85,6 +86,25 @@ describe('REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hang
     stubLocation('/app/sessions');
     mockFetch.mockResolvedValueOnce(json401());
     await expect(baseFetch('/api/user', {})).rejects.toBeInstanceOf(ApiError);
+    expect(replaceSpy).toHaveBeenCalledWith('/');
+  });
+
+  it('REQ-GITHUB-002: reports the GitHub connection error without navigating away from the Dashboard', async () => {
+    stubLocation('/app/');
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      code: 'NOT_CONNECTED', error: 'Connect GitHub to load repositories.',
+    }), { status: 409, headers: { 'Content-Type': 'application/json' } }));
+    await expect(getGithubRepos(1)).rejects.toMatchObject({
+      status: 409, code: 'NOT_CONNECTED', message: 'Connect GitHub to load repositories.',
+    });
+    expect(window.location.pathname).toBe('/app/');
+    expect(replaceSpy).not.toHaveBeenCalled();
+  });
+
+  it('still redirects when the Codeflare session expires on a GitHub request', async () => {
+    stubLocation('/app/');
+    mockFetch.mockResolvedValueOnce(json401());
+    await expect(getGithubRepos(1)).rejects.toMatchObject({ status: 401, authRedirect: true });
     expect(replaceSpy).toHaveBeenCalledWith('/');
   });
 

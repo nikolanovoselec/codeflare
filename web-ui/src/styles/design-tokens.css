@@ -40,9 +40,9 @@
      Colors - Accent (HSL-based — change --accent-hue to retheme)
      ========================================================================== */
 
-  --accent-hue: 10;
+  --accent-hue: 196.235294; /* #00BAFF */
   --accent-s: 100%;
-  --accent-l: 62%;
+  --accent-l: 50%;
 
   /* The three channels as one substitution, so an alpha variant reads
      `hsla(var(--accent-hsl), 0.3)` instead of repeating all three at every
@@ -54,10 +54,10 @@
   --color-accent-muted: hsla(var(--accent-hsl), 0.15);
 
   /* Foreground to place ON the accent (e.g. the New Session button). Bright
-     accents (the coral default, yellows, light greens) need a near-black
+     accents (the cyan default, yellows, light greens) need a near-black
      foreground for contrast; dark/saturated accents need white. applyAccentColor
      recomputes this from the active accent (YIQ brightness); this default tracks
-     the coral default above. */
+     the cyan default above. */
   --color-accent-contrast: #160a06;
 
   /* ==========================================================================

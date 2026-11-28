@@ -260,7 +260,7 @@ function ghRepository(words: string[]): string | undefined {
 
 export function exposureTargetsCheckedOutBranch(
   command: string,
-  identity: { branch: string; pr: number; repository: string },
+  identity: { branch: string; pr?: number; repository?: string },
 ): boolean {
   const relevant = executableShellCommands(command)
     .flatMap((words) => {
@@ -276,14 +276,14 @@ export function exposureTargetsCheckedOutBranch(
   const branch = identity.branch;
   if (relevant.executable === "gh") {
     const repository = ghRepository(relevant.words);
-    if (repository && repository !== identity.repository.toLowerCase()) return false;
+    if (repository && identity.repository && repository !== identity.repository.toLowerCase()) return false;
     if (relevant.args[1] === "reopen") {
       const target = reopenTarget(relevant.args);
       if (!target) return true;
       const url = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/i.exec(target);
-      if (url) return url[1]?.toLowerCase() === identity.repository.toLowerCase()
-        && Number(url[2]) === identity.pr;
-      if (/^[0-9]+$/.test(target)) return Number(target) === identity.pr;
+      if (url) return (!identity.repository || url[1]?.toLowerCase() === identity.repository.toLowerCase())
+        && (identity.pr === undefined || Number(url[2]) === identity.pr);
+      if (/^[0-9]+$/.test(target)) return identity.pr === undefined || Number(target) === identity.pr;
       return target === branch || target.endsWith(`:${branch}`);
     }
     const headIndex = relevant.args.findIndex((arg) => arg === "--head" || arg === "-H");
