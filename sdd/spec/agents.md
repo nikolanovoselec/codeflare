@@ -4216,7 +4216,7 @@ None.
 3. Composition and extraction follow explicit ownership, state, reuse, testability, and maintenance evidence. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 4. Updates prefer immutability, keep necessary mutation local, validate untrusted boundaries, and trust typed internals. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 5. CI, automated-test, deployment, and log-tail monitoring never blocks the main session; only approved safe local checks run in-session. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
-6. Before declaring implementation blocked, assess recovery against the required outcome and hard constraints rather than the chosen approach, rechecking the design rationale after a platform limit or recurring failure to find and take a smaller in-scope path if available. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+6. Before declaring implementation blocked, state the required outcome and hard constraints separately from the chosen approach. On a platform limit or recurring failure, recheck the design rationale to find and take a smaller in-scope path if available. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 7. Escalate only unresolved blockers, with evidence and the specific decision needed, without bypassing review, authorization, or an explicit stop. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 
 **Constraints:**
