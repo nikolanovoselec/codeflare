@@ -991,6 +991,36 @@ it.each(['audit first', 'exit first', 'stale audit', 'stale successful audit'] a
   }
 });
 
+it.each(['idle', 'user'] as const)('REQ-SESSION-025 AC2: monitor exit before SIGTERM records %s Stop separately from the exit reason', async stopTrigger => {
+  const f = rig(true, true, false, false, 'exit first');
+  const process = await f.create(a, { idle: true });
+  const exits: Array<Record<string, unknown>> = [];
+  const logs = vi.spyOn(console, 'log').mockImplementation(line => {
+    if (typeof line !== 'string' || !line.startsWith('{')) return;
+    const entry = JSON.parse(line);
+    if (entry.message === 'process_exit_confirmed' && entry.data?.sessionId === a) exits.push(entry.data);
+  });
+  setLogLevel('info');
+  try {
+    process.save.release('saved');
+    if (stopTrigger === 'idle') await f.idleTick(a);
+    else await expectAccepted(f.stop(a));
+    // Pause teardown before native effects; the monitor supplies the exit evidence.
+    await bounded(f.cleanup!.reached.promise.then(() => new Response()));
+    process.monitorExit!.release();
+    await vi.waitFor(() => expect(exits).toEqual([expect.objectContaining({
+      lifecycleGeneration: 1, reason: 'unknown', stopTrigger,
+    })]));
+    expect((await f.batch())[a]?.status).toBe('stopped');
+    expect(f.trace).not.toContain(`${a}:sigterm`);
+  } finally {
+    process.exit.release('failed');
+    f.cleanup!.resume.release();
+    setLogLevel('silent');
+    logs.mockRestore();
+  }
+});
+
 it('REQ-SESSION-006: deleting an already stopped, settled row does not launch or stop a native process', async () => {
   const f = rig(false);
   await f.create(a, { running: false });

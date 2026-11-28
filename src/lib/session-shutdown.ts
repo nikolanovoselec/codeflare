@@ -25,9 +25,9 @@ export interface SessionShutdown {
   finalEventsAttempted?: true;
 }
 
-export function isIdleStop(job: SessionShutdown | undefined, intent?: string): boolean {
-  return job?.idle === true && job.intent === intent && job.sourceGeneration === undefined
-    && job.phase.startsWith('finishing');
+export function queuedStopTrigger(job: SessionShutdown | undefined, intent?: string): 'idle' | 'user' | undefined {
+  if (!job || job.intent !== intent || job.sourceGeneration !== undefined || !job.phase.startsWith('finishing')) return;
+  return job.idle ? 'idle' : 'user';
 }
 
 export function terminalFenced(job?: SessionShutdown): boolean {

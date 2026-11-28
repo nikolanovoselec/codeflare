@@ -14,7 +14,7 @@ import { createLogger } from '../lib/logger';
 import { toErrorMessage } from '../lib/error-types';
 import type { Env } from '../types';
 import { D1SessionRepository, type D1Session } from '../lib/session-repository';
-import { isIdleStop } from '../lib/session-shutdown';
+import { queuedStopTrigger } from '../lib/session-shutdown';
 import { fencePendingBoundaryStart } from '../routes/session/boundary-stop';
 import { updateEnvVars, type ContainerHost } from './container-config';
 import {
@@ -150,7 +150,7 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
   }
   logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
     incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: intentId,
-    reason: isIdleStop(owned.shutdown, expectedIntent) ? 'idle' : 'user' });
+    reason: queuedStopTrigger(owned.shutdown, expectedIntent) ?? 'user' });
 }
 
 /** Force destruction shares D1 ownership with Stop, but never its graceful I/O. */
@@ -755,9 +755,13 @@ export async function confirmMonitoredExit(
   await fencePendingBoundaryStart(env, repository, stopping);
   const confirmed = await repository.confirmStopped(ownerKey, sessionId, generation, intentId, new Date().toISOString());
   if (confirmed) {
+    // A matching teardown claim identifies who requested Stop, not why the
+    // process exited. Keep the monitor's observation independent of the job.
+    const stopTrigger = stopping.terminationGeneration === generation && stopping.shutdown?.teardownClaimed
+      ? queuedStopTrigger(stopping.shutdown, intentId) : undefined;
     logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
-      incidentId: current.unreachableIncidentId ?? null, terminationIntentId: intentId,
-      reason: reason === 'unknown' && stopping.shutdown?.teardownClaimed && isIdleStop(stopping.shutdown, intentId) ? 'idle' : reason });
+      incidentId: current.unreachableIncidentId ?? null, terminationIntentId: intentId, reason,
+      ...(stopTrigger && { stopTrigger }) });
     try {
       // A replacement may claim a new generation while the exit callback
       // completes. Never fence or discard authority belonging to the replacement.

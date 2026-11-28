@@ -316,7 +316,7 @@ For [SESSION-004/005/016/017](../../sdd/spec/session-lifecycle.md), inspect exis
 
 | Contract | Action and required outcome |
 |---|---|
-| SESSION-004 AC5 | Correlate the platform sleep sentinel, metrics policy/expiry logs and positive exit. Resolved timeout and input/reference/check times must show metrics owning the stop, not the 24-hour platform sentinel or PTY safety net. |
+| SESSION-004 AC4 | Correlate the configured threshold with metrics input/reference/check times. For ordinary idle teardown, require a metrics-triggered Stop and positive exit, not expiry of the 24-hour sentinel or PTY safety net. For enrolled Hermes, match the same-generation D1 shutdown job and distinguish a refused save (session still running) from confirmed exit. Missing evidence is unavailable. |
 | OPS-017 AC5 | In existing same-generation logs, compare consecutive recorded idle checks with missing or invalid policy and checks with recorded storage-read failures. Require one fallback warning for the first or changed missing/invalid observation and a warning for each failed read. Without observations for individual ticks, warning cadence is unverified. |
 | SESSION-005 AC5 | Compare Host timestamps and the idle metric for Terminal input, IDE frames, accepted Chat input, and non-input traffic. Follow the [shared clock check](#shared-input-clock-acceptance). |
 | SESSION-016 AC2 | Compare an existing successful timezone update with same-owner GET after reload and an independently authorized restart. Preserve the IANA value unless a later update changed it; account for browser synchronization. An old running-container environment is not a persistence failure. |
