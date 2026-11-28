@@ -1363,7 +1363,7 @@ export async function collectMetrics(
             // The bucket queue owns acceptance, final save, merge, and exit.
             // An unavailable acknowledgement never authorizes a direct stop.
             const result = await raceBudget(execution.queueIdleStop(), CONTAINER_POLL_BUDGET_MS).catch(() => null);
-            if (result === null) logger.warn('collectMetrics: idle Stop acceptance unavailable', finalSyncLogContext());
+            if (result === null) logger.warn('collectMetrics: idle Stop acceptance unavailable', { ...finalSyncLogContext() });
           }
         } else if (candidate && execution.isCurrent()) {
           logger.info('collectMetrics: idle exceeded threshold, stopping', { ...finalSyncLogContext(), reason: 'idle', idleMs, sleepMs, idleTimeoutPref, referenceTime });

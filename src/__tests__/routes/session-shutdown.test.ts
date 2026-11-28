@@ -2,6 +2,7 @@ import { env as poolEnv } from 'cloudflare:test';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { setLogLevel } from '../../lib/logger';
 import { SETUP_KEYS, getRegimeStateKey } from '../../lib/kv-keys';
 import { createTestApp } from '../helpers/test-app';
 // @ts-expect-error Vite raw-loader module used by the Workers test runtime.
@@ -377,23 +378,40 @@ const c = 'sessionccc1';
 it.each(['idle', 'manual'] as const)('REQ-SESSION-043: %s Stop shares one save, consolidation and exit with the other trigger', async first => {
   const f = rig();
   const process = await f.create(a, { idle: true, holdMerge: true });
-  if (first === 'idle') await f.idleTick(a);
-  else await expectAccepted(f.stop(a));
-  await vi.waitFor(() => expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`]));
-  if (first === 'idle') expect((await f.stop(a)).status).toBe(202);
-  await f.idleTick(a);
-  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`]);
-  process.save.release('saved');
-  await vi.waitFor(() => expect(process.mergeRequest).toMatchObject({ snapshotId }));
-  expect((await f.batch())[a]).toMatchObject({ shutdownPhase: 'consolidating', pendingDelete: false });
-  process.merge.release('merged');
-  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ shutdownPhase: 'finishing' }));
-  expect(f.trace).not.toContain(`${a}:exit`);
-  process.exit.release();
-  await vi.waitFor(async () => expect(await repository.getSession(f.owner, a)).toMatchObject({
-    lifecycleState: 'stopped', shutdown: { phase: 'merged', mergeVerified: true },
-  }));
-  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:saved`, `${a}:merge`, `${a}:sigterm`, `${a}:exit`]);
+  const entries: Array<{ message: string; data?: Record<string, unknown> }> = [];
+  const logs = vi.spyOn(console, 'log').mockImplementation(line => {
+    if (typeof line === 'string' && line.startsWith('{')) entries.push(JSON.parse(line));
+  });
+  setLogLevel('info');
+  try {
+    if (first === 'idle') await f.idleTick(a);
+    else await expectAccepted(f.stop(a));
+    await vi.waitFor(() => expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`]));
+    if (first === 'idle') expect((await f.stop(a)).status).toBe(202);
+    await f.idleTick(a);
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`]);
+    process.save.release('saved');
+    await vi.waitFor(() => expect(process.mergeRequest).toMatchObject({ snapshotId }));
+    expect((await f.batch())[a]).toMatchObject({ shutdownPhase: 'consolidating', pendingDelete: false });
+    process.merge.release('merged');
+    await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ shutdownPhase: 'finishing' }));
+    expect(f.trace).not.toContain(`${a}:exit`);
+    process.exit.release();
+    await vi.waitFor(async () => expect(await repository.getSession(f.owner, a)).toMatchObject({
+      lifecycleState: 'stopped', shutdown: { phase: 'merged', mergeVerified: true },
+    }));
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:saved`, `${a}:merge`, `${a}:sigterm`, `${a}:exit`]);
+    const reason = first === 'idle' ? 'idle' : 'user';
+    await vi.waitFor(() => expect(entries.filter(entry => entry.data?.sessionId === a && (
+      entry.message === 'Final sync audit (teardown)' || entry.message === 'process_exit_confirmed'
+    ))).toEqual([
+      expect.objectContaining({ message: 'Final sync audit (teardown)', data: expect.objectContaining({ reason, lifecycleGeneration: 1 }) }),
+      expect.objectContaining({ message: 'process_exit_confirmed', data: expect.objectContaining({ reason, lifecycleGeneration: 1 }) }),
+    ]));
+  } finally {
+    setLogLevel('silent');
+    logs.mockRestore();
+  }
 });
 
 it('REQ-SESSION-043: the shutdown queue alarm advances idle Stop after acceptance acknowledgement is lost', async () => {

@@ -14,6 +14,7 @@ import { createLogger } from '../lib/logger';
 import { toErrorMessage } from '../lib/error-types';
 import type { Env } from '../types';
 import { D1SessionRepository, type D1Session } from '../lib/session-repository';
+import { isIdleStop } from '../lib/session-shutdown';
 import { fencePendingBoundaryStart } from '../routes/session/boundary-stop';
 import { updateEnvVars, type ContainerHost } from './container-config';
 import {
@@ -72,7 +73,7 @@ export interface LifecycleLogContext {
   incidentId: string | null;
   terminationIntentId?: string;
   hermesWriter?: true;
-  reason: 'user' | 'platform' | 'unknown' | 'recovery_expiry';
+  reason: 'user' | 'idle' | 'platform' | 'unknown' | 'recovery_expiry';
 }
 
 export interface SessionStopRequest {
@@ -148,7 +149,8 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
     throw new Error('Confirmed exit could not be persisted');
   }
   logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
-    incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: intentId, reason: 'user' });
+    incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: intentId,
+    reason: isIdleStop(owned.shutdown, expectedIntent) ? 'idle' : 'user' });
 }
 
 /** Force destruction shares D1 ownership with Stop, but never its graceful I/O. */
@@ -754,7 +756,8 @@ export async function confirmMonitoredExit(
   const confirmed = await repository.confirmStopped(ownerKey, sessionId, generation, intentId, new Date().toISOString());
   if (confirmed) {
     logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
-      incidentId: current.unreachableIncidentId ?? null, terminationIntentId: intentId, reason });
+      incidentId: current.unreachableIncidentId ?? null, terminationIntentId: intentId,
+      reason: reason === 'unknown' && stopping.shutdown?.teardownClaimed && isIdleStop(stopping.shutdown, intentId) ? 'idle' : reason });
     try {
       // A replacement may claim a new generation while the exit callback
       // completes. Never fence or discard authority belonging to the replacement.

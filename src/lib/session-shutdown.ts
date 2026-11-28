@@ -8,6 +8,8 @@ export interface SessionShutdown {
   intent: string;
   phase: ShutdownPhase;
   delete: boolean;
+  /** First accepted Stop came from the idle timer; joining actions do not replace it. */
+  idle?: true;
   snapshotId?: string;
   snapshotUnavailable?: true;
   deadline?: number;
@@ -21,6 +23,11 @@ export interface SessionShutdown {
   sourceGeneration?: number;
   resumed?: true;
   finalEventsAttempted?: true;
+}
+
+export function isIdleStop(job: SessionShutdown | undefined, intent?: string): boolean {
+  return job?.idle === true && job.intent === intent && job.sourceGeneration === undefined
+    && job.phase.startsWith('finishing');
 }
 
 export function terminalFenced(job?: SessionShutdown): boolean {

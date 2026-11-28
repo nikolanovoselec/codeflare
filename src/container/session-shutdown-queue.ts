@@ -38,8 +38,9 @@ export async function acceptShutdown(repository: D1SessionRepository, input: Shu
     const retrySave = job?.phase === 'save-failed' && job.deadline === undefined;
     if (job?.phase === 'save-failed' && !retrySave && !(input.delete && !job.delete)) return { accepted: false };
     if (retrySave && row.lifecycleState !== 'running') return { accepted: false };
-    const next: SessionShutdown = !job ? { intent: crypto.randomUUID(), delete: input.delete, phase: 'queued' }
-      : { ...job, delete: job.delete || input.delete, ...(retrySave ? { phase: 'retry-save' } : {}) };
+    const next: SessionShutdown = !job ? {
+      intent: crypto.randomUUID(), delete: input.delete, phase: 'queued', ...(input.idle && { idle: true as const }),
+    } : { ...job, delete: job.delete || input.delete, ...(retrySave ? { phase: 'retry-save' } : {}) };
     if (!job && (row.lifecycleState !== 'running' || row.terminationIntentId)) return { accepted: false };
     if (JSON.stringify(next) === JSON.stringify(job) || await repository.updateShutdown(row, next)) {
       return { accepted: true, projection: shutdownProjection({ ...row, shutdown: next }) };

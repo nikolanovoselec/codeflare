@@ -46,7 +46,7 @@ import { createHash } from 'node:crypto';
 import { AGENTS_SEEDED_CONFIGS } from '../lib/agent-seed.generated';
 import { getBucketOwnerStub, loadEnterpriseRouteConfig } from '../lib/access';
 import { isEnterpriseMode } from '../lib/subscription';
-import { mergeNeedsRetry, snapshotPattern, terminalFenced } from '../lib/session-shutdown';
+import { isIdleStop, mergeNeedsRetry, snapshotPattern, terminalFenced } from '../lib/session-shutdown';
 import { DEFAULT_ROUTE_CONTEXT_WINDOW, SESSION_ID_PATTERN } from '../lib/constants';
 import { HERMES_UPLOAD_HOST, HermesRetention, isHermesUploadKey, type HermesAdmission, type HermesWriter } from '../lib/hermes-retention';
 import { getR2Url } from '../lib/r2-client';
@@ -2112,7 +2112,8 @@ export class container extends Container<Env> implements ContainerEnvState {
         const hermesWriter = shutdownIntent !== undefined && job?.hermesDisabledAtStartup !== true
           && job?.sourceGeneration === undefined;
         await this.destroyWithContext({ sessionId: owned.sessionId, lifecycleGeneration: owned.lifecycleGeneration,
-          incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined, reason: 'user',
+          incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined,
+          reason: isIdleStop(job, shutdownIntent) ? 'idle' : 'user',
           ...(hermesWriter ? { hermesWriter: true as const } : {}) }, () => this.recordNativeStopExit({
             owner: input.bucket, session: input.sessionId, generation: input.generation,
             terminationIntentId: owned.terminationIntentId!,
