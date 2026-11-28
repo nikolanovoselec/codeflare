@@ -9,9 +9,12 @@ import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { getContainerId } from '../../lib/container-helpers';
+import { getBucketOwnerStub } from '../../lib/access';
 import { NotFoundError, ValidationError } from '../../lib/error-types';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { mergeNeedsRetry, shutdownProjection } from '../../lib/session-shutdown';
+import { maybeQueueShutdown } from './shutdown';
 import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { getPreferencesKey, getTimekeeperKey, getUtcDateString, getUtcMonthString } from '../../lib/kv-keys';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
@@ -67,7 +70,7 @@ app.get('/batch-status', async (c) => {
   const repository = new D1SessionRepository(c.env.USAGE_DB);
   const sessions = await repository.listSessions(ownerKey);
   const statuses = Object.fromEntries(sessions.map((session) => [session.sessionId, {
-    status: session.lifecycleState,
+    ...shutdownProjection(session),
     lifecycle: session.lifecycleState,
     generation: session.lifecycleGeneration,
     revision: session.responseRevision,
@@ -243,6 +246,8 @@ app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
   const existing = await repository.getSession(bucketName, sessionId);
   if (!existing) throw new NotFoundError('Session not found');
   if (existing.lifecycleState === 'stopped') return c.json({ success: true, stopped: true, id: sessionId });
+  const queued = await maybeQueueShutdown(c.env, existing, false);
+  if (queued) return queued;
   // Authorize/read here, but let the DO claim and finish the entire Stop.
   // Caller loss before acceptance must not leave a Worker-owned stopping row.
   const containerId = getContainerId(bucketName, sessionId);
@@ -261,12 +266,42 @@ app.post('/:id/kill', sessionKillRateLimiter, async (c) => {
   if (!SESSION_ID_PATTERN.test(sessionId)) throw new ValidationError('Invalid sessionId format');
   const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(bucket, sessionId);
   if (!session) throw new NotFoundError('Session not found');
-  if (session.lifecycleState === 'stopped') return c.json({ success: true, stopped: true, id: sessionId });
+  if (session.lifecycleState === 'stopped' && (!session.shutdown
+    || ['merged', 'memory-not-merged', 'uncertain'].includes(session.shutdown.phase))) {
+    return c.json({ success: true, stopped: true, id: sessionId });
+  }
   const addressed = getContainer(c.env.CONTAINER, getContainerId(bucket, sessionId)) as unknown as {
     killSession(input: SessionStopRequest): Promise<void>;
   };
   await addressed.killSession({ bucket, sessionId, generation: session.lifecycleGeneration });
   return c.json({ success: true, stopped: true, id: sessionId });
+});
+
+app.post('/:id/retry-memory-consolidation', sessionStopRateLimiter, async (c) => {
+  const id = c.req.param('id');
+  if (!SESSION_ID_PATTERN.test(id)) throw new ValidationError('Invalid sessionId format');
+  const repository = new D1SessionRepository(c.env.USAGE_DB);
+  const session = await repository.getSession(c.get('bucketName'), id);
+  if (!session) throw new NotFoundError('Session not found');
+  if (session.lifecycleState === 'stopped' && session.shutdown?.phase === 'uncertain') {
+    await getBucketStorageOwner(c.env, session.ownerKey).wakeHermesShutdownQueue(session.ownerKey);
+    return c.json({ error: 'Previous publication is being checked; no new merge was started' }, 409);
+  }
+  if (!isEnterpriseMode(c.env) || session.lifecycleState !== 'stopped' || !session.shutdown?.snapshotId) {
+    return c.json({ error: 'Headless memory consolidation is not available for this session' }, 409);
+  }
+  if (session.shutdown.snapshotUnavailable
+    || !await getBucketOwnerStub(c.env, session.ownerKey).hermesStoreRetained(session.ownerKey, id)) {
+    if (!session.shutdown.snapshotUnavailable && mergeNeedsRetry(session.shutdown)) {
+      await repository.updateShutdown(session, { ...session.shutdown, snapshotUnavailable: true });
+    }
+    return c.json({ error: 'Saved memory is no longer available for consolidation' }, 409);
+  }
+  const accepted = await getBucketStorageOwner(c.env, session.ownerKey).enqueueHermesShutdown({
+    bucket: session.ownerKey, sessionId: id, generation: session.lifecycleGeneration, delete: session.shutdown.delete, retry: true,
+  });
+  if (!accepted.accepted) return c.json({ error: 'Memory consolidation is no longer pending' }, 409);
+  return c.json({ success: true, id, ...accepted.projection }, 202);
 });
 
 /**
@@ -281,10 +316,12 @@ app.get('/:id/status', async (c) => {
   }
   const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(bucketName, sessionId);
   if (!session) throw new NotFoundError('Session not found');
+  const { shutdown: _shutdown, mergedSnapshotId: _mergedSnapshotId, ...publicSession } = session;
+  const projection = shutdownProjection(session);
   return c.json({
-    session,
-    containerStatus: session.lifecycleState,
-    status: session.lifecycleState,
+    session: publicSession,
+    containerStatus: projection.status,
+    ...projection,
     ptyActive: false,
     ptyInfo: null,
   }, 200, { 'Cache-Control': 'no-store' });

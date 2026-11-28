@@ -2,6 +2,7 @@ import { Component, For, Show, createSignal, createEffect, createMemo, onMount, 
 import { mdiSourceBranch, mdiAlertCircleOutline, mdiClose } from '@mdi/js';
 import Icon from '../Icon';
 import { isPiWebSession } from '../../lib/pi-web-session';
+import { isSessionCloneTarget } from '../../lib/session-presentation';
 import type { AgentType } from '../../types';
 import type { GithubRepo } from '../../api/github';
 import { sessionStore } from '../../stores/session';
@@ -36,8 +37,7 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
   };
 
   const runningSessions = createMemo(() =>
-    sessionStore.sessions.filter(s => s.status === 'running'
-      && (!props.vibeOnly || (s.lifecycle !== 'stopping' && isPiWebSession(s)))),
+    sessionStore.sessions.filter(session => isSessionCloneTarget(session) && (!props.vibeOnly || isPiWebSession(session))),
   );
 
   const busy = () => cloneLaunchPending(props.repo.full_name);

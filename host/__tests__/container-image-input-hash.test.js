@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, matchesGlob, resolve } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -66,6 +67,31 @@ function imageHashResult(cwd = root, codingAgents = 'claude-code,codex,copilot,a
   return { tag: values.tag, noReuse: values.no_reuse };
 }
 
+it('selects Pi qualification for shared Host and container lifecycle changes', () => {
+  const { parse } = createRequire(import.meta.url)('yaml');
+  const workflow = parse(readFileSync(join(ROOT, '.github/workflows/test.yml'), 'utf8'));
+  const filter = workflow.jobs.changes.steps.find(step => step.id === 'filter');
+  const patterns = parse(filter.with.filters).pi.flat();
+  const selectsPi = path => patterns.some(pattern => matchesGlob(path, pattern));
+
+  for (const path of [
+    'host/src/server.ts',
+    'host/src/request-router.ts',
+    'host/package-lock.json',
+    'src/container/index.ts',
+    'src/container/container-lifecycle.ts',
+    'src/container/session-shutdown-queue.ts',
+    'src/routes/container/lifecycle.ts',
+    'src/routes/session/shutdown.ts',
+    'scripts/ci/smoke-pi-web-services.mjs',
+    'scripts/patch-pi-goal-review-control.mjs',
+    'scripts/patch-pi-plan-mode-tool-policy.mjs',
+    'scripts/patch-pi-todo-loop-default-pause.mjs',
+  ]) assert.ok(selectsPi(path), `${path} must select Pi qualification`);
+  assert.equal(selectsPi('host/__tests__/unrelated-host.test.js'), false);
+  assert.equal(selectsPi('README.md'), false);
+});
+
 describe('deployment container image input hash', () => {
   it('ignores host test-only changes but changes for host production inputs', () => {
     execFileSync('git', ['init', '-q'], { cwd: root });
@@ -110,6 +136,7 @@ describe('deployment container image input hash', () => {
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/qualify-context-mode.mjs',
       'scripts/patch-chrome-devtools-timeouts.mjs',
+      'scripts/patch-pi-goal-review-control.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
       'scripts/patch-pi-todo-loop-default-pause.mjs',
       'scripts/patch-pi-native-model-display.mjs',
@@ -128,6 +155,7 @@ describe('deployment container image input hash', () => {
       'scripts/ci/share-claude-native.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
       'scripts/ci/smoke-pi-web-handoff.mjs',
+      'scripts/ci/diagnose-pi-web-startup.mjs',
       'scripts/ci/validate-trivy-result.mjs',
       'scripts/ci/image-size-inventory.mjs',
       'scripts/ci/image-size-manifest.mjs',
@@ -190,7 +218,15 @@ describe('deployment container image input hash', () => {
     assert.notEqual(portalTag, cleanupTag);
 
     let qualifierTag = portalTag;
-    for (const file of ['scripts/qualify-context-mode.mjs', 'scripts/qualify-pi-mcp.mjs', 'host/__tests__/pi-mcp-stock.test.js', 'host/__tests__/graphify-image.test.js', 'host/__fixtures__/pi-mcp-extension-server.mjs']) {
+    for (const file of [
+      'scripts/qualify-context-mode.mjs',
+      'scripts/qualify-pi-mcp.mjs',
+      'host/__tests__/pi-mcp-stock.test.js',
+      'host/__tests__/graphify-image.test.js',
+      'host/__fixtures__/pi-mcp-extension-server.mjs',
+      'scripts/ci/smoke-pi-web-handoff.mjs',
+      'scripts/ci/diagnose-pi-web-startup.mjs',
+    ]) {
       write(file, 'image qualification change\n');
       commit('image qualification change');
       const changed = imageHashResult().tag;
@@ -211,10 +247,15 @@ describe('deployment container image input hash', () => {
     const scriptTag = imageHashResult().tag;
     assert.notEqual(scriptTag, selectionCoreTag);
 
+    write('scripts/patch-pi-goal-review-control.mjs', 'Goal policy patch change\n');
+    commit('Goal patch change');
+    const goalPatchTag = imageHashResult().tag;
+    assert.notEqual(goalPatchTag, scriptTag);
+
     write('scripts/patch-pi-plan-mode-tool-policy.mjs', 'Plan Mode policy patch change\n');
     commit('Plan Mode patch change');
     const planPatchTag = imageHashResult().tag;
-    assert.notEqual(planPatchTag, scriptTag);
+    assert.notEqual(planPatchTag, goalPatchTag);
 
     write('scripts/patch-pi-todo-loop-default-pause.mjs', 'Todo Loop default pause change\n');
     commit('Todo Loop default pause change');

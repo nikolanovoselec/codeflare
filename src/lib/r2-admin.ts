@@ -174,6 +174,13 @@ interface CachedR2Token extends ScopedR2TokenResult {
   createdAt: string;
 }
 
+/** Retry only reuses existing bucket-bound credentials; it must not mint or replace a token. */
+export async function readCachedScopedR2Token(kv: KVNamespace, email: string, bucket: string, key: CryptoKey | null) {
+  const value = await getAndDecrypt<CachedR2Token>(kv, `r2token:${email}`, key);
+  return value?.bucketName === bucket && typeof value.accessKeyId === 'string' && value.accessKeyId
+    && typeof value.secretAccessKey === 'string' && value.secretAccessKey ? value : null;
+}
+
 const MAX_RETRIES = 2;
 
 function isRetryable(status: number): boolean {

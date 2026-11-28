@@ -71,6 +71,7 @@ export interface LifecycleLogContext {
   lifecycleGeneration: number | null;
   incidentId: string | null;
   terminationIntentId?: string;
+  hermesWriter?: true;
   reason: 'user' | 'platform' | 'unknown' | 'recovery_expiry';
 }
 
@@ -115,7 +116,7 @@ function clearOperationalMemory(host: LifecycleHost): void {
 }
 
 /** Complete an owner-authorized Stop without depending on operational DO keys. */
-export async function stopSession(env: Env, input: SessionStopRequest, destroyContainer: (owned: D1Session) => Promise<void>): Promise<void> {
+export async function stopSession(env: Env, input: SessionStopRequest, destroyContainer: (owned: D1Session) => Promise<void>, expectedIntent?: string): Promise<void> {
   const { bucket, sessionId, generation } = input;
   const repository = new D1SessionRepository(env.USAGE_DB);
   const current = await repository.getSession(bucket, sessionId);
@@ -124,10 +125,11 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
 
   const claimed = current.lifecycleState === 'stopping'
     ? current
-    : await repository.claimStop(bucket, sessionId, crypto.randomUUID(), new Date().toISOString(), generation)
+    : await repository.claimStop(bucket, sessionId, expectedIntent ?? crypto.randomUUID(), new Date().toISOString(), generation)
       ?? await repository.getSession(bucket, sessionId);
   if (!claimed || claimed.lifecycleState !== 'stopping' || claimed.lifecycleGeneration !== generation
-      || claimed.terminationGeneration !== generation || !claimed.terminationIntentId) {
+      || claimed.terminationGeneration !== generation || !claimed.terminationIntentId
+      || (expectedIntent && claimed.terminationIntentId !== expectedIntent)) {
     throw new Error('Session stop ownership unavailable');
   }
   const intentId = claimed.terminationIntentId;
@@ -473,7 +475,7 @@ async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number, auth
     try {
       const candidate = ((await res.json()) as { reason?: unknown }).reason;
       // Preserve the host's existing outcome codes, never arbitrary response content.
-      if (typeof candidate === 'string' && ['disk-space-blocked', 'daemon-not-running', 'bisync-failed', 'timeout', 'pi-shutdown-timeout', 'pi-shutdown-unconfirmed'].includes(candidate)) reason = candidate;
+      if (typeof candidate === 'string' && ['disk-space-blocked', 'daemon-not-running', 'bisync-failed', 'timeout', 'pi-shutdown-timeout', 'pi-shutdown-unconfirmed', 'pi-transcript-unconfirmed'].includes(candidate)) reason = candidate;
     } catch { /* body may be empty */ }
     return { outcome: res.ok ? 'completed' : 'incomplete', httpStatus: res.status, reason };
   } catch {
@@ -491,7 +493,7 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
   const event: {
     outcome: FinalSyncOutcome; at: number; running: boolean;
     sessionId?: string; lifecycleGeneration?: number; incidentId?: string | null;
-    terminationIntentId?: string; httpStatus?: number; reason?: string;
+    terminationIntentId?: string; httpStatus?: number; reason?: string; hermesWriter?: true;
   } = { outcome: result.outcome, at: Date.now(), running: host.ctx.container?.running ?? false };
   if (context.sessionId) event.sessionId = context.sessionId;
   if (context.lifecycleGeneration !== null) {
@@ -499,6 +501,7 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
     event.incidentId = context.incidentId;
     if (context.terminationIntentId) event.terminationIntentId = context.terminationIntentId;
   }
+  if (context.hermesWriter) event.hermesWriter = true;
   if (result.httpStatus !== undefined) event.httpStatus = result.httpStatus;
   if (result.reason) event.reason = result.reason;
   // The durable audit's reason remains an outcome code; the transition's reason is its initiator.
@@ -521,7 +524,7 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
  * resurrect the KV entry (REQ-SESSION-009).
  */
 export async function destroy(host: LifecycleHost, context?: LifecycleLogContext,
-  onNativeExit?: () => Promise<void>, quiesceStart?: () => Promise<void>): Promise<void> {
+  onNativeExit?: () => Promise<void>, quiesceStart?: () => Promise<void>, confirmedSave = false, finalEventsAttempted = false): Promise<void> {
   const diagnostic: LifecycleLogContext = context ? { ...context } : {
     sessionId: host._sessionId, lifecycleGeneration: host._observedLifecycleGeneration ?? null, incidentId: null, reason: 'unknown',
   };
@@ -588,7 +591,7 @@ export async function destroy(host: LifecycleHost, context?: LifecycleLogContext
   // after teardown has started deleting them. Failure is best-effort and cannot
   // suppress the later sync, cleanup, or stop.
   try {
-    await withinDeadline(() => drainAgentEventsBeforeStop(
+    if (!finalEventsAttempted) await withinDeadline(() => drainAgentEventsBeforeStop(
       host,
       host.ctx,
       host.env,
@@ -643,9 +646,9 @@ export async function destroy(host: LifecycleHost, context?: LifecycleLogContext
   // failure/timeout so we always fall through to stop. Emit a durable audit
   // event recording the outcome so a skipped/failed final sync on delete is
   // never silent (#516).
-  let syncResult: FinalSyncResult;
+  let syncResult: FinalSyncResult = { outcome: 'completed' };
   try {
-    syncResult = await withinDeadline(() => drainFinalSyncAudited(
+    if (!confirmedSave) syncResult = await withinDeadline(() => drainFinalSyncAudited(
       host,
       Math.max(1, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start))),
       auditAuthToken,
@@ -727,7 +730,7 @@ export async function confirmMonitoredExit(
   sessionId: string,
   generation: number,
   reason: 'platform' | 'unknown' = 'unknown',
-  onObservation?: (incidentId: string | null) => void,
+  onObservation?: (incidentId: string | null, current: D1Session) => void,
   expectedIntentId?: string,
 ): Promise<boolean> {
   const repository = new D1SessionRepository(env.USAGE_DB);
@@ -735,7 +738,7 @@ export async function confirmMonitoredExit(
   if (!current || current.lifecycleGeneration !== generation || current.lifecycleState === 'stopped') return false;
   if (expectedIntentId !== undefined && (current.lifecycleState !== 'stopping'
       || current.terminationGeneration !== generation || current.terminationIntentId !== expectedIntentId)) return false;
-  onObservation?.(current.unreachableIncidentId ?? null);
+  onObservation?.(current.unreachableIncidentId ?? null, current);
   const intentId = current.lifecycleState === 'stopping'
     ? current.terminationIntentId
     : `monitored-exit-${generation}`;

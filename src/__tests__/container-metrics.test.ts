@@ -385,53 +385,73 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     vi.restoreAllMocks();
   });
 
-  it('REQ-SESSION-020 AC1-2: one complete authenticated observation projects without a D1 pre-read or readback', async () => {
-    const key = 'session:test-bucket:testsession123456';
-    mockKV._set(key, { id: 'testsession123456', userId: 'test-bucket', name: 'Complete snapshot', status: 'running' });
-    const inputAt = Date.now() - 1_000;
-    const observedAt = new Date().toISOString();
-    testState.runtimeObservationBody = { lastInputAt: inputAt, cpu: '17%', memory: '3GB', disk: '9GB',
-      syncStatus: 'success', editorReady: true, editorReadyError: false, observedAt };
-    const host = containerInstance as unknown as { env: { USAGE_DB: D1Database; KV: KVNamespace }; ctx: {
-      container: { getTcpPort: (port: number) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
-    } };
-    const kvOperations: string[] = [];
-    host.env.KV = new Proxy({} as KVNamespace, { get(_target, property) {
-      return () => { kvOperations.push(String(property)); throw new Error('Unexpected normal metrics KV operation'); };
-    } });
-    const requests: Array<{ path: string; authorization: string | null }> = [];
-    const port = host.ctx.container.getTcpPort(3000);
-    const fetch = port.fetch.bind(port);
-    vi.spyOn(host.ctx.container, 'getTcpPort').mockReturnValue({ fetch: async (url, init) => {
-      requests.push({ path: new URL(url).pathname, authorization: new Headers(init?.headers).get('Authorization') });
-      return fetch(url, init);
-    } });
-    const operations: Array<{ sql: string; operation: string }> = [];
-    const prepare = host.env.USAGE_DB.prepare.bind(host.env.USAGE_DB);
-    vi.spyOn(host.env.USAGE_DB, 'prepare').mockImplementation(sql => {
-      const wrap = (statement: D1PreparedStatement): D1PreparedStatement => new Proxy(statement, { get(target, property) {
-        if (property === 'bind') return (...args: unknown[]) => wrap(target.bind(...args));
-        const value = Reflect.get(target, property);
-        if (typeof value !== 'function') return value;
-        return (...args: unknown[]) => {
-          operations.push({ sql, operation: String(property) });
-          return value.apply(target, args);
-        };
+  it.each(['ordinary', 'current receipt'] as const)(
+    'REQ-SESSION-020 AC1-2: one complete authenticated observation projects without a D1 pre-read or readback (%s)', async mode => {
+      const key = 'session:test-bucket:testsession123456';
+      const mergedSnapshotId = mode === 'ordinary' ? undefined : 'a'.repeat(64);
+      mockKV._set(key, { id: 'testsession123456', userId: 'test-bucket', name: 'Complete snapshot', status: 'running',
+        mergedSnapshotId, observationSequence: -1 });
+      const inputAt = Date.now() - 1_000;
+      const observedAt = new Date().toISOString();
+      testState.runtimeObservationBody = { lastInputAt: inputAt, cpu: '17%', memory: '3GB', disk: '9GB',
+        syncStatus: 'success', editorReady: true, editorReadyError: false, observedAt, ...(mergedSnapshotId && { hermesRestoredSnapshot: mergedSnapshotId }) };
+      const host = containerInstance as unknown as { env: { USAGE_DB: D1Database; KV: KVNamespace }; ctx: {
+        container: { getTcpPort: (port: number) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
+      } };
+      const kvOperations: string[] = [];
+      host.env.KV = new Proxy({} as KVNamespace, { get(_target, property) {
+        return () => { kvOperations.push(String(property)); throw new Error('Unexpected normal metrics KV operation'); };
       } });
-      return wrap(prepare(sql));
+      const requests: Array<{ path: string; authorization: string | null }> = [];
+      const port = host.ctx.container.getTcpPort(3000);
+      const fetch = port.fetch.bind(port);
+      vi.spyOn(host.ctx.container, 'getTcpPort').mockReturnValue({ fetch: async (url, init) => {
+        requests.push({ path: new URL(url).pathname, authorization: new Headers(init?.headers).get('Authorization') });
+        return fetch(url, init);
+      } });
+      const operations: Array<{ sql: string; operation: string }> = [];
+      const prepare = host.env.USAGE_DB.prepare.bind(host.env.USAGE_DB);
+      vi.spyOn(host.env.USAGE_DB, 'prepare').mockImplementation(sql => {
+        const wrap = (statement: D1PreparedStatement): D1PreparedStatement => new Proxy(statement, { get(target, property) {
+          if (property === 'bind') return (...args: unknown[]) => wrap(target.bind(...args));
+          const value = Reflect.get(target, property);
+          if (typeof value !== 'function') return value;
+          return (...args: unknown[]) => {
+            operations.push({ sql, operation: String(property) });
+            return value.apply(target, args);
+          };
+        } });
+        return wrap(prepare(sql));
+      });
+
+      await containerInstance.collectMetrics();
+
+      expect(requests.filter(request => request.path !== '/internal/agent-events/drain')).toEqual([
+        { path: '/internal/runtime-observation', authorization: 'Bearer agent-event-token' },
+      ]);
+      expect(operations).toEqual([{ sql: expect.stringMatching(/^UPDATE runtime_sessions SET/), operation: 'run' }]);
+      expect(kvOperations).toEqual([]);
+      // The D1 fixture's private backing KV is not a production KV call and is not counted as one.
+      const saved = await mockKV.get(key, 'json') as (Session & Pick<D1Session, 'mergedSnapshotId' | 'observationSequence'>) | null;
+      expect(saved?.mergedSnapshotId).toBeUndefined();
+      expect(saved).toMatchObject({ status: 'running', lastInputAt: new Date(inputAt).toISOString(),
+        editorReady: true, editorReadyError: false,
+        metrics: { cpu: '17%', mem: '3GB', hdd: '9GB', syncStatus: 'success', updatedAt: observedAt } });
+      expect(testState.platformStopSignals).toEqual([]);
     });
+
+  it('REQ-MEM-044 AC6: a stale runtime observation neither projects metrics nor clears the matching receipt', async () => {
+    const key = 'session:test-bucket:testsession123456';
+    const mergedSnapshotId = 'a'.repeat(64);
+    const initial = { id: 'testsession123456', userId: 'test-bucket', name: 'Stale sample',
+      status: 'running', observationSequence: 0, mergedSnapshotId };
+    mockKV._set(key, initial);
+    testState.runtimeObservationBody = { cpu: '17%', editorReady: true, lastInputAt: Date.now() - 1_000,
+      observedAt: new Date().toISOString(), hermesRestoredSnapshot: mergedSnapshotId };
 
     await containerInstance.collectMetrics();
 
-    expect(requests.filter(request => request.path !== '/internal/agent-events/drain')).toEqual([
-      { path: '/internal/runtime-observation', authorization: 'Bearer agent-event-token' },
-    ]);
-    expect(operations).toEqual([{ sql: expect.stringMatching(/^UPDATE runtime_sessions SET/), operation: 'run' }]);
-    expect(kvOperations).toEqual([]);
-    // The D1 fixture's private backing KV is not a production KV call and is not counted as one.
-    expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'running', lastInputAt: new Date(inputAt).toISOString(),
-      editorReady: true, editorReadyError: false,
-      metrics: { cpu: '17%', mem: '3GB', hdd: '9GB', syncStatus: 'success', updatedAt: observedAt } });
+    expect(await mockKV.get(key, 'json')).toEqual(initial);
     expect(testState.platformStopSignals).toEqual([]);
   });
 

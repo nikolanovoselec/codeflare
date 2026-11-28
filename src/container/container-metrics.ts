@@ -1274,7 +1274,7 @@ export async function collectMetrics(
     } else {
       const snapshot = await raceBudget(response.json(), CONTAINER_POLL_BUDGET_MS) as {
         lastInputAt: number | null; cpu?: string; memory?: string; disk?: string;
-        syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; workspaceInventoryReady?: boolean; observedAt: string;
+        syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; workspaceInventoryReady?: boolean; hermesRestoredSnapshot?: unknown; observedAt: string;
       };
       // REQ-SESSION-020 AC4: reject malformed readiness before state or projection uses it.
       if (!isRecord(snapshot)
@@ -1387,6 +1387,8 @@ export async function collectMetrics(
             lastInputAt: observedInputAt === null ? undefined : new Date(observedInputAt).toISOString(),
             cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
             editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
+            hermesRestoredSnapshot: typeof snapshot.hermesRestoredSnapshot === 'string'
+              && /^[a-f0-9]{64}$/.test(snapshot.hermesRestoredSnapshot) ? snapshot.hermesRestoredSnapshot : undefined,
           }), CONTAINER_POLL_BUDGET_MS);
           if (accepted === null) throw new Error('D1 metrics projection deadline exceeded');
           projectionAccepted = accepted;

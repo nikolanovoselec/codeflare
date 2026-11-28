@@ -291,6 +291,8 @@ export interface UserPreferences {
   };
 }
 
+export type ShutdownPhase = 'queued' | 'saving' | 'consolidating' | 'finishing' | 'memory-not-merged';
+
 /** Mirrors backend Session type (see src/types.ts). Keep in sync manually. */
 export interface Session {
   id: string;
@@ -303,6 +305,11 @@ export interface Session {
   generation?: number;
   revision?: number;
   unreachableDeadlineMs?: number;
+  shutdownPhase?: ShutdownPhase;
+  pendingDelete?: boolean;
+  /** A headless memory retry is queued or in progress. */
+  retryingMemory?: boolean;
+  snapshotUnavailable?: boolean;
   agentType?: AgentType;
   workspace?: SessionWorkspace;
   terminalMode?: TerminalMode;
@@ -320,6 +327,9 @@ export type SessionStatus = 'stopped' | 'starting' | 'running' | 'unreachable' |
 
 export interface SessionWithStatus extends Omit<Session, 'status'> {
   status: SessionStatus;
+  /** Card-only state; never used to release a terminal workspace. */
+  cardStoppedGeneration?: number;
+  cardMisses?: number;
   /** Whether the session PTY is currently active (derived from batch-status; frontend-only) */
   ptyActive?: boolean;
   /** Container init stage (derived from batch-status; 'ready' means daemons are up) */

@@ -13,6 +13,7 @@ import {
 } from './shared';
 import { getContainerHealthCB, getContainerSessionsCB } from '../../lib/circuit-breakers';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { terminalFenced } from '../../lib/session-shutdown';
 
 /** Copy cpu/mem/hdd metrics from health data into the response details object */
 function populateMetrics(
@@ -201,10 +202,10 @@ app.get('/startup-status', async (c) => {
     const sessionWorkspace = resolveSessionWorkspace(session?.workspace);
     response.generation = session?.lifecycleGeneration;
     const ownsReady = async () => {
-      if (session?.lifecycleState !== 'running') return undefined;
+      if (session?.lifecycleState !== 'running' || terminalFenced(session.shutdown)) return undefined;
       const current = await repository.getSession(bucketName, sessionId);
       if (current?.lifecycleGeneration !== session.lifecycleGeneration
-        || current.lifecycleState !== 'running' || current.terminationIntentId) return undefined;
+        || current.lifecycleState !== 'running' || current.terminationIntentId || terminalFenced(current.shutdown)) return undefined;
       return current;
     };
     const awaitStartClaim = () => c.json({ ...response, stage: 'starting' as const, progress: 20,

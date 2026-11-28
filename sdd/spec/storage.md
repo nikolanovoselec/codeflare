@@ -199,11 +199,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. The signal-triggered final bisync is eligible only after recorded baseline success or timeout. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
 3. Successful final sync persists admitted session writes in R2. Successful shutdown alone does not prove persistence; failed or timed-out sync can leave writes unsynced. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @manual: Compare admitted final bytes by the existing final persistence acceptance procedure. -->
 4. The final bisync runs under a hard watchdog. If it has not completed before the watchdog expires the process is force-killed; the user accepts that the last writes may not have synced. <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-STOR-005 AC4 / REQ-MEM-004 AC6: real watchdog signals and kills stuck sync after released 108s and 12s clock waits) --> <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
-5. From teardown entry, the awaited live drain gets at most 120 seconds within a shared 135-second cap. The best-effort SIGTERM final-sync trap gets only remaining time, not another 120 seconds; forced teardown can interrupt it and lose final writes. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+5. A live drain inside ordinary teardown gets at most 120 seconds within the shared 135-second cap. The best-effort SIGTERM trap gets only remaining time; forced teardown can interrupt it and lose final writes. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 
 **Constraints:**
 
-- All teardown shares the 135-second cap; live drain gets the lesser of 120 seconds and remaining time.
+- Ordinary teardown shares the 135-second cap. [Queued Hermes shutdown](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) saves first within the same 120-second sync limit and reuses that result for native teardown.
 - The nominal 120-second trap watchdog neither extends the cap nor guarantees clean exit after SIGTERM; final-byte persistence still requires acceptance.
 - Final and periodic bisync use the same correctness flags.
 
@@ -1447,9 +1447,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. Disk exhaustion immediately publishes failed sync status. <!-- @impl: entrypoint.sh::record_sync_disk_failure --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (starts a reachable recovery daemon when baseline fails for disk space) -->
 2. When a running session reports failed sync, Storage displays disk-space recovery guidance. <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (shows a recovery notice and leaves the cloud button usable after sync failure) -->
 3. The cloud retry control remains usable after sync failure. <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (shows a recovery notice and leaves the cloud button usable after sync failure) -->
-4. Final sync reports a persisted disk-space blocker immediately without requesting a sync cycle. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (reports a disk-space blocker promptly without signaling or clearing it) -->
+4. Ordinary final sync checks for a persisted disk-space blocker at entry. Hermes final save checks during readiness and again after attempting to drain Pi, before dispatch. Either path promptly reports a blocker detected at those checks without dispatching sync. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (reports a disk-space blocker promptly without signaling or clearing it) --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-043: authenticated final sync observes the launch outcome) -->
+5. Final sync reports a persisted blocker found after dispatch without confirming the requested run's outcome. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-043: authenticated final sync observes the launch outcome) -->
 
-**Constraints:** An in-memory-only block prevents transfers but may leave final drain waiting for its timeout.
+**Constraints:** An in-memory-only block prevents transfers but may leave final drain waiting for its timeout. A merge-save request reports a matching startup disable first; the ensuing ordinary drain still reports the blocker. See [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery).
 
 **Priority:** P0
 

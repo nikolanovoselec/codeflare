@@ -1,4 +1,4 @@
-import { openSync, closeSync, readSync, fstatSync, realpathSync, constants } from "node:fs";
+import { readFileSync, openSync, closeSync, readSync, fstatSync, realpathSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -52,8 +52,15 @@ const CORE_TOOL_NAMES = [
 const TOOL_ACTIVATION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   subagent: ["subagent", "get_subagent_result", "steer_subagent"],
 };
+const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const PLAN_STATE_ENTRY_TYPE = "plan-mode-state";
 const INLINE_EDIT_RESULT_TOOL = "codeflare_submit_inline_result";
+const DISABLED_TOOL_NAMES = new Set(["goal_wait"]);
+
+export function isToolDisabledByPolicy(name: string): boolean {
+  return DISABLED_TOOL_NAMES.has(name);
+}
+const GOAL_TERMINAL_TOOLS = ["goal_complete", "goal_blocked", "goal_progress"] as const;
 const PLAN_HELPER_TOOLS = ["plan_mode_question", "plan_mode_complete"] as const;
 
 function unique(values: string[]): string[] {
@@ -62,12 +69,14 @@ function unique(values: string[]): string[] {
 
 export function initialActiveTools(pi: ToolActivationPi): string[] {
   const registered = new Set(pi.getAllTools().map((tool) => tool.name));
-  return CORE_TOOL_NAMES.filter((name) => registered.has(name));
+  return CORE_TOOL_NAMES.filter((name) => registered.has(name) && !DISABLED_TOOL_NAMES.has(name));
 }
 
 export function isExclusiveActiveTool(activeTools: ReadonlySet<string>, toolName: string): boolean {
   return activeTools.size === 1 && activeTools.has(toolName);
 }
+
+type GoalToolVisibility = "always" | "after-first-goal";
 
 export function resolveAgentDir(
   override = process.env.PI_CODING_AGENT_DIR,
@@ -79,6 +88,18 @@ export function resolveAgentDir(
     return join(home, override.slice(2));
   }
   return override;
+}
+
+function configuredGoalToolVisibility(): GoalToolVisibility | undefined {
+  try {
+    const agentDir = resolveAgentDir();
+    const parsed = JSON.parse(readFileSync(join(agentDir, "pi-goal.json"), "utf8"));
+    return parsed?.toolVisibility === "always" || parsed?.toolVisibility === "after-first-goal"
+      ? parsed.toolVisibility
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function sessionEntries(ctx: SessionContext): SessionEntry[] {
@@ -95,9 +116,21 @@ function latestCustomEntry(ctx: SessionContext, customType: string): SessionEntr
   )).at(-1);
 }
 
+function latestGoalStatus(ctx: SessionContext): string | undefined {
+  const latest = latestCustomEntry(ctx, GOAL_STATE_ENTRY_TYPE);
+  if (!latest?.data || typeof latest.data !== "object") return undefined;
+  const goal = Reflect.get(latest.data, "goal");
+  if (!goal || typeof goal !== "object") return undefined;
+  const id = Reflect.get(goal, "id");
+  const status = Reflect.get(goal, "status");
+  return typeof id === "string" && id.length > 0 && typeof status === "string"
+    ? status
+    : undefined;
+}
+
 function registeredTools(pi: ToolActivationPi, names: readonly string[]): string[] {
   const registered = new Set(pi.getAllTools().map((tool) => tool.name));
-  return unique([...names]).filter((name) => registered.has(name));
+  return unique([...names]).filter((name) => registered.has(name) && !DISABLED_TOOL_NAMES.has(name));
 }
 
 function activePlanTools(pi: ToolActivationPi, ctx: SessionContext): string[] | undefined {
@@ -106,13 +139,37 @@ function activePlanTools(pi: ToolActivationPi, ctx: SessionContext): string[] | 
     return undefined;
   }
   const policy = Reflect.get(latest.data, "workflowToolPolicy");
-  if (!policy || typeof policy !== "object") return undefined;
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return initialActiveTools(pi);
+  const kind = Reflect.get(policy, "kind");
   const allowedNames = Reflect.get(policy, "allowedNames");
-  if (!Array.isArray(allowedNames) || allowedNames.some((name) => typeof name !== "string")) return undefined;
+  if ((kind !== "automatic" && kind !== "explicit") || typeof Reflect.get(policy, "resolved") !== "boolean"
+    || !Array.isArray(allowedNames) || !allowedNames.every((name) => typeof name === "string")) return initialActiveTools(pi);
+  if (kind === "explicit") {
+    const desiredNames = Reflect.get(policy, "desiredNames");
+    if (!Array.isArray(desiredNames) || !desiredNames.every((name) => typeof name === "string")) return initialActiveTools(pi);
+  }
   return registeredTools(pi, [...allowedNames, ...PLAN_HELPER_TOOLS]);
 }
 
-export function registerInitialToolFilter(pi: InitialToolFilterPi): void {
+export function registerInitialToolFilter(
+  pi: InitialToolFilterPi,
+  goalToolVisibility: () => GoalToolVisibility | undefined = configuredGoalToolVisibility,
+): void {
+  const alwaysVisible = goalToolVisibility() === "always";
+  const goalTools = () => registeredTools(pi, [...initialActiveTools(pi), ...GOAL_TERMINAL_TOOLS]);
+  const applyOwnedTools = (ctx: SessionContext): boolean => {
+    const planTools = activePlanTools(pi, ctx);
+    if (planTools) {
+      pi.setActiveTools(planTools);
+      return true;
+    }
+    if (alwaysVisible || latestGoalStatus(ctx) !== undefined) {
+      pi.setActiveTools(goalTools());
+      return true;
+    }
+    return false;
+  };
+
   pi.on("before_agent_start", (_event, ctx) => {
     const activeBeforeFilter = new Set(pi.getActiveTools());
     // Inline Chat deliberately narrows the provider to one host-owned result tool.
@@ -123,7 +180,7 @@ export function registerInitialToolFilter(pi: InitialToolFilterPi): void {
     // Preserve it and existing parent channels; never activate an absent tool.
     if (typeof parentSession === "string" && parentSession.length > 0 && activeBeforeFilter.has("transcript_trim")
       && [...activeBeforeFilter].every(name => ["transcript_trim", "ask_parent", "notify_parent"].includes(name))) return;
-    pi.setActiveTools(activePlanTools(pi, ctx) ?? initialActiveTools(pi));
+    if (!applyOwnedTools(ctx)) pi.setActiveTools(initialActiveTools(pi));
   });
 }
 
@@ -136,7 +193,7 @@ export function activateRegisteredTools(pi: ToolActivationPi, requested: string[
   const active = pi.getActiveTools();
   const activeSet = new Set(active);
   const added = unique(requested).filter((name) => (
-    registered.has(name) && !activeSet.has(name)
+    registered.has(name) && !DISABLED_TOOL_NAMES.has(name) && !activeSet.has(name)
   ));
   if (added.length > 0) pi.setActiveTools([...active, ...added]);
   return added;
@@ -187,7 +244,7 @@ export function searchCapabilities(input: {
   const candidates: CapabilityCandidate[] = [
     ...input.tools.map((tool) => ({ kind: "tool" as const, name: tool.name, description: tool.description ?? "" })),
     ...(input.skills ?? []).map((skill) => ({ kind: "skill" as const, ...skill })),
-  ].filter((candidate) => !kind || kind === candidate.kind);
+  ].filter((candidate) => (!kind || kind === candidate.kind) && !DISABLED_TOOL_NAMES.has(candidate.name));
   const order = (a: CapabilityCandidate, b: CapabilityCandidate) => {
     const left = `${a.kind}:${a.name}`, right = `${b.kind}:${b.name}`;
     return left < right ? -1 : left > right ? 1 : 0;

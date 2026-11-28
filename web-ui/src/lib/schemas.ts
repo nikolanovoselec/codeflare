@@ -227,6 +227,13 @@ export const UserPreferencesSchema = z.object({
   }).optional(),
 });
 
+const shutdownProjection = {
+  shutdownPhase: z.enum(['queued', 'saving', 'consolidating', 'finishing', 'memory-not-merged']).optional(),
+  pendingDelete: z.boolean().optional(),
+  retryingMemory: z.boolean().optional(),
+  snapshotUnavailable: z.boolean().optional(),
+};
+
 // Shared base schema for session objects (used by response schemas below)
 export const SessionSchema = z.object({
   id: z.string(),
@@ -238,6 +245,7 @@ export const SessionSchema = z.object({
   generation: z.number().int().nonnegative().optional(),
   revision: z.number().int().nonnegative().optional(),
   unreachableDeadlineMs: z.number().int().nonnegative().optional(),
+  ...shutdownProjection,
   agentType: AgentTypeSchema.optional(),
   workspace: SessionWorkspaceSchema.default('terminal'),
   terminalMode: TerminalModeSchema.default('classic'),
@@ -321,6 +329,7 @@ export const BatchSessionStatusResponseSchema = z.object({
     generation: z.number().int().nonnegative().optional(),
     revision: z.number().int().nonnegative().optional(),
     unreachableDeadlineMs: z.number().int().nonnegative().optional(),
+    ...shutdownProjection,
     ptyActive: z.boolean().optional(),
     startupStage: z.string().optional(),
     lastStartedAt: z.string().nullable().optional(),

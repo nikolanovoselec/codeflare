@@ -35,6 +35,8 @@ import { createRequestHandler, type ProxyTarget } from './request-router.js';
 import { shutdownPiMemoryOwners } from './pi-memory-shutdown.js';
 import { createPiWebProxy } from './pi-web-proxy.js';
 import { createPiWebRuntime } from './pi-web-runtime.js';
+import { createHermesShutdownRuntime } from './hermes-shutdown-runtime.js';
+import { SYNC_RUNTIME_DIR } from './runtime-paths.js';
 import { createOperatorPiService } from './operator-pi-service.js';
 import { createOperatorInferenceOwnerResolver } from './operator-inference-owner.js';
 import { createOperatorSyncService } from './operator-sync-service.js';
@@ -301,10 +303,16 @@ const operatorInference = !process.env.CODEFLARE_OPERATOR_SESSION
     agentDir: process.env.PI_CODING_AGENT_DIR ?? '/home/user/.pi/agent' })
   : null;
 
+const headlessHermesRetry = process.env.ENTERPRISE_MODE === 'active' && !!process.env.CODEFLARE_HERMES_RETRY_SNAPSHOT;
+if (headlessHermesRetry) sessionManager.quiesceForHermesMerge();
+let hermesShutdown: ReturnType<typeof createHermesShutdownRuntime>;
+try { hermesShutdown = createHermesShutdownRuntime(process.env, SYNC_RUNTIME_DIR); }
+catch { log('warn', 'Hermes shutdown merge storage configuration is unavailable'); }
+
 const initialPiSurface = process.env.CODEFLARE_PI_SURFACE;
 const piGeneration = Number(process.env.CODEFLARE_PI_GENERATION);
 const piSessionId = process.env.SESSION_ID ?? '';
-const piWebRuntime = !process.env.CODEFLARE_OPERATOR_SESSION && SESSION_WORKSPACE === 'terminal' && TERMINAL_MODE === 'classic'
+const piWebRuntime = !headlessHermesRetry && !process.env.CODEFLARE_OPERATOR_SESSION && SESSION_WORKSPACE === 'terminal' && TERMINAL_MODE === 'classic'
   && /^[a-z0-9]{8,24}$/.test(piSessionId) && Number.isSafeInteger(piGeneration) && piGeneration > 0
   && (initialPiSurface === 'chat' || initialPiSurface === 'terminal')
   ? createPiWebRuntime({
@@ -326,6 +334,7 @@ const server = http.createServer(createRequestHandler({
   ...(operatorPacket ? { operatorPacket } : {}),
   ...(operatorPi ? { operatorPi } : {}),
   ...(operatorSync ? { operatorSync } : {}),
+  hermesShutdown,
   sessionManager,
   wsEventLog: state.wsEventLog,
   activityTracker: state.activityTracker,
@@ -442,6 +451,7 @@ function waitForInitFlag(): Promise<void> {
 server.listen(PORT, '0.0.0.0', async () => {
   const address = server.address();
   log('info', 'Terminal server listening', { port: address && typeof address !== 'string' ? address.port : PORT });
+  if (headlessHermesRetry) return;
   log('info', 'Workspace config', { workspace: WORKSPACE_DEFAULT, workingDir: getWorkingDirectory(), keepAliveSec: PTY_KEEPALIVE_MS / 1000 });
 
   // Start periodic cleanup of dead sessions

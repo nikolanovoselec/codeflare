@@ -625,7 +625,8 @@ export function getBucketName(email: string, workerName?: string): string {
 type BucketClaimResult = 'owned' | 'conflict' | 'ambiguous';
 interface BucketOwnerStub extends Pick<import('../container/index').container,
   'mcpPortalRead' | 'mcpPortalImport' | 'mcpPortalSavePending' | 'mcpPortalConsumePending' | 'mcpPortalPublish'
-  | 'mcpPortalDisconnect' | 'mcpPortalBeginOffboarding' | 'mcpPortalCompleteOffboarding' | 'cleanupOwnedUser' | 'admitHermesStore'> {
+  | 'mcpPortalDisconnect' | 'mcpPortalBeginOffboarding' | 'mcpPortalCompleteOffboarding' | 'cleanupOwnedUser' | 'admitHermesStore'
+  | 'hermesStoreRetained' | 'putHermesObject'> {
   claimBucketOwner(email: string, allowInitialClaim: boolean): Promise<BucketClaimResult>;
 }
 
@@ -954,6 +955,7 @@ export async function resolvePersonalPiPermission(kv: KVNamespace, groups: strin
 export async function loadEnterpriseRouteConfig(
   env: Env,
   groups?: string[],
+  exactDefault = false,
 ): Promise<{
   routeCatalog: string[];
   defaultRoute: string;
@@ -971,7 +973,7 @@ export async function loadEnterpriseRouteConfig(
   const personalPolicy = await resolvePersonalPiPolicy(env.KV, groups);
   const personal = { piDefaultSource: personalPolicy.piDefaultSource,
     ...(personalPolicy.allowPersonalPiProviders ? { allowPersonalPiProviders: true as const } : {}) };
-  const resolved = await resolveRouteCatalog(env.KV, groups, await getAigConfig(env));
+  const resolved = await resolveRouteCatalog(env.KV, groups, await getAigConfig(env), exactDefault);
   if (resolved.routeCatalog.length === 0) return { ...personal, routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
   const [rawConfiguration, rawLegacyRouteSettings] = await Promise.all([
     env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION),
@@ -1059,6 +1061,7 @@ export async function resolveRouteCatalog(
   kv: KVNamespace,
   groups?: string[],
   effectiveGateway?: GatewayConnection,
+  exactDefault = false,
 ): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, ResolvedNativeTarget> }> {
   const empty = { routeCatalog: [] as string[], defaultRoute: '', defaultReasoning: '', nativeTargets: {} as Record<string, ResolvedNativeTarget> };
   try {
@@ -1137,6 +1140,7 @@ export async function resolveRouteCatalog(
     const defaultRef = policy.defaultTarget;
     const configuredDefault = defaultRef?.kind === 'native-target' ? nativeTargetHandle(defaultRef.targetId)
       : defaultRef?.kind === 'dynamic-route' ? defaultRef.route : typeof policy.defaultRoute === 'string' ? policy.defaultRoute : null;
+    if (exactDefault && (!configuredDefault || !eligible.includes(configuredDefault))) return empty;
     const resolved = applyDefaultDrift(eligible, configuredDefault, typeof policy.reasoning === 'string' ? policy.reasoning : '');
     if (!resolved.defaultRoute) return empty;
     const nativeDefault = nativeTargets[resolved.defaultRoute];

@@ -94,6 +94,7 @@ async function upgrade(options: {
   readonly port: PortBehaviour;
   readonly httpMethod?: 'GET' | 'HEAD';
   readonly readOwner?: string;
+  readonly shutdownTiming?: 'before-request' | 'during-forward';
   readonly beforeReadPort?: (instance: ContainerClass) => void;
 }): Promise<{ response: Response; fixture: Omit<RelayFixture, 'response' | 'client'> }> {
   const persisted = new Map<string, unknown>([['containerAuthToken', CONTAINER_TOKEN], ['lifecycleGeneration', 7]]);
@@ -105,8 +106,10 @@ async function upgrade(options: {
     persisted.set('bucketName', 'test-bucket');
     persisted.set('_sessionId', PI_WEB_SESSION);
     persisted.set('userEmail', 'owner@example.test');
+    if (options.shutdownTiming) persisted.set('hermes:direct-generation', 7);
     mockKV._set(`session:test-bucket:${PI_WEB_SESSION}`, {
       id: PI_WEB_SESSION, status: 'running', lifecycleGeneration: 7, agentType: 'pi', workspace: 'terminal',
+      ...(options.shutdownTiming === 'before-request' && { shutdown: { intent: 'stop-fixture', phase: 'saving', delete: false } }),
     });
   }
   let started = false;
@@ -126,6 +129,12 @@ async function upgrade(options: {
     }
     privateRequests.push({ url: request.url, method: request.method, authorization: request.headers.get('Authorization') });
     if (options.port === 'throws') throw new Error('no existing process');
+    if (options.shutdownTiming === 'during-forward') {
+      mockKV._set(`session:test-bucket:${PI_WEB_SESSION}`, {
+        id: PI_WEB_SESSION, status: 'running', lifecycleGeneration: 7, agentType: 'pi', workspace: 'terminal',
+        shutdown: { intent: 'stop-fixture', phase: 'saving', delete: false },
+      });
+    }
     if (options.httpMethod) {
       const body = request.method === 'HEAD' ? null : new ReadableStream<Uint8Array>({
         start(controller) {
@@ -178,6 +187,7 @@ async function upgrade(options: {
     },
   };
   const environment = {
+    ...(options.shutdownTiming && { ENTERPRISE_MODE: 'active' }),
     R2_ACCOUNT_ID: 'test-account',
     R2_ENDPOINT: 'https://r2.test',
     R2_ACCESS_KEY_ID: 'test-key',
@@ -500,6 +510,18 @@ describe('terminal and IDE WebSocket relay owned by the Container Durable Object
     expect(fixture.wasStarted()).toBe(false);
     expect(fixture.lifecycleGeneration()).toBe(7);
   });
+
+  it.each(['before-request', 'during-forward'] as const)(
+    'rejects a passive Chat app read when graceful shutdown begins %s', async shutdownTiming => {
+      const { response, fixture } = await upgrade({
+        path: `/api/pi-web/${PI_WEB_SESSION}/g/7/app/`, sdkRunning: true, port: 'answers-with-socket',
+        httpMethod: 'GET', readOwner: 'owner@example.test', shutdownTiming,
+      });
+      expect(response.status).toBe(409);
+      expect(fixture.privateRequests).toHaveLength(shutdownTiming === 'before-request' ? 0 : 1);
+      expect(fixture.wasStarted()).toBe(false);
+    },
+  );
 
   it('REQ-AGENT-272 AC5: a different principal cannot forward a passive Pi web app read', async () => {
     const { response, fixture } = await upgrade({ path: `/api/pi-web/${PI_WEB_SESSION}/g/7/assets/main.js`,

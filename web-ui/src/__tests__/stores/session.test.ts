@@ -636,6 +636,14 @@ describe('Session Store', () => {
       oldBatch.resolve({ statuses: {} });
       await polling;
       expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)).toMatchObject(dashboardSession);
+
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
+      for (let miss = 0; miss < 2; miss++) {
+        await sessionStore.refreshSessionStatuses();
+        expect(sessionStore.sessions.some(s => s.id === dashboardSession.id)).toBe(true);
+      }
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.sessions.some(s => s.id === dashboardSession.id)).toBe(false);
     });
 
     it('REQ-SESSION-029 AC6: overlapping visibility refreshes count one successful absence, not three', async () => {

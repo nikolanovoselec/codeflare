@@ -76,7 +76,7 @@ Top-level permission is `contents: read`; only branch/PR-writing jobs elevate to
 
 The code-server job validates release versions, extracts/cross-checks artifact package/product commit and Code version, derives the embedded Code source commit from the immutable gitlink, and invalidates the checksum. Validated metadata enters quoted environment variables, never shell source (REQ-OPS-027).
 
-Pi extension discovery reads the owning preseed manifest except context-mode and the separately managed Pi runtime. The installed `pi-mcp-adapter` and stock Todo Loop use that matrix, not separate updaters. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions-discover --> Independent `fail-fast: false` legs bump manifest, entrypoint pins, pinned-version evidence and generated seed. Plan Mode candidates must run the exact-version Plan transform before publication; source-layout drift fails the candidate instead of opening an unverified pin PR. Todo Loop uses the regular lock-backed path without a transform. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> Candidate-transform acceptance remains qualified by REQ-OPS-025, not by version prose in this reference.
+Pi extension discovery reads the owning preseed manifest except context-mode and the separately managed Pi runtime. The installed `pi-mcp-adapter` and managed Todo Loop use that matrix, not separate updaters. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions-discover --> Independent `fail-fast: false` legs bump manifest, entrypoint pins, pinned-version evidence and generated seed. Plan Mode and [Goal](../references/pi-packages.md#goal) candidates must pass their respective exact-version transforms before the update PR opens. Source-layout drift fails the candidate instead of opening an unverified pin PR. Todo Loop uses the same lock-backed path and must pass its version- and source-guarded default-pause transform. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> Candidate-transform acceptance remains qualified by REQ-OPS-025, not by version prose in this reference.
 
 Impeccable's one-minute no-container PR probe verifies pinned source, compiles the exact raster/wait logic into probes, reproduces upstream regressions, and verifies idle-grace/no-symlink fixes. Deployment still compiles/tests the complete binary before publication; bundle refresh rejects an engine the image has not adopted (REQ-AGENT-163/164/181, REQ-OPS-058/059).
 
@@ -91,7 +91,7 @@ For [OPS-020/055/025](../../sdd/spec/operations.md), inspect existing shadow-pin
 | OPS-055 | Herdr PR couples version, commit, checksum, provenance and launcher without workflow edits. Inspect duplicate-release skip. |
 | OPS-174 | Inspect exact-version complete-image API checks, including scroll/status schemas. Incompatible-candidate refusal needs an actual retained rejection. |
 | OPS-025 AC1–5 | Compare coupled plugin/runtime/prewarm pins, owning locks, manifest/install identities and embedded seed. Actual commands must show lifecycle-disabled lock generation. Runtime integrity and shared toolchain pins move together; unrelated dependencies remain unchanged. |
-| OPS-025 AC6 | Compare actual latest-pinned Plan Mode transform success and rejection before publication. A rejected candidate leaves no PR. Fake commands, source assertions or accepted-only records do not establish this case. |
+| OPS-025 AC6 | Compare actual locked-candidate transform success and rejection before publication for Plan Mode, Goal, and Todo Loop. A rejected candidate leaves no PR. Fake commands, source assertions or accepted-only records do not establish this case. |
 | OPS-025 AC7 | Inspect the candidate check outcome for generated-artifact drift; an accepted bump does not establish refusal on drift. |
 
 Candidate-transform and complete-image qualifications remain distinct from source-shape tests.
@@ -498,7 +498,7 @@ Mostly reads, with occasional `PATCH /api/preferences` writes. `sustained_load`:
 | `health_duration` p95 | <1s |
 | `session_list_duration` p95 | <5s |
 
-The scripted approximately-five-second dashboard pattern is not the current product polling contract: stable visible session status now uses sixty-second polling, transitions five seconds, hidden pages stop (REQ-OPS-057). Individual check failures are not universally aggregated into a `checks` threshold in this suite.
+The scripted approximately-five-second dashboard pattern does not model the [product polling contract](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope) in REQ-OPS-057 AC1. Individual check failures are not universally aggregated into a `checks` threshold in this suite.
 
 #### Session Lifecycle (`session-lifecycle.js`) <!-- @impl: stress/session-lifecycle.js::options --> <!-- @impl: stress/session-lifecycle.js::default -->
 

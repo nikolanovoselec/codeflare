@@ -28,7 +28,7 @@ import VaultButton, { type VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 import { dashboardPath, parseSessionPath, sessionPath } from '../lib/session-path';
 import { createBrowserIdeWindowOpener } from '../lib/browser-ide-window';
-import { isMountedLifecycle } from '../lib/session-presentation';
+import { isMountedLifecycle, isSessionCardVisible, isShutdownInProgress, sessionCardStatus } from '../lib/session-presentation';
 import { parseCloudflareReturn, type CloudflareReturnOutcome } from '../lib/cloudflare-oauth-return';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
@@ -92,7 +92,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const selectStartupSurface = (session: SessionWithStatus, requestedSurface?: PiSurface) => {
     // Picker visibility limits choices, not the Host default for an existing Classic Pi workspace.
     const surface = requestedSurface ?? (isPiWebSession(session) && (sessionStore.allowedAgents?.includes('pi') ?? true) ? 'terminal' : undefined);
-    const selection = surface ? { id: session.id, surface, stoppedGeneration: session.status === 'stopped' ? session.generation : undefined } : undefined;
+    const selection = surface ? { id: session.id, surface, stoppedGeneration: sessionCardStatus(session) === 'stopped' ? session.generation : undefined } : undefined;
     setStartupSurface(selection);
     return () => setStartupSurface(current => current === selection ? undefined : current);
   };
@@ -536,8 +536,10 @@ const Layout: Component<LayoutProps> = (props) => {
   });
   const showsDashboardVault = (session: SessionWithStatus) =>
     session.workspace === 'vscode' && advancedVaultMode();
+  const runningVaultCard = (session: SessionWithStatus) => isSessionCardVisible(session)
+    && sessionCardStatus(session) === 'running' && !session.shutdownPhase;
   const dashboardVaultSids = createMemo(() => showDashboard()
-    ? sessionStore.sessions.filter(session => session.status === 'running' && showsDashboardVault(session)).map(session => session.id)
+    ? sessionStore.sessions.filter(session => runningVaultCard(session) && showsDashboardVault(session)).map(session => session.id)
     : []);
 
   // In-memory Vault state belongs to the running session, not to whichever view
@@ -766,13 +768,13 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const renderDashboardVault = (session: SessionWithStatus) => {
     if (!showsDashboardVault(session)) return;
-    const status = () => session.status === 'running' ? vaultButtonStatus(session.id) : 'idle';
+    const status = () => runningVaultCard(session) ? vaultButtonStatus(session.id) : 'idle';
     const waitingForOtherVault = () => status() === 'armed' && anotherVaultPreparing(session.id);
     return <VaultButton
       status={status()}
       hideTooltip
       waitingForOtherVault={waitingForOtherVault()}
-      onOpen={() => { if (!waitingForOtherVault()) handleVaultOpen(session.id); }}
+      onOpen={() => { if (runningVaultCard(session) && !waitingForOtherVault()) handleVaultOpen(session.id); }}
     />;
   };
 
@@ -995,22 +997,23 @@ const Layout: Component<LayoutProps> = (props) => {
     }
   };
 
-  const keepDashboardOwnership = (historyMode?: 'push' | 'replace') => {
-    batch(() => {
-      rememberOpenChat();
-      rememberOpenTerminal();
-      setViewState('dashboard');
-      terminalWorkspaceStore.setDashboardWorkspace();
-      setShowTilingOverlay(false);
-      clearViewTransitionTimer();
-      sessionStore.setActiveSession(null);
-    });
+  const keepDashboardOwnership = (historyMode?: 'push' | 'replace') => batch(() => {
+    rememberOpenChat();
+    rememberOpenTerminal();
+    setViewState('dashboard');
+    terminalWorkspaceStore.setDashboardWorkspace();
+    setShowTilingOverlay(false);
+    clearViewTransitionTimer();
+    sessionStore.setActiveSession(null);
     if (historyMode) writeHistoryPath(dashboardPath(), historyMode);
-  };
+  });
 
   createEffect(() => {
     if (props.usageOpen) untrack(keepDashboardOwnership);
   });
+
+  const shutdownBlocksSelection = (session: SessionWithStatus) => isShutdownInProgress(session.shutdownPhase)
+    || (session.shutdownPhase !== undefined && sessionStore.isMemoryRetryPending(session.id));
 
   const openSessionWorkspace = (
     id: string,
@@ -1019,6 +1022,7 @@ const Layout: Component<LayoutProps> = (props) => {
     const session = sessionStore.sessions.find((candidate) => candidate.id === id);
     if (!session) return;
     const { shouldStart = false, updateHistory = true, explicitVscodeOpen = false } = options;
+    if (shouldStart && shutdownBlocksSelection(session)) return;
     setPreferredOpen(undefined);
     if (!explicitVscodeOpen && session.workspace !== 'vscode') {
       rememberOpenChat();
@@ -1076,19 +1080,21 @@ const Layout: Component<LayoutProps> = (props) => {
     openSessionWorkspace(session.id, { explicitVscodeOpen: true, updateHistory: false });
   };
 
-  const handleSelectSession = (id: string) => {
+  const handleSelectSession = (id: string, surface?: PiSurface) => {
     const session = sessionStore.sessions.find((s) => s.id === id);
-    if (session && (session.status === 'initializing'
-      || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')))) {
-      openSessionWorkspace(id);
-    } else if (session?.status === 'stopped') {
-      openSessionWorkspace(id, { shouldStart: true });
+    if (!session || shutdownBlocksSelection(session)) return;
+    const status = sessionCardStatus(session);
+    if (status === 'stopped') {
+      // A stopped workspace needs a full Start to restore saved files.
+      openSessionWorkspace(id, { shouldStart: true, surface });
+    } else if (status === 'initializing' || (status !== 'error' && isMountedLifecycle(status))) {
+      openSessionWorkspace(id, { surface });
     }
   };
 
   const handleStartSession = async (id: string, selectedSurface?: PiSurface) => {
     const session = sessionStore.sessions.find((candidate) => candidate.id === id);
-    if (!session) return;
+    if (!session || shutdownBlocksSelection(session)) return;
     const eligible = modeAvailable() && isPiWebSession(session);
     const surface = eligible ? selectedSurface ?? sessionStore.preferences.defaultPiSurface : undefined;
     const clearStartup = selectStartupSurface(session, surface);
@@ -1123,7 +1129,11 @@ const Layout: Component<LayoutProps> = (props) => {
   const handleDeleteSession = async (id: string) => {
     forgetChat(id);
     if (retainedTerminal()?.pane.sessionId === id) clearRetainedTerminal();
-    await sessionStore.deleteSession(id);
+    await batch(() => {
+      const deletion = sessionStore.deleteSession(id);
+      setStartupSurface(current => current?.id === id ? undefined : current);
+      return deletion;
+    });
   };
 
   const [launchingVibe, setLaunchingVibe] = createSignal(false);
@@ -1274,19 +1284,6 @@ const Layout: Component<LayoutProps> = (props) => {
     }, VIEW_TRANSITION_DURATION_MS);
   };
 
-  const handleDashboardSessionSelect = (sessionId: string, surface?: PiSurface) => {
-    const session = sessionStore.sessions.find(s => s.id === sessionId);
-    if (session && (session.status === 'initializing'
-      || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')))) {
-      openSessionWorkspace(sessionId, { surface });
-    } else if (session?.status === 'stopped') {
-      // Always do a full start — even if the container could auto-wake via SDK,
-      // the filesystem is empty after sleep (no R2 sync). startSession() runs
-      // entrypoint.sh, restoring files before the selected workspace becomes ready.
-      openSessionWorkspace(sessionId, { shouldStart: true, surface });
-    }
-  };
-
   const handleSettingsClick = () => {
     setIsStoragePanelOpen(false);
     setIsSettingsOpen(true);
@@ -1396,8 +1393,8 @@ const Layout: Component<LayoutProps> = (props) => {
             sessions={sessionStore.sessions}
             activeSessionId={sessionStore.activeSessionId}
             onSelectSession={handleSelectSession}
-            onStopSession={handleStopSession}
-            onDeleteSession={handleDeleteSession}
+            onStopSession={id => batch(() => { keepDashboardOwnership('replace'); void handleStopSession(id); })}
+            onDeleteSession={id => batch(() => { keepDashboardOwnership('replace'); void handleDeleteSession(id); })}
             onCreateSession={handleCreateSession}
             onOpenMultiView={handleOpenMultiView}
             onCloseMultiView={handleCloseMultiView}
@@ -1506,7 +1503,7 @@ const Layout: Component<LayoutProps> = (props) => {
             onTileClick={handleTileClick}
             onOpenSessionById={handleOpenSessionById}
             onOpenMultiView={handleOpenMultiView}
-            onDashboardSessionSelect={handleDashboardSessionSelect}
+            onDashboardSessionSelect={handleSelectSession}
             onCreateSession={handleCreateSession}
             onStartSession={handleStartSession}
             onOpenVscodeSession={openVscodeSession}

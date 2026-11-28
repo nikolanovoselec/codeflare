@@ -44,7 +44,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 - [Chat slash commands](agents.md#req-agent-285-scoped-slash-commands-in-pi-chat) run in the active conversation without allowing a second writer. Successful commands refresh the idle timer; `/tree` does not.
 - [Clone recovery](github.md#req-github-322-clone-launch-recovery) clears once the saved session is running or deleted. A superseded Stop cannot block [stopping its replacement](session-lifecycle.md#req-session-041-stop-recovery-controls-and-local-attempt-fencing).
 - [Stock Chat](agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults) hides SYSTEM transcript rows without changing saved history.
-- [Background extraction](memory.md#req-mem-044-hide-background-extraction-requests) keeps launch payloads out of the visible conversation without changing model delivery.
+- [Background extraction](memory.md#req-mem-045-hide-background-extraction-requests) keeps launch payloads out of the visible conversation without changing model delivery.
 - [GitHub and Storage](github.md#req-github-010-mobile-github-and-storage-face-switching) flip only on mobile. [New Session padding](github.md#req-github-323-responsive-vibe-dashboard-layout) is half the button height in both modes.
 
 ## 2026-11-26: Chat startup with restored profiles
@@ -54,6 +54,11 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 - The [Vibe drawer](github.md#req-github-321-vibe-dashboard-browser-disclosure) uses transparent double chevrons with vertical motion on mobile and horizontal motion on wider screens. Reduced motion disables the bounce.
 
 - The [resume notice](github.md#req-github-326-repository-names-in-resume-notices) lists available restore-target names and falls back to the session name when unavailable.
+
+## 2026-11-26: Restore managed Goal alongside Todo Loop
+
+- **Release:** [Managed Goal](agents.md#req-agent-293-managed-goal-alongside-todo-loop) restores `/goal` in both Pi modes alongside managed `/todoloop`, which starts paused. Goal has a compact footer and bounded automatic continuation. Goal cannot take over an active Plan.
+- **Follow-up:** [Goal startup](agents.md#req-agent-293-managed-goal-alongside-todo-loop) preserves valid intervals above five minutes; [stall expiry](agents.md#req-agent-294-managed-goal-continuation-safety) aborts only matching in-flight Goal work, and the blocker requires runtime-verified attempts. [Plan](agents.md#req-agent-158-bounded-initial-pi-tool-exposure) excludes Goal tools and falls back to bootstrap tools if its restored policy is missing or malformed.
 
 ## 2026-11-25: Vibe and Code workspace modes
 
@@ -73,14 +78,37 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 - [Classic Pi starts in Terminal](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) when no mode is selected, including when settings hide the mode picker.
 - [Managed Pi startup](mcp.md#req-agent-281-bundled-mcp-manager-registration-retirement) retires the bundled Pi Web MCP Manager registration on restore so the managed adapter can own MCP.
 
+## 2026-11-25: Keep session shutdown cards live
+
+- [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) returns to the Dashboard immediately on Stop or Delete from the in-session dropdown. [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) keeps available metrics on both disabled cards and replaces the Dashboard’s sweeping light with two centered, uppercase subtitle labels, one word per padded black row, with reflow for enlarged text.
+- [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) returns to the regular metrics layout during final teardown, without a visible subtitle or [metrics notice](session-lifecycle.md#req-session-243-ordered-lifecycle-presentation-and-read-availability).
+- [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) shows a single Retry button on a failed memory consolidation card; select the card to resume. Delete is unavailable on recovery cards. Missing readings keep their original `...` placeholders.
+- [REQ-SESSION-244](session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling) refreshes an open session dropdown more frequently so observers see shutdown progress without reloading.
+- If a session card disappears, the Dashboard and dropdown discard its pending [Delete confirmation](session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling).
+
 ## 2026-11-24: Open Pi Chat during repository restore
 
 - [Classic Pi Chat startup](agents.md#req-agent-275-classic-pi-chat-startup) keeps the standard Ready → Open screen. Classic Chat, Terminal, and switching stay available while repositories clone, with the restore notification visible.
 - [Stock Pi Chat controls](agents.md#req-agent-274-stock-pi-chat-controls) support workspace attachments up to 10 MB per batch and default to Graphite under the Codeflare machine name.
 
+## 2026-11-24: Rotate Hermes stores by last content change
+
+- [REQ-MEM-042](memory.md#req-mem-042-retain-ten-recent-session-memory-stores) evicts the oldest changed session memory prefix at capacity without requiring a final-save receipt, confirmed exit, or completed merge.
+
+## 2026-11-24: Keep dedicated outbound handlers on Resume
+
+- [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress) attempts GitHub, Cloudflare API, and other hostname-specific registrations before the strict catch-all when resuming a stopped session. [Live credential refresh](security.md#req-enterprise-311-strict-r2-credential-replacement) still replaces only the catch-all.
+
 ## 2026-11-23: Continue Pi conversations in Chat or Terminal
 
 - [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) specifies Dashboard-selected Pi Start and Resume in Chat or Terminal for Classic sessions while Herdr still starts and resumes natively. A switch stops current execution and opens the same saved transcript after the outgoing writer releases it; Browser VS Code remains independent.
+
+## 2026-11-23: Consolidate Hermes at graceful shutdown
+
+- [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) orders eligible Enterprise Stop and Delete requests per owner regardless of workspace sync, leaves Kill outside the queue, and waits for sync readiness before final save. Pre-rollout generations not enrolled keep ordinary teardown until relaunched; a queued generation uses ordinary teardown only on confirmed startup disable, and [Retry Stop](session-lifecycle.md#req-session-042-same-generation-stop-retry-authority) can repeat a definitive failure or a confirmed refusal before sync dispatch, but not a disk blocker observed after dispatch or an unconfirmed timeout.
+- [REQ-STOR-044](storage.md#req-stor-044-disk-space-failure-visibility) reports persisted disk blockers. Hermes final save rechecks after Pi drain and refuses to dispatch if blocked; a blocker reported after dispatch does not establish the run's outcome.
+- [REQ-MEM-044](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) compares saved entries to their original baseline and uses scoped rclone to sync and verify the same four fixed masters under `Vault/Memory`, without a pointer or versioned folders. Old versioned results do not authorize Delete or reseeding from fixed masters. A matching fixed-master receipt can reseed on Resume; a partial restore or upload does not consume the receipt. Strict egress preserves [verified empty Hermes files](memory.md#req-mem-041-session-isolated-hermes-markdown) during SSE-C reads without admitting nonempty default-encrypted objects.
+- [REQ-ENTERPRISE-100](models-and-routing.md#req-enterprise-100-exact-inference-route-for-hermes-shutdown-merge) uses the owner's current authorized native or Gateway model after the final save, without model substitution or additional access grants.
 
 ## 2026-11-22: Recover halted storage migrations
 

@@ -820,15 +820,18 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     } finally { requests.mockRestore(); clock.mockRestore(); }
   });
 
-  it('REQ-GITHUB-327: the age action starts a Vibe session with the repository when no Pi session is running', async () => {
+  it.each(['non-Pi', 'queued shutdown', 'card stopped'] as const)('REQ-GITHUB-327: the age action starts a Vibe session with the repository when no Pi session is running (%s)', async scenario => {
     (githubStore as any)._setEnabled(true);
     (githubStore as any)._setLogin('octocat');
     githubFixture._setRepos([newestRepo]);
-    const nonPiSessions = mockSessions.map(session => ({ ...session, agentType: 'codex' as const }));
-    setStoreSessions(nonPiSessions);
+    const unavailable: SessionWithStatus[] = mockSessions.map(session => ({ ...session, agentType: 'codex' }));
+    const target = { ...mockSessions[0]!, agentType: 'pi' as const, generation: 7 };
+    if (scenario === 'queued shutdown') unavailable[0] = { ...target, shutdownPhase: 'queued' };
+    if (scenario === 'card stopped') unavailable[0] = { ...target, lifecycle: 'stopped', cardStoppedGeneration: 7 };
+    setStoreSessions(unavailable);
     const counts = vi.spyOn(githubApi, 'getGithubOwnedRepoCounts').mockResolvedValue({ counts: null });
     try {
-      render(() => <Dashboard {...defaultProps} sessions={nonPiSessions} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+      render(() => <Dashboard {...defaultProps} sessions={unavailable} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
       const details = within(screen.getByRole('region', { name: 'GitHub Details' }));
       fireEvent.click(await details.findByRole('button', { name: 'Clone into a session: team/newest' }));
       expect(defaultProps.onCreateSession).toHaveBeenCalledWith('pi', undefined, 'chat', true, 'team/newest');
@@ -1016,6 +1019,11 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       cards[1] = 92;
       cards[3] = 100;
       resize.dispatchEvent(new Event('resize'));
+      expect(previewHeight()).toBe('254px');
+      setVisible(sessions.map((session, index) => index === 0 ? { ...session, cardMisses: 3 } : session));
+      expect(screen.queryByTestId('session-card-preview-0')).not.toBeInTheDocument();
+      expect(previewHeight()).toBe('');
+      setVisible(sessions);
       expect(previewHeight()).toBe('254px');
       fireEvent.click(screen.getByRole('button', { name: 'Show Storage' }));
       expect(previewHeight()).toBe('');
@@ -1935,17 +1943,6 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     fireEvent.click(screen.getByTestId('dashboard-settings-button'));
 
     expect(onSettingsClick).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders KittScanner inside the dashboard panel so it sits on the header, not above the centered panel', () => {
-    render(() => <Dashboard {...defaultProps} />);
-
-    const panel = screen.getByTestId('dashboard-floating-panel');
-    const kittScanner = panel.querySelector('.kitt-scanner');
-    expect(kittScanner).toBeInTheDocument();
-    // Anchored to the panel (its parent), not the full-height wrapper — otherwise the
-    // absolute scanner floats in the empty space above the now content-sized panel.
-    expect(kittScanner?.parentElement).toBe(panel);
   });
 
   it('should use mdiXml icon path for the header logo (not mdiBrain)', () => {

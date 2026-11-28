@@ -17,6 +17,7 @@ import { isBucketMigrating } from '../../lib/r2-migration';
 import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getPreferencesKey, getLlmKeysKey, getDeployKeysKey } from '../../lib/kv-keys';
+import { maybeQueueShutdown } from '../session/shutdown';
 import { D1SessionRepository } from '../../lib/session-repository';
 import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { getDefaultTabConfig } from '../../lib/agent-config';
@@ -492,6 +493,8 @@ app.post('/destroy', async (c) => {
     const session = await repository.getSession(bucketName, sessionId);
     if (!session) throw new Error('Session lifecycle unavailable for Destroy');
     if (session.lifecycleState !== 'stopped') {
+      const queued = await maybeQueueShutdown(c.env, session, false);
+      if (queued) return queued;
       const stub = container as typeof container & { stopSession(input: SessionStopRequest): Promise<void> };
       await stub.stopSession({ bucket: bucketName, sessionId, generation: session.lifecycleGeneration });
     }

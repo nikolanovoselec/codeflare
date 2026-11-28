@@ -1,9 +1,10 @@
-import { Component, Show, createSignal, createMemo } from 'solid-js';
+import { Component, Show, createSignal, createMemo, createEffect, onCleanup } from 'solid-js';
 import { mdiChevronDown, mdiLayersTripleOutline } from '@mdi/js';
 import Icon from './Icon';
 import SessionDropdown from './SessionDropdown';
 import type { SessionWithStatus, SessionStatus, AgentType, TabConfig } from '../types';
 import { createTerminalViewportClass, isMobile } from '../lib/mobile';
+import { setSessionDropdownPolling } from '../stores/session-polling';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import '../styles/session-switcher.css';
 
@@ -30,6 +31,11 @@ interface SessionSwitcherProps {
 
 const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
   const [isOpen, setIsOpen] = createSignal(false);
+  createEffect(() => {
+    if (!isOpen()) return;
+    setSessionDropdownPolling(true);
+    onCleanup(() => setSessionDropdownPolling(false));
+  });
 
   const viewport = createTerminalViewportClass();
   const activeSession = createMemo(() =>

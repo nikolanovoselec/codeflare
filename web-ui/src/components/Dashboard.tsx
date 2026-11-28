@@ -25,10 +25,10 @@ import DownloadsDisabledPopup from './DownloadsDisabledPopup';
 import CreateSessionDialog from './CreateSessionDialog';
 import SessionLimitPopup from './SessionLimitPopup';
 import ScrambleText from './ScrambleText';
-import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
+import { isSessionCardVisible, isSessionCloneTarget, isShutdownInProgress, sessionCardStatus } from '../lib/session-presentation';
 import { createTerminalViewportClass } from '../lib/mobile';
 import { measureHeaderActions, measureProfileMenu } from '../lib/header-fit';
 import { githubStore } from '../stores/github';
@@ -93,7 +93,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
     return result && result.login === countAccount() && !ownedRepoCounts.loading ? result.counts : undefined;
   };
   const countsLoading = () => !!countAccount() && ownedRepoCounts.loading;
-  const runningCloneTargets = () => sessionStore.sessions.some(session => session.status === 'running' && session.lifecycle !== 'stopping' && isPiWebSession(session));
+  const runningCloneTargets = () => sessionStore.sessions.some(session => isSessionCloneTarget(session) && isPiWebSession(session));
   const [repoClonePicker, setRepoClonePicker] = createSignal<{ repo: GithubRepo; anchor: HTMLButtonElement }>();
   const [retryingRepos, setRetryingRepos] = createSignal(false);
   createEffect(() => {
@@ -282,11 +282,12 @@ const Dashboard: Component<DashboardProps> = (props) => {
     observer.observe(button, { box: 'border-box' });
     onCleanup(() => observer.disconnect());
   });
+  const visibleSessions = createMemo(() => props.sessions.filter(isSessionCardVisible));
   const [sessionList, setSessionList] = createSignal<HTMLDivElement>();
   const [sessionListLimit, setSessionListLimit] = createSignal<number>();
   createEffect(() => {
     const list = sessionList();
-    const sessions = props.sessions;
+    const sessions = visibleSessions();
     if (!list || !browsersClosed() || sessions.length < 4) {
       setSessionListLimit(undefined);
       return;
@@ -331,7 +332,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
     position: { x: 0, y: 0 },
     session: null,
   });
-  const menuSession = createMemo(() => props.sessions.find(session => session.id === menuState().session?.id));
+  const menuSession = createMemo(() => visibleSessions().find(session => session.id === menuState().session?.id));
+  const menuStatus = () => { const session = menuSession(); return session && sessionCardStatus(session); };
+
   // ── Adaptive right-column split (bug #21) ──────────────────────────────
   // GitHub (top) + Storage (bottom) share the column. The flex engine does the
   // pixel allocation: both faces are `flex: 1 1 0` with a measured max-height of
@@ -492,13 +495,15 @@ const Dashboard: Component<DashboardProps> = (props) => {
   });
 
   const handleSessionSelect = (session: SessionWithStatus) => {
+    if (isShutdownInProgress(session.shutdownPhase) || (session.shutdownPhase && sessionStore.isMemoryRetryPending(session.id))) return;
     if (session.workspace !== 'vscode') {
       props.onOpenSessionById(session.id);
       return;
     }
-    if (session.status === 'stopped' || session.status === 'error' || session.editorReadyError === true) {
+    const status = sessionCardStatus(session);
+    if (status === 'stopped' || status === 'error' || session.editorReadyError === true) {
       props.onStartSession(session.id);
-    } else if ((session.status === 'running' || session.status === 'unreachable') && session.editorReady === true) {
+    } else if ((status === 'running' || status === 'unreachable') && session.editorReady === true) {
       props.onOpenVscodeSession(session.id);
     }
   };
@@ -528,6 +533,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
     setMenuState({ isOpen: false, position: { x: 0, y: 0 }, session: null });
   };
 
+  createEffect(() => {
+    if (menuState().isOpen && !menuSession()) handleMenuClose();
+  });
+
   return (
     <div ref={dashboard} class="dashboard-container" data-testid="dashboard">
       <div class="dashboard-panel-wrapper" classList={{
@@ -535,8 +544,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
         'dashboard-panel-wrapper--summary': browsersClosed() && !panelExpanded(),
       }}>
         <div class={`dashboard-panel ${panelExpanded() ? 'dashboard-panel--expanded' : ''}`} data-testid="dashboard-floating-panel">
-          <KittScanner />
-
         {/* Integrated Header */}
         <div class="dashboard-panel-header" classList={{ 'header-with-workspace-mode': !!props.workspaceMode }} ref={dashboardHeader}>
           <div class="header-logo" classList={{ 'header-navigation': !!props.workspaceMode }}>
@@ -761,12 +768,12 @@ const Dashboard: Component<DashboardProps> = (props) => {
               </div>
             </Show>
 
-            <Show when={props.sessions.length > 0}>
+            <Show when={visibleSessions().length > 0}>
               <div class="dashboard-sessions-section">
                 <div class="dashboard-section-divider"><span>Recent Sessions</span></div>
                 <div ref={setSessionList} class="dashboard-session-list"
                   style={{ '--dashboard-session-limit': sessionListLimit() === undefined ? undefined : `${sessionListLimit()}px` }}>
-                  <For each={props.sessions}>
+                  <For each={visibleSessions()}>
                     {(session) => (
                       <SessionStatCard
                         session={session}
@@ -781,20 +788,27 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   </For>
                 </div>
                 <Portal>
-                  <SessionContextMenu
-                    isOpen={menuState().isOpen}
-                    position={menuState().position}
-                    canStop={['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuState().session?.status ?? '')
-                      || (menuState().session?.workspace === 'vscode' && menuState().session?.status === 'error')}
-                    canKill={['starting', 'running', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
-                    onKill={() => { const session = menuSession(); if (session) void sessionStore.killSession(session.id); }}
-                    stopLabel={menuState().session?.status === 'stopping' ? 'Retry Stop' : 'Stop'}
-                    sessionName={menuState().session?.name || ''}
-                    onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
-                    onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}
-                    onRename={(name) => { if (menuState().session) void sessionStore.renameSession(menuState().session!.id, name); }}
-                    onClose={handleMenuClose}
-                  />
+                  <Show when={menuState().isOpen && menuSession()?.id} keyed>
+                    {id => (
+                      <SessionContextMenu
+                        isOpen
+                        position={menuState().position}
+                        canStop={!isShutdownInProgress(menuSession()?.shutdownPhase)
+                          && (['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuStatus() ?? '')
+                            || (menuSession()?.workspace === 'vscode' && menuStatus() === 'error'))}
+                        canKill={isShutdownInProgress(menuSession()?.shutdownPhase)
+                          || ['starting', 'running', 'unreachable', 'stopping'].includes(menuStatus() ?? '')}
+                        onKill={() => { if (menuSession()?.id === id) void sessionStore.killSession(id); }}
+                        stopLabel={menuStatus() === 'stopping' ? 'Retry Stop' : 'Stop'}
+                        sessionName={menuSession()?.name ?? ''}
+                        onStop={() => { if (menuSession()?.id === id) props.onStopSession(id); }}
+                        canDelete={menuSession()?.shutdownPhase !== 'memory-not-merged'}
+                        onDelete={() => { if (menuSession()?.id === id) props.onDeleteSession(id); }}
+                        onRename={name => { if (menuSession()?.id === id) void sessionStore.renameSession(id, name); }}
+                        onClose={handleMenuClose}
+                      />
+                    )}
+                  </Show>
                 </Portal>
               </div>
             </Show>

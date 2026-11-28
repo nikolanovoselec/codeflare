@@ -227,6 +227,7 @@ vi.mock('../../stores/session', () => ({
     dismissInitProgressForSession: vi.fn(),
     clearError: vi.fn(),
     isSessionInitializing: vi.fn(() => false),
+    isMemoryRetryPending: vi.fn(() => false),
     getInitProgressForSession: vi.fn(() => null),
     getMetricsForSession: vi.fn(() => null),
     stopAllPolling: vi.fn(),
@@ -336,9 +337,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   beforeEach(() => {
     vi.clearAllMocks();
     navigationRendering.realTerminalArea = false;
+    navigationRendering.realHeader = false;
     navigationRendering.realSettingsPanel = false;
     navigationRendering.realDashboard = false;
-    navigationRendering.realHeader = false;
     vaultRendering.realLifecycle = false;
     mockMigrationHalt = null;
     retryMigration.mockReset();
@@ -606,6 +607,49 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(sessionStore.preferences.defaultPiSurface).toBe('terminal');
       expect(unexpectedWrites).toEqual([]);
     } finally { cleanup(); vi.unstubAllGlobals(); vi.mocked(sessionStore.updatePreferences).mockReset(); }
+  });
+
+  it('resumes a stopped recovery card in Vibe without observing the old writer or opening before attachment', async () => {
+    navigationRendering.realTerminalArea = true;
+    navigationRendering.realDashboard = true;
+    const id = 'abcdef0123456789';
+    const path = `/api/pi-web/${id}/_switch`;
+    const chatUrl = `/api/pi-web/${id}/g/8/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
+    mockPreferences = { defaultPiSurface: 'chat' };
+    mockSessions = [createMockSession({ id, name: 'Saved Pi', agentType: 'pi', workspace: 'terminal',
+      status: 'running', lifecycle: 'stopped', generation: 7, cardStoppedGeneration: 7, shutdownPhase: 'memory-not-merged' })];
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => {
+      readSessionStoreVersion();
+      return true;
+    });
+    vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Ready' });
+    vi.mocked(sessionStore.startSession).mockResolvedValueOnce(undefined);
+    const observedGenerations: (string | null)[] = [];
+    vi.stubGlobal('fetch', async (input: string | Request) => {
+      const url = new URL(input instanceof Request ? input.url : input, window.location.origin);
+      if (url.pathname !== path) return Response.json({});
+      observedGenerations.push(url.searchParams.get('generation'));
+      return Response.json({ phase: 'complete', surface: 'chat', chatUrl });
+    });
+    try {
+      render(() => <Layout />);
+      fireEvent.click(screen.getByRole('button', { name: 'Resume session Saved Pi' }));
+      expect(sessionStore.startSession).toHaveBeenCalledWith(id, 'chat');
+      expect(window.location.pathname).toBe(`/app/session/${id}`);
+      expect(observedGenerations).toEqual([]);
+      mockSessions = [{ ...mockSessions[0], lifecycle: 'running', generation: 8,
+        shutdownPhase: undefined, cardStoppedGeneration: undefined }];
+      bumpSessionStoreVersion();
+      await waitFor(() => expect(observedGenerations).toContain('8'));
+      expect(observedGenerations).not.toContain('7');
+      await screen.findByTitle('Pi Chat');
+      expect(screen.queryByRole('button', { name: /^open$/i })).not.toBeInTheDocument();
+    } finally {
+      cleanup();
+      vi.unstubAllGlobals();
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+    }
   });
 
   it('saves the mode from Dashboard without selecting a session', async () => {
@@ -1553,6 +1597,32 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     }
   });
 
+  it.each(['Stop', 'Delete'] as const)('REQ-SESSION-006: dropdown %s returns to Dashboard before the request settles', async action => {
+    navigationRendering.realHeader = true;
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id, status: 'running' })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    const { sessionStore } = await import('../../stores/session');
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    const command = vi.mocked(action === 'Stop' ? sessionStore.stopSession : sessionStore.deleteSession);
+    command.mockReturnValueOnce(pending);
+    try {
+      render(() => <Layout />);
+      await waitFor(() => expect(mockActiveSessionId).toBe(id));
+      fireEvent.click(screen.getByTestId('session-switcher'));
+      fireEvent.click(within(screen.getByTestId('session-dropdown')).getByRole('button', { name: 'Session actions' }));
+      fireEvent.click(screen.getByRole('button', { name: action }));
+      if (action === 'Delete') fireEvent.click(screen.getByRole('button', { name: 'Are you sure?' }));
+      expect(window.location.pathname).toBe('/app/');
+      expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeVisible();
+      expect(mockActiveSessionId).toBeNull();
+      expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
+      expect(command).toHaveBeenCalledWith(id);
+    } finally { finish(); }
+  });
+
   describe('REQ-TERM-027 AC3: canonical session deep links', () => {
     it('selects a loaded user-owned session from /app/session/:sessionId without implicitly starting it', async () => {
       const sessionId = 'abcdef0123456789';
@@ -2008,6 +2078,14 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         expect(open).not.toHaveBeenCalled();
         armed.click();
         expect(open).toHaveBeenLastCalledWith(`/api/vault/${first}/.codeflare-bootstrap`, '_blank', 'noopener');
+        open.mockClear();
+        mockSessions = mockSessions.map(session => session.id === first
+          ? { ...session, status: 'running', lifecycle: 'stopped', generation: 7, cardStoppedGeneration: 7 } : session);
+        bumpSessionStoreVersion();
+        const stoppedVault = a().getByRole('button', { name: 'Vault waiting for this session' });
+        expect(stoppedVault).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.click(stoppedVault);
+        expect(open).not.toHaveBeenCalled();
         expect(screen.getByTestId('dashboard')).toBeVisible();
         expect(mockActiveSessionId).toBeNull();
       } finally {
@@ -2852,6 +2930,26 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(sessionStore.setActiveSession).toHaveBeenCalledWith(null);
       await waitFor(() => expect((window as any).__terminalAreaProps.showTerminal).toBe(false));
       expect((window as any).__terminalAreaProps.viewState).toBe('collapsing');
+    });
+
+    it.each(['Dashboard', 'dropdown'] as const)('REQ-SESSION-043: %s selection starts the runtime shown as stopped', async surface => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [
+        createMockSession({ id: 'sess1', status: 'running' }),
+        createMockSession({ id: 'sess2', status: 'running', lifecycle: 'stopped', generation: 7, cardStoppedGeneration: 7 }),
+      ];
+      if (surface === 'dropdown') {
+        mockActiveSessionId = 'sess1';
+        mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+        mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+      }
+      vi.mocked(sessionStore.startSession).mockResolvedValue(undefined);
+      render(() => <Layout />);
+      const select = () => surface === 'dropdown' ? (window as any).__headerProps?.onSelectSession
+        : (window as any).__terminalAreaProps?.onDashboardSessionSelect;
+      await waitFor(() => expect(select()).toBeTypeOf('function'));
+      select()('sess2');
+      expect(sessionStore.startSession).toHaveBeenCalledWith('sess2');
     });
 
     it('REQ-TERM-011: selecting a stopped session from the header switcher opens the starting terminal surface', async () => {

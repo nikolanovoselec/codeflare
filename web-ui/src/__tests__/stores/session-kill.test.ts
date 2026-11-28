@@ -237,7 +237,7 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
     },
   );
 
-  it('stops the replacement while the superseded Stop response is pending', async () => {
+  it.each([204, 202])('stops the replacement while the superseded Stop response is pending (%s)', async status => {
     listedSessionIds.push(restart);
     project(restart, 'running', 10);
     await sessionStore.loadSessions();
@@ -273,7 +273,7 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
         { method: 'POST', path: `/api/container/start?sessionId=${restart}` },
         { method: 'POST', path: stopUrl },
       ]);
-      original.resolve(new Response(null, { status: 204 }));
+      original.resolve(new Response(null, { status }));
       await oldStop;
       expect(row(restart)?.status).toBe('stopping');
       void sessionStore.stopSession(restart); // must still deduplicate the replacement Stop
@@ -291,6 +291,37 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
       await vi.advanceTimersByTimeAsync(0);
       sessionStore.stopAllPolling();
       await Promise.all([oldStop, newStop]);
+    }
+  });
+
+  it('locks an accepted Stop until the ordered read takes ownership, without blocking Kill', async () => {
+    replyToStop = async () => new Response(null, { status: 202 });
+    await sessionStore.stopSession(target);
+    await sessionStore.stopSession(target);
+    expect(mutations).toEqual([{ method: 'POST', path: stopPath }]);
+    expect(terminalStore.ownsSession?.(target)).toBe(true);
+    await killSession(target);
+    project(target, 'stopped', 11);
+    await sessionStore.refreshSessionStatuses();
+    expect(row(target)).toMatchObject({ status: 'stopped', generation: 4, revision: 11 });
+    expect(terminalStore.ownsSession?.(target)).toBe(false);
+  });
+
+  it('lets an ordered replacement take ownership before the old Stop response arrives', async () => {
+    const original = deferred<Response>();
+    replyToStop = () => original.promise;
+    const stopping = sessionStore.stopSession(target);
+    try {
+      projections[target] = { status: 'running', lifecycle: 'running', generation: 5, revision: 12 };
+      await sessionStore.refreshSessionStatuses();
+      expect(row(target)).toMatchObject({ status: 'running', generation: 5 });
+      original.resolve(new Response(null, { status: 202 }));
+      await stopping;
+      expect(row(target)).toMatchObject({ status: 'running', generation: 5 });
+      expect(terminalStore.ownsSession?.(target)).toBe(true);
+    } finally {
+      original.resolve(new Response(null, { status: 202 }));
+      await stopping;
     }
   });
 

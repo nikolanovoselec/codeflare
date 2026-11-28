@@ -103,6 +103,7 @@ const STRIPPED_HEADERS: readonly string[] = [
   'cf-aig-authorization',
   'cf-aig-byok-alias',
   'cf-aig-request-timeout',
+  'x-codeflare-exact-model',
 ];
 
 /**
@@ -471,7 +472,8 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     let nativeBedrockState: BedrockReplayState | null = null;
     let nativeStreamRequested = false;
     let declaredToolNames: string[] = [];
-    const catalog = isModelRoutable ? await this.loadRouteCatalog(groups) : null;
+    const exactDefault = request.headers.get('x-codeflare-exact-model') === '1';
+    const catalog = isModelRoutable ? await this.loadRouteCatalog(groups, exactDefault) : null;
     if (catalog && catalog.routes.length === 0) {
       return new Response(JSON.stringify({ error: 'No verified routes are available for this user', code: 'ROUTE_NOT_ELIGIBLE' }), {
         status: 403, headers: { 'Content-Type': 'application/json' },
@@ -522,11 +524,17 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
           });
         }
         {
-          const handle = operatorSelection?.routeId
-            ?? (typeof payload.model === 'string' ? payload.model.replace(/^dynamic\//, '') : catalog.defaultRoute);
+          const requestedHandle = typeof payload.model === 'string' ? payload.model.replace(/^dynamic\//, '') : undefined;
+          const handle = operatorSelection?.routeId ?? requestedHandle ?? catalog.defaultRoute;
           const requestedNative = handle.startsWith('cf-native-');
           if (requestedNative && !catalog.nativeTargets[handle] && !catalog.routes.includes(handle)) {
             return new Response(JSON.stringify({ error: 'Native target is not authorized', code: 'ROUTE_NOT_ELIGIBLE' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+          }
+          // The shutdown job can refuse default drift; it gains no extra route or authority.
+          if (exactDefault && (requestedHandle !== handle || handle !== catalog.defaultRoute || !catalog.routes.includes(handle))) {
+            return new Response(JSON.stringify({ error: 'Requested route is not eligible', code: 'ROUTE_NOT_ELIGIBLE' }), {
+              status: 403, headers: { 'Content-Type': 'application/json' },
+            });
           }
           const route = catalog.routes.includes(handle) ? handle : catalog.defaultRoute;
           const native = catalog.nativeTargets[route];
@@ -764,14 +772,14 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
    * here can never drift from it. The first matched policy wins before filtering;
    * unmatched users need explicit fallback. No eligible catalog denies inference.
    */
-  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Awaited<ReturnType<typeof resolveRouteCatalog>>['nativeTargets'] }> {
+  private async loadRouteCatalog(groups?: string[], exactDefault = false): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Awaited<ReturnType<typeof resolveRouteCatalog>>['nativeTargets'] }> {
     if (!this.env.KV) return { routes: [], defaultRoute: '', defaultReasoning: 'off', nativeTargets: {} };
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
     const { routeCatalog, defaultRoute, defaultReasoning, nativeTargets } = await resolveRouteCatalog(this.env.KV, groups, {
       gatewayUrl: props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL,
       gatewayId: props?.gatewayId ?? this.env.AIG_GATEWAY_ID,
       token: props?.token ?? this.env.AIG_TOKEN,
-    });
+    }, exactDefault);
     return { routes: routeCatalog, defaultRoute, defaultReasoning: defaultReasoning || 'off', nativeTargets };
   }
 

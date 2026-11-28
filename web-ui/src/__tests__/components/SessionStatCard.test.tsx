@@ -398,6 +398,13 @@ describe('SessionStatCard', () => {
     });
   });
 
+  it('REQ-SESSION-013: a queued running card retains its idle countdown', () => {
+    render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running', shutdownPhase: 'queued',
+      lastActiveAt: new Date(Date.now() - 26 * 60_000).toISOString() })} />);
+    expect(screen.getByTitle('< 5 min')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /activate session/i })).not.toBeInTheDocument();
+  });
+
   describe('REQ-AGENT-175 AC3: stopped card disabled throughout managed seed update', () => {
     afterEach(() => {
       (sessionStore as any)._setPreseedUpgrading(false);

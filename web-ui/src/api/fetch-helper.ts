@@ -28,6 +28,7 @@ interface BaseFetchOptions {
   credentials?: RequestCredentials;
   schema?: ZodType;
   basePath?: string;
+  onSuccessStatus?: (status: number) => void;
 }
 
 export function redirectExpiredSession(): boolean {
@@ -139,6 +140,7 @@ export async function baseFetch<T>(
     throw apiError;
   }
 
+  options.onSuccessStatus?.(response.status);
   const text = await response.text();
   if (isHtmlResponse(response, text)) {
     throw expiredSessionError('Authentication expired. Redirecting to sign in.', text);

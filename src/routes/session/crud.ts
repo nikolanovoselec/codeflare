@@ -9,6 +9,8 @@ import { AgentTypeSchema, PiSurfaceSchema, resolveSessionWorkspace, resolveTermi
 import { isPiWebEligible } from '../../container/pi-web';
 import { getPreferencesKey, generateSessionId, sanitizeSessionName } from '../../lib/kv-keys';
 import { D1SessionRepository, type D1Session } from '../../lib/session-repository';
+import { shutdownProjection } from '../../lib/session-shutdown';
+import { maybeQueueShutdown } from './shutdown';
 import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { fencePendingBoundaryStart } from './boundary-stop';
 import { AuthVariables } from '../../middleware/auth';
@@ -84,7 +86,7 @@ function toWorkspaceApiSession(session: Session | D1Session) {
   } : session;
   return {
     ...toApiSession(normalized),
-    ...('sessionId' in session ? { lifecycle: session.lifecycleState, generation: session.lifecycleGeneration, revision: session.responseRevision, unreachableDeadlineMs: session.unreachableDeadlineMs } : {}),
+    ...('sessionId' in session ? { ...shutdownProjection(session), lifecycle: session.lifecycleState, generation: session.lifecycleGeneration, revision: session.responseRevision, unreachableDeadlineMs: session.unreachableDeadlineMs } : {}),
     workspace: resolveSessionWorkspace(normalized.workspace),
     terminalMode: resolveTerminalMode(normalized.terminalMode),
   };
@@ -246,6 +248,9 @@ app.patch('/:id', async (c) => {
  * Delete a session
  */
 app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
+  if (c.req.query('discardMemory') !== undefined) {
+    return c.json({ error: 'Memory discard is not supported' }, 409);
+  }
   const reqLogger = logger.child({ requestId: c.get('requestId') });
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
@@ -255,6 +260,8 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   if (!session) throw new NotFoundError('Session not found');
 
   const generation = session.lifecycleGeneration;
+  const queued = await maybeQueueShutdown(c.env, session, true);
+  if (queued) return queued;
   if (session.lifecycleState === 'stopped') {
     await fencePendingBoundaryStart(c.env, repository, session);
   } else {

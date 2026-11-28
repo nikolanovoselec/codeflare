@@ -4113,13 +4113,15 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 
 **Current-scope qualification (documentary, not a new acceptance):** Current [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), entrypoint package assembly (`extensions: [], skills: []`), `context-mode-runtime.ts::contextModeEnabled` and `/ctx` command retain disabled startup and explicit opt-in. This corrects current representation only, not the original startup-off decision or retained tool ownership.
 
+**Current Goal scope:** The five-tool rule is the ordinary bootstrap. Restored [Goal](../references/pi-packages.md#goal) adds its three status tools after the first Goal by default or from the start with `always`. An active Plan retains its allowlist and helpers, or only bootstrap tools if its restored policy is missing or malformed. [`goal_wait` remains blocked under current policy](../../sdd/spec/agents.md#req-agent-248-managed-goal_wait-exclusion); Todo Loop still uses ordinary activation. Review-owned Goal pause/release is not restored.
+
 **Context:** The compact skill index reduced the managed Advanced prompt projection from 32,416 to about 12,417 characters, but a fresh production `hi` request still rose from roughly 8,477 to 11,256 input tokens. Provider-boundary evidence separated the successful prompt reduction from active tool schemas: enabling context-mode on every fresh container registered its bridge tools, while capability filtering ran too early to contain later registrations. A tool installed in Pi costs no provider tokens until Pi marks it active and serializes its description and parameter schema.
 
 **Decision:** Fresh container startup writes context-mode's disabled package marker while retaining its package, image patches, JITI cache, data, and managed foreground-owner path for explicit `/ctx on`. A dedicated `/ctx` command extension reaches Standard and Advanced without broadening advanced Codeflare commands. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/ctx-command.ts::handleContextModeCommand -->
 
 At each user prompt, after context-mode's lazy bridge registration and before provider serialization, the schema-free finalizer selects only `read`, `bash`, `edit`, `write`, and `capability`. Registered optional tools remain searchable and activate additively for the next model step. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure -->
 
-An active Plan retains its frozen read-only policy plus two helpers. Plan Mode is transformed at image build so `/plan` resolves helpers and configured policy from registered tools before filtering. Fresh normal turns expose exactly five tools. The former managed Goal visibility exceptions and `goal_wait` exclusion are retired; [Todo Loop](../references/pi-packages.md#todo-loop) uses ordinary optional-tool exposure. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchPiPlanModeSource -->
+An active Plan retains its frozen read-only policy plus two helpers. Plan Mode is transformed at image build so `/plan` resolves helpers and configured policy from registered tools before filtering. Fresh normal turns exposed exactly five tools without managed Goal. When Goal was retired, its visibility exceptions and `goal_wait` exclusion were retired with it; [Todo Loop](../references/pi-packages.md#todo-loop) uses ordinary optional-tool exposure. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchPiPlanModeSource -->
 
 Subagent activation includes its result and steering controls. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activationGroup --> A schema-free local hook blocks resume attempts for queued or running records through the package's public service. Registered and active schema sizes remain separate diagnostics rather than a fixed promotion threshold. <!-- @impl: preseed/agents/pi/extensions/subagent-resume-guard.ts::subagentResumeGuard --> <!-- @impl: scripts/measure-pi-runtime-context.mjs::main -->
 
@@ -4186,7 +4188,7 @@ Placeholder credentials remain inside the strict container. Streaming request bo
 
 **Related REQs:** [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket), [REQ-ENTERPRISE-023](../../sdd/spec/security.md#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-026](../../sdd/spec/security.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority).
 
-<!-- @impl: src/container/container-interception.ts::strictEgress -->
+<!-- @impl: src/container/container-interception.ts::resolveStrictEgress -->
 <!-- @impl: src/container/container-router.ts::handleSetBucketName -->
 <!-- @impl: src/egress-controller.ts::EgressController -->
 
@@ -4196,7 +4198,7 @@ Placeholder credentials remain inside the strict container. Streaming request bo
 
 **Category:** Agents, Architecture, Storage
 
-**Status:** Partially superseded. Accepted 2026-08-27. Supersedes [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint). The Goal pause/release clause was superseded on 2026-11-01 by independent review ([legacy REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-independent-pr-review)); the managed Goal workflow has since been retired. The exact-head marker and FIX rules remain under [REQ-AGENT-244](../../sdd/spec/agents.md#req-agent-244-exact-round-review-completion).
+**Status:** Partially superseded. Accepted 2026-08-27. Supersedes [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint). The Goal pause/release clause was superseded on 2026-11-01 by independent review ([legacy REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-independent-pr-review)); the managed Goal workflow was later retired and then [restored independently of review](../references/pi-packages.md#goal). The exact-head marker and FIX rules remain under [REQ-AGENT-244](../../sdd/spec/agents.md#req-agent-244-exact-round-review-completion).
 
 **Context:** Review completion used clone-local files under `.git`, so replacing a container or opening another clone erased a fact the user had already established. Recovery then tried to rebuild authority from old transcript windows and delivery commands. That machinery launched duplicate rounds after resume and could carry stale push authority into another checkout. A review gate that forgets completion but remembers half a launch has the priorities backwards.
 

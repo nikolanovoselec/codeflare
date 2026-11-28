@@ -387,6 +387,25 @@ describe('REQ-ENTERPRISE-032: selected-route capability translation', () => {
     expect(payload!.chat_template_kwargs.enable_thinking).toBe(false);
   });
 
+  it('REQ-ENTERPRISE-100 AC3: exact-model requests never fall back after the selected Gateway route is revoked', async () => {
+    const request = (model: string) => new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', headers: { 'x-codeflare-exact-model': '1' },
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: 'merge fixture' }] }),
+    });
+    const selected = configuredRoutes() as Partial<Env> & { __kv: Record<string, string> };
+    selected.__kv['setup:default_route'] = JSON.stringify({ route: 'development', reasoning: 'medium' });
+    expect((await makeInterceptor(selected).fetch(request('development'))).status).toBe(200);
+    expect(JSON.parse(lastFetch!.body).model).toBe('dynamic/development');
+    expect(lastFetch!.headers.has('x-codeflare-exact-model')).toBe(false);
+
+    vi.mocked(globalThis.fetch).mockClear();
+    expect((await makeInterceptor(configuredRoutes()).fetch(request('development'))).status).toBe(403);
+    const revoked = configuredRoutes() as Partial<Env> & { __kv: Record<string, string> };
+    revoked.__kv['setup:dynamic_routes'] = JSON.stringify(['general_usage']);
+    expect((await makeInterceptor(revoked).fetch(request('development'))).status).toBe(403);
+    expect(vi.mocked(globalThis.fetch)).not.toHaveBeenCalled();
+  });
+
   it('AC2: uses the scope default only when Pi sends no canonical level', async () => {
     const { payload } = await send('general_usage');
     expect(payload!.chat_template_kwargs.enable_thinking).toBe(false);
