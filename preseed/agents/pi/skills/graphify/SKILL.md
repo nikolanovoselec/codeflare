@@ -38,6 +38,10 @@ The [0.9.101 release notes](https://github.com/Graphify-Labs/graphify/blob/v0.9.
 
 Upstream Pi project installation uses `.pi/skills/graphify/`; user installation remains `~/.pi/agent/skills/graphify/`. Neither that path correction nor upstream compact hooks authorize reinstalling or replacing Codeflare-managed skills/hooks. Preserve `GRAPHIFY_NO_AUTO_REFRESH=1` and the external-provider prohibition.
 
+## Graphify 0.9.122 compatibility
+
+The [0.9.122 release](https://github.com/Graphify-Labs/graphify/blob/v0.9.122/CHANGELOG.md) advances the AST cache schema to 58. The next explicitly authorized refresh can re-extract sources and change edges, IDs, and counts. Do not clear caches, refresh graphs, or change the managed tool surface to adopt the pin.
+
 ## Graph paths
 
 ```text

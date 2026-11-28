@@ -3953,19 +3953,19 @@ const required = [
   'npm:pi-web-access@0.48.0',
   'npm:pi-mcp-adapter@7.0.1',
   'npm:pi-evaluate@0.1.5',
-  'npm:pi-smart-compact@10.8.1',
+  'npm:pi-smart-compact@10.9.0',
   // The Advanced-only Codeflare adapter owns foreground initialization.
   { source: 'npm:pi-hermes-memory@0.11.0', extensions: [] },
   'npm:@narumitw/pi-goal@0.55.5',
   'npm:@narumitw/pi-plan-mode@0.60.1',
   // The managed terminal adapter initializes the native UI once.
-  { source: 'npm:pi-open-tui@0.4.6', extensions: [] },
+  { source: 'npm:pi-open-tui@0.4.7', extensions: [] },
 ];
 // Each container boot defaults context-mode off; `/ctx on` enables it until next boot.
 // Suppress package discovery; the managed foreground owner remains the only bridge owner.
 const defaultPackageIds = new Set(['npm:context-mode']);
 const defaultPackages = [
-  { source: 'npm:context-mode@2.2.0', extensions: [], skills: [] },
+  { source: 'npm:context-mode@2.2.1', extensions: [], skills: [] },
 ];
 // Migration: hard-remove retired managed packages from existing settings.
 // Retire managed registrations without deleting user files.
@@ -4107,7 +4107,7 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
 
     local npm_tools_dir before_pi before_codex after_pi after_codex update_failed=0
-    local agent_npm_dir pi_display_root pi_display_prepared=true pi_codex_prepared=true
+    local agent_npm_dir pi_display_root pi_display_prepared=true
     local pi_display_roots=()
     local update_cache
     update_cache="$(mktemp -d "${CODEFLARE_RUNTIME_ROOT:-${TMPDIR:-/tmp}}/npm-update.XXXXXX")" || return 1
@@ -4211,11 +4211,6 @@ update_pi_and_codex_when_fast_start_disabled() {
             pi_display_roots+=("$agent_npm_dir")
         fi
         for pi_display_root in "${pi_display_roots[@]}"; do
-            if ! node /opt/codeflare/scripts/patch-pi-codex-prompt-cache.mjs "$pi_display_root/node_modules/@earendil-works/pi-coding-agent"; then
-                echo "[entrypoint] ERROR: Pi Codex prompt-cache preparation failed"
-                pi_codex_prepared=false
-                update_failed=1
-            fi
             if ! node /opt/codeflare/scripts/patch-pi-native-model-display.mjs "$pi_display_root/node_modules/@earendil-works/pi-coding-agent"; then
                 echo "[entrypoint] ERROR: Pi native model display preparation failed"
                 pi_display_prepared=false
@@ -4225,7 +4220,7 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
     rm -rf -- "$update_cache"
 
-    if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ] && [ "$pi_display_prepared" = true ] && [ "$pi_codex_prepared" = true ]; then
+    if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ] && [ "$pi_display_prepared" = true ]; then
         if after_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
             echo "[entrypoint] Fast Start disabled; Pi version after update: $after_pi"
         else
@@ -5117,7 +5112,7 @@ claude_context_mode_is_selected() {
 # A future contributor who adds a SessionStart-style ctx_* nudge for
 # commercial users would push us over the ELv2 line. Don't do that
 # without revisiting AD49 first.
-CONTEXT_MODE_VERSION="2.2.0"
+CONTEXT_MODE_VERSION="2.2.1"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
 if claude_context_mode_is_selected; then
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
@@ -5125,7 +5120,7 @@ if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # against the build-time-installed binary (= /usr/local/bin/context-mode
     # --version output) is visible. Bumping plugin.json without a Docker
     # rebuild is a deploy ordering issue caught by this log line.
-    CONTEXT_MODE_VERSION=$(jq -r '.version // "2.2.0"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "2.2.0")
+    CONTEXT_MODE_VERSION=$(jq -r '.version // "2.2.1"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "2.2.1")
 fi
 # MCP server registration: always register the context-mode MCP server in
 # ~/.claude.json (mirrors how codeflare-memory's `memory` MCP server is wired).

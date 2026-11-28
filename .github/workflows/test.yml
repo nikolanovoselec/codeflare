@@ -204,7 +204,6 @@ jobs:
               - 'scripts/patch-pi-plan-mode-tool-policy.mjs'
               - 'scripts/patch-pi-todo-loop-default-pause.mjs'
               - 'scripts/patch-pi-native-model-display.mjs'
-              - 'scripts/patch-pi-codex-prompt-cache.mjs'
               - 'scripts/verify-pi-lockstep.mjs'
               - 'scripts/update-pi-runtime-artifacts.mjs'
               - 'entrypoint.sh'
@@ -246,7 +245,6 @@ jobs:
               - 'scripts/patch-pi-plan-mode-tool-policy.mjs'
               - 'scripts/patch-pi-todo-loop-default-pause.mjs'
               - 'scripts/patch-pi-native-model-display.mjs'
-              - 'scripts/patch-pi-codex-prompt-cache.mjs'
               - 'scripts/update-pi-runtime-artifacts.mjs'
               - 'scripts/patch-chrome-devtools-timeouts.mjs'
               - 'scripts/patch-rclone-bisync.py'
@@ -1014,17 +1012,13 @@ jobs:
         with:
           key-prefix: root
 
-      # This lane patches its runtime after the necessity check. Restoring cached
-      # node_modules could feed last run's patched bytes into a pristine-only gate.
+      # Test upstream Codex behavior on a fresh install of the exact lock.
       - name: Install pristine lock-matched Pi dependencies
         working-directory: preseed/agents/pi
         run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
 
-      - name: Verify pristine Codex backport necessity and request behavior
-        run: node --test preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs
-
-      - name: Apply pinned Codex prompt-cache backport
-        run: node scripts/patch-pi-codex-prompt-cache.mjs preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
+      - name: Verify upstream Codex prompt-cache request behavior
+        run: node --test preseed/agents/pi/test/codex-prompt-cache.test.mjs
 
       - name: Apply pinned Pi native display patch
         run: node scripts/patch-pi-native-model-display.mjs preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
@@ -1668,7 +1662,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+      - uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
         with:
           license-check: 'true'
           vulnerability-check: 'true'

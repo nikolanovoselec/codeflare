@@ -1,14 +1,13 @@
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
-import { PI_WEB_PORT } from './pi-web-services.js';
+import { PI_WEB_ATTACHMENT_BODY_LIMIT, PI_WEB_PORT } from './pi-web-services.js';
 import type { PiWebRuntime } from './pi-web-runtime.js';
 
 const hostname = '127.0.0.1';
 const root = `http://${hostname}:${PI_WEB_PORT}`;
 const maxBody = 1024 * 1024;
-const maxAttachmentBytes = 10_000_000;
-const maxAttachmentBody = 14 * 1024 * 1024; // Base64 plus bounded JSON metadata.
+const maxAttachmentBytes = 50_000_000;
 class BodyTooLarge extends Error {}
 const requestIdPattern = /^[a-f0-9-]{36}$/i;
 // These pinned stock reads can create the native writer, unlike HTML and assets.
@@ -28,7 +27,7 @@ async function readJson(stream: IncomingMessage, limit = maxBody): Promise<unkno
   const chunks: Buffer[] = [];
   let bytes = 0;
   // An over-limit upload must be able to receive a 413 without destroying its socket.
-  const input = limit === maxAttachmentBody ? stream.iterator({ destroyOnReturn: false }) : stream;
+  const input = limit === PI_WEB_ATTACHMENT_BODY_LIMIT ? stream.iterator({ destroyOnReturn: false }) : stream;
   for await (const part of input) {
     const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
     bytes += chunk.length;
@@ -188,16 +187,18 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
       let commandName: string | undefined;
       if (!read) {
         let data: Record<string, unknown>;
-        if (endpoint === 'attachments') {
+        if (endpoint === 'attachments' || endpoint === 'prompt') {
           try {
-            data = await jsonBody(req, maxAttachmentBody);
-            validateAttachmentSize(data.attachments);
+            data = await jsonBody(req, PI_WEB_ATTACHMENT_BODY_LIMIT);
+            const { attachments, ...metadata } = data;
+            if (endpoint === 'prompt' && Buffer.byteLength(JSON.stringify(metadata)) > maxBody) throw new BodyTooLarge();
+            if (endpoint === 'attachments' || attachments !== undefined) validateAttachmentSize(attachments);
           } catch (error) {
             if (error instanceof BodyTooLarge) {
               req.resume(); // Discard unread bytes; do not forward any portion of the batch.
-              send(res, 413, { error: 'Chat attachment uploads are limited to 10 MB per request' });
+              send(res, 413, { error: 'Chat request exceeds the size limit (50 MB of attachments or 1 MiB of prompt metadata)' });
             } else {
-              send(res, 400, { error: 'Invalid Chat attachment upload' });
+              send(res, 400, { error: 'Invalid Chat request body or attachments' });
             }
             return;
           }

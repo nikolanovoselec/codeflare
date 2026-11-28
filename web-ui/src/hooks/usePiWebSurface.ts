@@ -11,6 +11,7 @@ export function isPiWebSwitchPending(status?: PiWebStatus): boolean {
 export function createPiWebSurface(sessionId: string, generation: number, onDefinitiveRejection?: (requestId: string) => void) {
   const [status, setStatus] = createSignal<PiWebStatus>();
   const [unavailable, setUnavailable] = createSignal(false);
+  const [showUnavailable, setShowUnavailable] = createSignal(false);
   const [mutation, setMutation] = createSignal<'switch' | 'cancel'>();
   const [mutationError, setMutationError] = createSignal<string>();
   const [attempt, setAttempt] = createSignal<{ requestId: string; target: PiSurface }>();
@@ -34,6 +35,7 @@ export function createPiWebSurface(sessionId: string, generation: number, onDefi
       setMutationError(undefined);
     }
     setUnavailable(false);
+    setShowUnavailable(false);
   };
 
   const refresh = async () => {
@@ -46,8 +48,17 @@ export function createPiWebSurface(sessionId: string, generation: number, onDefi
       if (current.signal.aborted) return;
       observation++;
       publish(next);
-    } catch {
-      if (!current.signal.aborted) setUnavailable(true);
+    } catch (error) {
+      if (!current.signal.aborted) {
+        const previous = status();
+        const transient = !(error instanceof ApiError) || error.status >= 500;
+        const settledChat = previous?.surface === 'chat' && !!previous.chatUrl
+          && (previous.phase === 'active' || previous.phase === 'complete') && !mutation() && !attempt();
+        // A missed poll after returning from a native picker must not resize an
+        // already-open composer. Keep the mutation guard immediate.
+        if (!settledChat || !transient || unavailable()) setShowUnavailable(true);
+        setUnavailable(true);
+      }
     } finally {
       if (!current.signal.aborted) {
         timer = setTimeout(() => void refresh(), mutation() || isPiWebSwitchPending(status()) ? 1000 : 5000);
@@ -125,6 +136,7 @@ export function createPiWebSurface(sessionId: string, generation: number, onDefi
   return {
     status,
     unavailable,
+    showUnavailable,
     mutation,
     submittedSwitch: attempt,
     rejectedSwitchId: () => rejectedSwitch()?.id,

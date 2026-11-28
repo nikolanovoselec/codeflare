@@ -251,8 +251,10 @@ For [REQ-AGENT-019 AC3](../../sdd/spec/agents.md#req-agent-019-branded-settings-
 - Choose **Yes** and verify `pi-fixture-opening-yes.txt` appears and the same frame reaches **Open**.
 - The [packaged Host smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) separately checks the timeout exception, original answer delivery, and writer fence. It does not exercise browser visibility.
 - Once Chat is ready, submit `pi-fixture-question`. Choose **Yes** on **Continue the ready Chat fixture?**. Verify `pi-fixture-ready-yes.txt` appears without a model turn. Then send a separate harmless prompt and verify the composer works.
-- In the ready Chat composer, use **Save to …** with synthetic attachments totaling 10 MB (10,000,000 bytes). Verify that the files land in the selected workspace folder.
+- In the ready Chat composer, use **Save to …** with synthetic attachments totaling 50 MB (50,000,000 bytes). Verify that the files land in the selected workspace folder.
 - Repeat with a batch one byte larger, then with 17 small attachments. Confirm that neither rejected batch saves any files.
+- In Samsung Internet, select a synthetic JPEG through the photo picker. Before Send, verify the same Chat shows the thumbnail without shifting the composer.
+- Send the JPEG to an approved image-capable model. This passes only if the model correctly identifies a visible feature not disclosed in the prompt. If no approved image-capable model is available, mark this check untested.
 - Verify Chat and Files remain available and Info, Updates, MCP Manager, Tasks, and Relays are absent from stock navigation. This does not verify MCP configuration.
 - For [REQ-AGENT-282 AC1–2](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), use a fresh browser and verify only Chat and Files are pinned on desktop and phone.
 - Reopen Vibe in a browser with saved navigation preferences. Its fixed tabs stay available. The stock browser smoke verifies the saved values are unchanged. The required Terminal plugin remains enabled.
@@ -260,7 +262,7 @@ For [REQ-AGENT-019 AC3](../../sdd/spec/agents.md#req-agent-019-branded-settings-
 
 Workspace attachments survive Stop and Resume only with [full Workspace Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) and a successful sync. For independent persistence, use **Dashboard → Storage → Uploads**, then **Sync now** to read the files in `~/Uploads` in the running session.
 
-The [packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) exercises a successful 10,000,000-byte batch and rejects an extra byte, 17 files, and a request body above 14 MiB before writing files. It does not exercise browser submission.
+The [packaged Host handoff smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) checks the 50 MB workspace batch limit and submits a synthetic JPEG above the old 1 MiB request ceiling to a fixture model. It does not verify browser picker transitions.
 
 The [stock supervisor smoke](../../scripts/ci/smoke-pi-web-services.mjs) checks disabled plugins and runs [package reconciliation](mcp.md#client-configuration-and-migration) on a restored profile fixture before opening stock Chat. It verifies adapter preparation, no handoff warning, and a catalog request to a synthetic MCP server. It does not run full container startup or invoke an MCP tool.
 

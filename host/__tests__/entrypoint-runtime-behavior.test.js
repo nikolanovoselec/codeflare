@@ -708,7 +708,7 @@ describe('entrypoint production helpers', () => {
     try {
       mkdirSync(join(source, 'dist/utils'), { recursive: true }); mkdirSync(tools);
       // Host CI installs the pinned preseed with scripts disabled. Copy authentic
-      // display and Codex provider assets so both patches retain their hash guards.
+      // display and Codex provider assets so repairs preserve the qualified bytes.
       const qualifiedSdk = resolve(__dirname, '../../preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent');
       const qualifiedAi = join(dirname(qualifiedSdk), 'pi-ai');
       const version = JSON.parse(readFileSync(join(qualifiedSdk, 'package.json'))).version;
@@ -717,7 +717,7 @@ describe('entrypoint production helpers', () => {
       // Only name/version are admission prerequisites; omit upstream dependencies
       // so this minimal, real-byte repair fixture stays entirely offline.
       writeFileSync(join(aiSource, 'package.json'), JSON.stringify({ name: aiName, version: aiVersion }));
-      const displayChunks = { '1.5.0': 'chunk-44DLKSKE.js', '1.5.2': 'chunk-VEJDBY3O.js' };
+      const displayChunks = { '1.5.0': 'chunk-44DLKSKE.js', '1.5.2': 'chunk-VEJDBY3O.js', '1.7.0': 'chunk-Q6QBNASS.js' };
       assert.ok(Object.hasOwn(displayChunks, version), 'qualified display admission contract');
       writeFileSync(join(source, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version, type: 'module' }));
       const displayPaths = ['dist/modes/interactive/components/model-selector.js',
@@ -725,7 +725,7 @@ describe('entrypoint production helpers', () => {
         `dist/bundle/chunks/${displayChunks[version]}`];
       const codexArtifacts = [
         [aiSource, 'dist/api/openai-codex-responses.js'],
-        [source, 'dist/bundle/chunks/openai-codex-responses-TEQRB65N.js'],
+        [source, 'dist/bundle/chunks/openai-codex-responses-B54DADY4.js'],
       ];
       for (const [from, to, paths] of [
         [qualifiedSdk, source, [...displayPaths, codexArtifacts[1][1]]],
@@ -787,23 +787,13 @@ describe('entrypoint production helpers', () => {
       assert.equal(prepare.status, 0, prepare.stderr);
       const expectedDisplay = displayPaths.map(path => readFileSync(join(source, path), 'utf8'));
       assert.notDeepEqual(expectedDisplay, originalDisplay, 'locked archive must restore unprepared display admission bytes');
-      // REQ-AGENT-238 AC3: generated provider artifacts and the owned receipt are
-      // the repair contract. HTTP/WS semantics and pristine necessity are tested separately.
-      const originalCodex = codexArtifacts.map(([root, path]) => readFileSync(join(root, path)));
-      const prepareCodex = spawnSync(process.execPath, [join(scripts, 'patch-pi-codex-prompt-cache.mjs'), source], { encoding: 'utf8' });
-      assert.equal(prepareCodex.status, 0, prepareCodex.stderr);
       const expectedCodex = codexArtifacts.map(([root, path]) => readFileSync(join(root, path)));
-      for (let i = 0; i < expectedCodex.length; i++) {
-        assert.notDeepEqual(expectedCodex[i], originalCodex[i], 'each locked provider must need the backport');
-      }
-      const receiptName = '.codeflare-codex-prompt-cache-backport.json';
-      const expectedReceipt = readFileSync(join(source, receiptName));
       const assertCodex = () => {
         for (const sdk of new Set([installed, agentSdk])) {
           const ai = join(dirname(sdk), 'pi-ai');
           assert.deepEqual([readFileSync(join(ai, codexArtifacts[0][1])), readFileSync(join(sdk, codexArtifacts[1][1]))],
             expectedCodex, 'qualified Codex providers must survive npm reinstallation in both SDKs');
-          assert.deepEqual(readFileSync(join(sdk, receiptName)), expectedReceipt, 'repair must restore the owned patch receipt');
+          assert.equal(existsSync(join(sdk, '.codeflare-codex-prompt-cache-backport.json')), false);
           assert.equal(JSON.parse(readFileSync(join(sdk, 'package.json'))).version, version);
           assert.deepEqual(JSON.parse(readFileSync(join(ai, 'package.json'))), { name: aiName, version: aiVersion });
         }

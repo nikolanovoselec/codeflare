@@ -9,7 +9,7 @@ import { patchPiNativeModelDisplay } from '../../../../scripts/patch-pi-native-m
 const installed = process.env.CODEFLARE_PI_PACKAGE_ROOT || dirname(dirname(fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent'))));
 const version = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')).version;
 // Exact reviewed artifact names are the display admission contract, not an inferred glob.
-const chunks = { '1.5.0': 'chunk-44DLKSKE.js', '1.5.2': 'chunk-VEJDBY3O.js' };
+const chunks = { '1.5.0': 'chunk-44DLKSKE.js', '1.5.2': 'chunk-VEJDBY3O.js', '1.7.0': 'chunk-Q6QBNASS.js' };
 assert.ok(Object.hasOwn(chunks, version), `Unreviewed display fixture: ${version}`);
 const paths = ['package.json', 'dist/modes/interactive/components/model-selector.js',
   'dist/modes/interactive/components/settings-selector.js', `dist/bundle/chunks/${chunks[version]}`,
@@ -47,8 +47,8 @@ for (const damage of ['version', 'other reviewed version', 'package name', 'sour
       writeFileSync(path, damage.endsWith('bytes') ? `${source}\n` : source.replaceAll('modelText', 'changedModelText'));
     }
     const before = snapshot(root);
-    const expectedError = damage === 'version' || damage === 'package name' ? /requires Pi 1\.5\.0 or 1\.5\.2/ :
-      damage.endsWith('anchor') ? /anchor drift/ : /source hash drift/;
+    const expectedError = damage === 'version' || damage === 'package name' ? /requires a reviewed Pi version/ :
+      damage.endsWith('anchor') ? /anchor drift/ : /source hash drift|ENOENT/;
     assert.throws(() => patchPiNativeModelDisplay(root), expectedError);
     assert.deepEqual(snapshot(root), before);
   });

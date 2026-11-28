@@ -12,6 +12,7 @@ const workflows = `${dist}/pi-packages/workflows`;
 const mcpManager = `${dist}/pi-packages/mcp-manager`;
 const extension = `${installRoot}/handoff-extension.ts`;
 export const PI_WEB_PORT = 8504;
+export const PI_WEB_ATTACHMENT_BODY_LIMIT = 65 * 1024 * 1024; // 50 MB decoded plus base64 and bounded JSON.
 const origin = `http://127.0.0.1:${PI_WEB_PORT}`;
 
 const bootErrnos = new Set(['EACCES', 'EADDRINUSE', 'EEXIST', 'EISDIR', 'ENOENT', 'ENOSPC', 'ENOTDIR', 'EPERM', 'EROFS']);
@@ -200,7 +201,7 @@ export function createPiWebServices(options: {
       PI_WEB_PI_PACKAGE_DIR: piPackage, PI_WEB_RUNTIME: 'node', PI_WEB_HOST: '127.0.0.1', PI_WEB_PORT: String(PI_WEB_PORT),
       PI_WEB_HOST_ACCESS: '{"mode":"any"}', PI_WEB_DATA_DIR: dataDir,
       PI_WEB_SESSIOND_SOCKET: join(options.runtimeDir, 'daemon.sock'), PI_WEB_SKIP_VERSION_CHECK: '1',
-      PI_WEB_SPAWN_SESSIONS: 'false', PI_WEB_DEFAULTS_CONFIG: defaultsPath,
+      PI_WEB_SPAWN_SESSIONS: 'false', PI_WEB_MAX_UPLOAD_BYTES: String(PI_WEB_ATTACHMENT_BODY_LIMIT), PI_WEB_DEFAULTS_CONFIG: defaultsPath,
       PI_WEB_PLUGINS: JSON.stringify({
         git: { enabled: false },
         info: { enabled: false },
@@ -222,7 +223,12 @@ export function createPiWebServices(options: {
       } catch { return false; }
     }, () => { sessiondListenMs = elapsed(); });
     mark('gateway-launch');
-    launch('pi-web-server.sh', env, line => line === '  PI WEB is ready', () => { gatewayListenMs = elapsed(); });
+    launch('pi-web-server.sh', env, line => {
+      try {
+        const record = JSON.parse(line);
+        return record?.event === 'web.ready' && record.address === '127.0.0.1' && record.port === PI_WEB_PORT;
+      } catch { return false; }
+    }, () => { gatewayListenMs = elapsed(); });
     const launchMs = elapsed();
     mark('service-health');
     await until(async () => {

@@ -46,7 +46,7 @@ const files = (bundle) => [
 ];
 
 // Registry SHA-512-verified archives; check complete original bytes, not just anchors.
-// Both releases have the same reviewed display transforms, but distinct source admission.
+// Reviewed releases share the display transforms but have distinct source admission.
 const reviewedVersions = {
   '1.5.0': {
     bundle: 'dist/bundle/chunks/chunk-44DLKSKE.js',
@@ -66,12 +66,21 @@ const reviewedVersions = {
       'dist/bundle/chunks/chunk-VEJDBY3O.js': 'effbbd5d6247983dc11c7ae5796eb24bda88f9ebf78c707d3f92ca73cbb8b51e',
     },
   },
+  '1.7.0': {
+    bundle: 'dist/bundle/chunks/chunk-Q6QBNASS.js',
+    originalHashes: {
+      'dist/modes/interactive/components/model-selector.js': '540e1aa66416ad2677977f061c4dc96fe6a42f0cdc364d559c0695080abaae56',
+      'dist/modes/interactive/components/settings-selector.js': '27691bbfaeef1c1d77d54a367f364f717040ef1efbf033845c6fd9f283374a64',
+      'dist/modes/interactive/interactive-mode.js': '7e5b0d760ee281e0b6c263a7460c716ab2806c5b1f576a21d2aea0780e03f388',
+      'dist/bundle/chunks/chunk-Q6QBNASS.js': 'd4a719850db037494812e37ee19f73e61fd141a67d7e7e5149a4bf137a24a00e',
+    },
+  },
 };
 
 export function patchPiNativeModelDisplay(root) {
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   if (manifest.name !== '@earendil-works/pi-coding-agent' || !Object.hasOwn(reviewedVersions, manifest.version)) {
-    throw new Error('Native model display patch requires Pi 1.5.0 or 1.5.2');
+    throw new Error(`Native model display patch requires a reviewed Pi version (${Object.keys(reviewedVersions).join(', ')})`);
   }
   const { bundle, originalHashes } = reviewedVersions[manifest.version];
   const states = new Set();

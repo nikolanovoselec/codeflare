@@ -489,7 +489,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const piWebProblem = () => piWebStatus()?.recovery === 'reopen-session'
     ? 'Stop and reopen the session to continue.'
     : piWeb()?.mutationError()
-      ?? (piWeb()?.unavailable() && (piWebStatus() || awaitingChatStart()) ? 'Could not read the current Pi surface.' : undefined);
+      ?? (piWeb()?.showUnavailable() && (piWebStatus() || awaitingChatStart()) ? 'Could not read the current Pi surface.' : undefined);
   const canCancelPiWeb = () => !!piWebStatus()?.requestId && piWeb()?.mutation() !== 'cancel';
   const retryPiWeb = () => {
     const handoff = piWeb();

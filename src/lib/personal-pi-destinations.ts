@@ -1,6 +1,7 @@
 import type { Env } from '../types';
 
-/** Native provider destinations from the lock-integrity-verified Pi 0.99.1 catalog and auth transports. */
+/** Reviewed native provider destinations from the pinned Pi catalog and auth transports. */
+const QWEN_TOKEN_PLAN_HOSTS = ['token-plan.maas.qwencloudapi.com', 'token-plan.maas.qianwenaiapi.com'];
 const PERSONAL_PI_HOSTS: readonly string[] = [
   "ai-gateway.vercel.sh",
   "aiplatform.googleapis.com",
@@ -48,7 +49,8 @@ const PERSONAL_PI_HOSTS: readonly string[] = [
   "token-plan-cn.xiaomimimo.com",
   "token-plan-sgp.xiaomimimo.com",
   "token-plan.ap-southeast-1.maas.aliyuncs.com",
-  "token-plan.cn-beijing.maas.aliyuncs.com"
+  "token-plan.cn-beijing.maas.aliyuncs.com",
+  ...QWEN_TOKEN_PLAN_HOSTS,
 ];
 // Dynamic built-in cloud endpoints: resource/region are provider configuration,
 // not a permission to send credentials to an arbitrary origin.
@@ -74,6 +76,7 @@ export function isPersonalPiDestination(url: URL, env?: Pick<Env, 'GITHUB_HOST'>
   if (host === configured[0]) return ['/login/device/code', '/login/oauth/access_token'].includes(url.pathname);
   if (host === configured[1]) return url.pathname === '/copilot_internal/v2/token';
   if (host === configured[2]) return true;
+  if (QWEN_TOKEN_PLAN_HOSTS.includes(host)) return /^\/compatible-mode\/v1(?:\/|$)/.test(url.pathname);
   if (host === 'api.cloudflare.com') return /^\/client\/v4\/accounts\/[^/]+\/ai(?:\/|$)/.test(url.pathname);
   if (host === 'github.com') return ['/login/device/code', '/login/oauth/access_token'].includes(url.pathname);
   if (host === 'api.github.com') return url.pathname === '/copilot_internal/v2/token';
