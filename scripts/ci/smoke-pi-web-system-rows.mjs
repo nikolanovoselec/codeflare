@@ -673,7 +673,7 @@ async function verifyStockTranscriptControls(child, origin) {
   const files = `${mobileTabs}?.querySelector('[title="Files"]')`;
   const chat = `${mobileTabs}?.querySelector('[title="Chat"]')`;
   const openMobile = async (pinnedIds, readyTab) => {
-    await page(`localStorage.setItem('pi-web:navigation-preferences', ${JSON.stringify(JSON.stringify({ pinnedIds, mobileCollapsed: false }))})`);
+    if (pinnedIds) await page(`localStorage.setItem('pi-web:navigation-preferences', ${JSON.stringify(JSON.stringify({ pinnedIds, mobileCollapsed: false }))})`);
     const { loadedAt } = await state();
     await page(`history.replaceState(null, '', ${JSON.stringify(app(bound))})`);
     await send('Page.reload');
@@ -682,18 +682,18 @@ async function verifyStockTranscriptControls(child, origin) {
   const filesId = 'files:workspace.files';
   const filesContent = `${appRoot}?.querySelector('workspace-panel')?.shadowRoot?.querySelector('[data-fixture-files]')`;
   const filesSelected = `new URL(location.href).searchParams.get('tool') === '${filesId}' && Boolean((${filesContent})?.checkVisibility({ visibilityProperty: true, opacityProperty: true }))`;
-  const expectHiddenHamburger = (label, activeTab) => until(label + ': both tabs available without redundant navigation', () => page(`(() => {
+  const expectHiddenHamburger = () => until('Sessions open without redundant navigation', () => page(`(() => {
     const button = ${hamburger};
     button?.focus();
     return Boolean((${chat})?.checkVisibility() && (${files})?.checkVisibility()
-      && (${activeTab})?.getAttribute('aria-pressed') === 'true'
-      && button && !button.checkVisibility() && button.getRootNode().activeElement !== button);
+      && new URL(location.href).searchParams.get('view') === 'navigation'
+      && button && !button.checkVisibility() && button.getClientRects().length === 0
+      && button.getRootNode().activeElement !== button);
   })()`), Boolean);
   await openMobile(['chat', filesId], files);
-  await expectHiddenHamburger('Chat active', chat);
   await press(files);
   await until('Files content visible with both tabs pinned', () => page(filesSelected), Boolean);
-  await expectHiddenHamburger('Files active', files);
+  await until('stock menu is reachable from Files with both tabs pinned', () => page(`Boolean((${hamburger})?.checkVisibility())`), Boolean);
   const chatSelected = `(${appRoot}?.querySelector('main')?.classList.contains('chat-view') && new URL(location.href).searchParams.get('view') === 'chat')`;
   await press(chat);
   await until('pinned Chat tab opens directly from Files', () => page(chatSelected), Boolean);
@@ -707,14 +707,29 @@ async function verifyStockTranscriptControls(child, origin) {
     await until(label + ' destination opens', () => page(arrived), Boolean);
   };
   await openSessions();
-  assert.ok(await page(`Boolean((${chat})?.checkVisibility() && (${files})?.checkVisibility())`), 'both tabs remain pinned while unpinned Sessions is active');
-  await viaNavigation('Chat', chatSelected);
+  await expectHiddenHamburger();
+  await press(chat);
+  await until('pinned Chat tab opens directly from Sessions', () => page(chatSelected), Boolean);
 
-  await openMobile(['chat'], chat);
+  const unpin = async (label, tab) => {
+    await press(hamburger);
+    const pin = `${appRoot}?.querySelector('navigation-dialog')?.shadowRoot?.querySelector(${JSON.stringify(`button.pin-button[title="Unpin ${label}"]`)})`;
+    await until('stock unpin control for ' + label, () => page(`Boolean((${pin})?.checkVisibility())`), Boolean);
+    await press(pin);
+    await until(label + ' is no longer pinned', () => page(`!(${tab})`), Boolean);
+  };
+  await unpin('Files', files);
+  // Reload the same saved choice to close the dialog before opening Sessions.
+  await openMobile(undefined, chat);
   assert.ok(await page(`!(${files})`), 'saved preference leaves Files unpinned');
+  await openSessions();
   await viaNavigation('Files', filesSelected);
 
-  await openMobile([filesId], files);
+  await openMobile(['chat', filesId], files);
+  await press(files);
+  await until('pinned Files tab opens before unpinning Chat', () => page(filesSelected), Boolean);
+  await unpin('Chat', chat);
+  await openMobile(undefined, files);
   assert.ok(await page(`!(${chat})`), 'saved preference leaves Chat unpinned');
   await press(files);
   await until('pinned Files tab opens', () => page(filesSelected), Boolean);

@@ -33,11 +33,11 @@ function hideEmptySessionTitle(context) {
     session?.messageCount === 0 && !session.name?.trim() && session.firstMessage === '(no messages)');
 }
 
-// Read tab IDs rather than localized labels. Keep the stock fallback for saved
-// pin choices that would otherwise make Chat or Files unreachable.
+// Hide the menu only in Sessions when either visible tab can take the user
+// back to a view where the stock menu exposes pin settings.
 function hideRedundantNavigation(context) {
-  markStockControl(context, 'app-mobile-main-tabs', 'data-codeflare-direct-tabs', ({ tabs, controlsOnly, hiddenActiveDestination }) =>
-    !controlsOnly && !hiddenActiveDestination && tabs.some(({ id }) => id === 'chat')
+  markStockControl(context, 'app-mobile-main-tabs', 'data-codeflare-direct-tabs', ({ tabs, controlsOnly, selectedTab }) =>
+    !controlsOnly && selectedTab === 'navigation' && tabs.some(({ id }) => id === 'chat')
       && tabs.some(({ id }) => id === 'files:workspace.files'));
 }
 
