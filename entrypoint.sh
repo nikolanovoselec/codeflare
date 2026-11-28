@@ -3965,7 +3965,7 @@ const required = [
 // Suppress package discovery; the managed foreground owner remains the only bridge owner.
 const defaultPackageIds = new Set(['npm:context-mode']);
 const defaultPackages = [
-  { source: 'npm:context-mode@2.2.0', extensions: [], skills: [] },
+  { source: 'npm:context-mode@2.2.1', extensions: [], skills: [] },
 ];
 // Migration: hard-remove retired managed packages from existing settings.
 // Retire managed registrations without deleting user files.
@@ -5117,7 +5117,7 @@ claude_context_mode_is_selected() {
 # A future contributor who adds a SessionStart-style ctx_* nudge for
 # commercial users would push us over the ELv2 line. Don't do that
 # without revisiting AD49 first.
-CONTEXT_MODE_VERSION="2.2.0"
+CONTEXT_MODE_VERSION="2.2.1"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
 if claude_context_mode_is_selected; then
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
@@ -5125,7 +5125,7 @@ if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # against the build-time-installed binary (= /usr/local/bin/context-mode
     # --version output) is visible. Bumping plugin.json without a Docker
     # rebuild is a deploy ordering issue caught by this log line.
-    CONTEXT_MODE_VERSION=$(jq -r '.version // "2.2.0"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "2.2.0")
+    CONTEXT_MODE_VERSION=$(jq -r '.version // "2.2.1"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "2.2.1")
 fi
 # MCP server registration: always register the context-mode MCP server in
 # ~/.claude.json (mirrors how codeflare-memory's `memory` MCP server is wired).
