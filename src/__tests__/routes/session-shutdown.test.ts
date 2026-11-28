@@ -1007,14 +1007,19 @@ it.each(['idle', 'user'] as const)('REQ-SESSION-025 AC2: monitor exit before SIG
     else await expectAccepted(f.stop(a));
     // Pause teardown before native effects; the monitor supplies the exit evidence.
     await bounded(f.cleanup!.reached.promise.then(() => new Response()));
+    const stopWork = f.latestWriterWork();
     process.monitorExit!.release();
-    await vi.waitFor(() => expect(exits).toEqual([expect.objectContaining({
-      lifecycleGeneration: 1, reason: 'unknown', stopTrigger,
-    })]));
+    const monitorEvent = expect.objectContaining({ lifecycleGeneration: 1, reason: 'unknown', stopTrigger });
+    await vi.waitFor(() => expect(exits).toEqual([monitorEvent]));
     expect((await f.batch())[a]?.status).toBe('stopped');
     expect(f.trace).not.toContain(`${a}:sigterm`);
+    f.cleanup!.resume.release();
+    process.exit.release();
+    await stopWork;
+    expect(f.trace).toContain(`${a}:exit`);
+    expect(exits).toEqual([monitorEvent]);
   } finally {
-    process.exit.release('failed');
+    process.exit.release();
     f.cleanup!.resume.release();
     setLogLevel('silent');
     logs.mockRestore();

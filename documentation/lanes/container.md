@@ -316,11 +316,15 @@ For [SESSION-004/005/016/017](../../sdd/spec/session-lifecycle.md), inspect exis
 
 | Contract | Action and required outcome |
 |---|---|
-| SESSION-004 AC4 | Correlate the configured threshold with metrics input/reference/check times. For ordinary idle teardown, require a metrics-triggered Stop and positive exit, not expiry of the 24-hour sentinel or PTY safety net. For enrolled Hermes, match the same-generation D1 shutdown job and distinguish a refused save (session still running) from confirmed exit. Missing evidence is unavailable. |
+| SESSION-004 AC4 | Correlate the configured threshold with metrics input/reference/check times. For ordinary idle teardown, require a metrics-triggered Stop and positive exit, not expiry of the 24-hour sentinel or PTY safety net. For enrolled Hermes, follow [queued idle Stop evidence](#queued-idle-stop-evidence). |
 | OPS-017 AC5 | In existing same-generation logs, compare consecutive recorded idle checks with missing or invalid policy and checks with recorded storage-read failures. Require one fallback warning for the first or changed missing/invalid observation and a warning for each failed read. Without observations for individual ticks, warning cadence is unverified. |
 | SESSION-005 AC5 | Compare Host timestamps and the idle metric for Terminal input, IDE frames, accepted Chat input, and non-input traffic. Follow the [shared clock check](#shared-input-clock-acceptance). |
 | SESSION-016 AC2 | Compare an existing successful timezone update with same-owner GET after reload and an independently authorized restart. Preserve the IANA value unless a later update changed it; account for browser synchronization. An old running-container environment is not a persistence failure. |
 | SESSION-017 AC6 | Pair an existing startup-status response with its unexpected-computation-error record. Require caught error stage, zero progress and readable failure—not an unhandled 500. Normal readiness, probe retries and failed sync do not substitute for this case. |
+
+#### Queued idle Stop evidence
+
+Match the idle metrics decision to the same-generation D1 shutdown job and verify its first trigger was idle. Distinguish a refused save (session still running) from confirmed exit. An exit log's `stopTrigger: 'idle'` identifies the request, not the cause of exit. Missing evidence remains unavailable. <!-- @impl: src/container/session-shutdown-queue.ts::acceptShutdown --> <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit -->
 
 #### Shared input clock acceptance
 

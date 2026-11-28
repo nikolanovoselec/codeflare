@@ -5,6 +5,7 @@ import { CONTAINER_POLL_BUDGET_MS } from '../../container/container-metrics';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { setLogLevel } from '../../lib/logger';
 import type { SetBucketNameCreds } from '../../container/container-env';
 import { EgressController } from '../../egress-controller';
 import { createR2Client } from '../../lib/r2-client';
@@ -781,6 +782,13 @@ describe('ordinary Stop late native exit confirmation', () => {
 
   it.each(['alarm', 'reconstruction'] as const)('reuses durable positive exit after a D1 outage via %s without another native attempt', async recovery => {
     vi.useFakeTimers();
+    const exits: Record<string, unknown>[] = [];
+    const logs = vi.spyOn(console, 'log').mockImplementation(line => {
+      if (typeof line !== 'string' || !line.startsWith('{')) return;
+      const entry = JSON.parse(line);
+      if (entry.message === 'process_exit_confirmed' && entry.data?.sessionId === ref.sessionId) exits.push(entry.data);
+    });
+    setLogLevel('info');
     try {
       const { f, native, instance } = await lateStop();
       f.failConfirmation(true);
@@ -794,7 +802,12 @@ describe('ordinary Stop late native exit confirmation', () => {
       if (recovery === 'alarm') await f.reconcile(instance);
       else await f.coordinator();
       expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7 });
-    } finally { vi.useRealTimers(); }
+      expect(exits).toEqual([expect.objectContaining({ lifecycleGeneration: 7, reason: 'user' })]);
+    } finally {
+      setLogLevel('silent');
+      logs.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('retains positive exit and propagates terminal alarm failure for reconstruction recovery', async () => {

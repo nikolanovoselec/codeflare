@@ -147,7 +147,8 @@ const HERMES_CHECKPOINT_ADAPTER = 'd6e0420a7a73120a48a457f38bce4a941a4c658fb7799
 // each call site - the same pattern the previous metricsState getter used -
 // rather than an `implements` clause that would couple to the base class's
 // member modifiers.
-type ExitEvidence = { owner: string; session: string; generation: number; terminationIntentId?: string; awaitingAudit?: true };
+type ExitEvidence = { owner: string; session: string; generation: number; terminationIntentId?: string;
+  nativeStopReason?: 'idle' | 'user'; awaitingAudit?: true };
 
 export class container extends Container<Env> implements ContainerEnvState {
   #sdkCredentialQueues = new Map<string, Promise<void>>();
@@ -381,8 +382,10 @@ export class container extends Container<Env> implements ContainerEnvState {
       && expected.sessionId === session && expected.generation === generation);
     // Capture the shutdown job before exit confirmation lets the queue clear it.
     let settlementRow: D1Session | null = null;
+    const exitReason = evidence.terminationIntentId !== undefined && evidence.nativeStopReason !== undefined
+      ? evidence.nativeStopReason : matchesExpected ? reason : 'unknown';
     const confirmed = await confirmMonitoredExit(this.ctx, this.env, owner, session, generation,
-      matchesExpected ? reason : 'unknown', (incidentId, row) => {
+      exitReason, (incidentId, row) => {
         settlementRow = row;
         if (matchesExpected) onObservation?.(incidentId);
       }, evidence.terminationIntentId);
@@ -2111,12 +2114,13 @@ export class container extends Container<Env> implements ContainerEnvState {
         const job = owned.shutdown;
         const hermesWriter = shutdownIntent !== undefined && job?.hermesDisabledAtStartup !== true
           && job?.sourceGeneration === undefined;
+        const stopReason = queuedStopTrigger(job, shutdownIntent) ?? 'user';
         await this.destroyWithContext({ sessionId: owned.sessionId, lifecycleGeneration: owned.lifecycleGeneration,
           incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined,
-          reason: queuedStopTrigger(job, shutdownIntent) ?? 'user',
+          reason: stopReason,
           ...(hermesWriter ? { hermesWriter: true as const } : {}) }, () => this.recordNativeStopExit({
             owner: input.bucket, session: input.sessionId, generation: input.generation,
-            terminationIntentId: owned.terminationIntentId!,
+            terminationIntentId: owned.terminationIntentId!, nativeStopReason: stopReason,
           }), shutdownIntent !== undefined && owned.shutdown?.hermesDisabledAtStartup !== true,
           shutdownIntent !== undefined && owned.shutdown?.finalEventsAttempted === true);
         await this.recordHermesSettlement(input.sessionId, input.generation, owned);

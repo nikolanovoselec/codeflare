@@ -145,8 +145,12 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
     throw new Error('Session stop ownership changed');
   }
   await destroyContainer(owned);
-  if (!await repository.confirmStoppedOrObserved(bucket, sessionId, generation, intentId, new Date().toISOString())) {
-    throw new Error('Confirmed exit could not be persisted');
+  if (!await repository.confirmStopped(bucket, sessionId, generation, intentId, new Date().toISOString())) {
+    const stopped = await repository.getSession(bucket, sessionId);
+    if (stopped?.lifecycleGeneration !== generation || stopped.lifecycleState !== 'stopped') {
+      throw new Error('Confirmed exit could not be persisted');
+    }
+    return; // The already-observed exit owns the confirmation event.
   }
   logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
     incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: intentId,
@@ -731,7 +735,7 @@ export async function confirmMonitoredExit(
   ownerKey: string,
   sessionId: string,
   generation: number,
-  reason: 'platform' | 'unknown' = 'unknown',
+  reason: 'platform' | 'unknown' | 'idle' | 'user' = 'unknown',
   onObservation?: (incidentId: string | null, current: D1Session) => void,
   expectedIntentId?: string,
 ): Promise<boolean> {
@@ -757,7 +761,8 @@ export async function confirmMonitoredExit(
   if (confirmed) {
     // A matching teardown claim identifies who requested Stop, not why the
     // process exited. Keep the monitor's observation independent of the job.
-    const stopTrigger = stopping.terminationGeneration === generation && stopping.shutdown?.teardownClaimed
+    const stopTrigger = (reason === 'platform' || reason === 'unknown')
+      && stopping.terminationGeneration === generation && stopping.shutdown?.teardownClaimed
       ? queuedStopTrigger(stopping.shutdown, intentId) : undefined;
     logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
       incidentId: current.unreachableIncidentId ?? null, terminationIntentId: intentId, reason,
