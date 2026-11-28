@@ -960,7 +960,7 @@ it.each(['audit first', 'exit first', 'stale audit', 'stale successful audit'] a
     // Keep the stopped row when testing stale success so D1 exit alone could otherwise pass.
     await expectAccepted(failsAudit ? f.stop(a) : f.remove(a));
     await bounded(f.cleanup!.reached.promise.then(() => new Response()));
-    A.monitorExit!.release();
+    A.monitorExit!.release(undefined);
     await bounded(confirmReached.promise.then(() => new Response()));
     if (auditFirst) {
       f.cleanup!.resume.release();
@@ -1013,7 +1013,7 @@ it.each(['idle', 'user'] as const)('REQ-SESSION-025 AC2: monitor exit before SIG
     // Pause teardown before native effects; the monitor supplies the exit evidence.
     await bounded(f.cleanup!.reached.promise.then(() => new Response()));
     const stopWork = f.latestWriterWork();
-    process.monitorExit!.release();
+    process.monitorExit!.release(undefined);
     const monitorEvent = expect.objectContaining({ lifecycleGeneration: 1, reason: 'unknown', stopTrigger });
     await vi.waitFor(() => expect(exits).toEqual([monitorEvent]));
     expect((await f.batch())[a]?.status).toBe('stopped');
@@ -1049,7 +1049,7 @@ it('REQ-SESSION-025 AC2: monitor exit after the Stop intent is claimed preserves
     await f.idleTick(a);
     await bounded(held.promise.then(() => new Response()));
     const stopping = f.latestWriterWork();
-    process.monitorExit!.release();
+    process.monitorExit!.release(undefined);
     await vi.waitFor(() => expect(exits).toEqual([expect.objectContaining({
       lifecycleGeneration: 1, reason: 'unknown', stopTrigger: 'idle',
     })]));

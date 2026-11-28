@@ -1416,7 +1416,7 @@ Runtime readiness remains governed by [REQ-SESSION-015](#req-session-015-contain
 **Acceptance Criteria:**
 
 1. Structured recovery events identify generation and available incident for opening, reconstruction, recovery and recovery-expiry termination/signalling. Context-bearing final-sync and exit observations retain their known lifecycle identity; unavailable identity remains explicit. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-025 AC1-2: user Stop retains final-sync context and confirms only after native completion) -->
-2. A monitor-confirmed exit retains its observed reason across retries and reports a matching queued Stop trigger separately. <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit --> <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-025 AC2: monitor exit after the Stop intent is claimed preserves its trigger before teardown) --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-025 AC2: a rollout monitor exit retains its reason when D1 confirmation is retried) --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-025 AC2: monitor exit before SIGTERM records %s Stop separately from the exit reason) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-025 AC1-2: $completion exit preserves observed incident without inventing an initiator) -->
+2. Distinguish user, idle, quota, recovery-expiry, host-transport, D1-outage and platform/unknown evidence. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/session-shutdown-queue.ts::acceptShutdown --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (reuses durable positive exit after a D1 outage via %s without another native attempt) --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-043: %s Stop shares one save, consolidation and exit with the other trigger) --> <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @test: src/__tests__/container-metrics.test.ts (AC1/4: an SDK error retains actionable context without exporting private payloads or changing retry timing) -->
 3. Healthy metrics ticks and unchanged healthy state are not logged per occurrence. A failed or timed-out R2 sync emits a warning on each metrics tick while unhealthy. <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-025 AC3: repeated %s sync ticks each emit a warning and healthy recovery stops warnings) --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (AC3: repeated healthy observations retain runtime state without repeating ordinary log output) -->
 4. Logs contain no credentials, tokens, transcript or terminal content, or per-file paths. <!-- @impl: src/routes/container/lifecycle.ts::runStartStage --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-025 AC4: teardown %s retains safe diagnostics and best-effort/exit authority) --> <!-- @test: src/__tests__/index.test.ts (REQ-SESSION-025: final Worker lifecycle error logging) -->
 5. D1 row and statement metadata is sampled or aggregated during integration rather than emitted as another high-volume stream. <!-- @manual: Integration D1 metadata sampling -->
@@ -1428,13 +1428,36 @@ Runtime readiness remains governed by [REQ-SESSION-015](#req-session-015-contain
 **Constraints:**
 
 - Use the existing structured logger; no new telemetry framework.
-- Distinguish user, idle, quota, recovery-expiry, host-transport, D1-outage and platform/unknown evidence without inventing an initiator. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/session-shutdown-queue.ts::acceptShutdown --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (reuses durable positive exit after a D1 outage via %s without another native attempt) --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-043: %s Stop shares one save, consolidation and exit with the other trigger) --> <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @test: src/__tests__/container-metrics.test.ts (AC1/4: an SDK error retains actionable context without exporting private payloads or changing retry timing) -->
+- Do not infer an initiator from unrelated evidence.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-024](#req-session-024-recovery-deadline-and-termination-intent-are-durable)
 
 **Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [container/index.test.ts](../../src/__tests__/container/index.test.ts), [index.test.ts](../../src/__tests__/index.test.ts), [lifecycle.test.ts](../../src/__tests__/routes/container/lifecycle.test.ts), [session.test.ts](../../src/__tests__/routes/session.test.ts), [Queued Stop log reasons](../../src/__tests__/routes/session-shutdown.test.ts), [Late native Stop](../../src/__tests__/container/session-stop.test.ts); Manual: [Integration D1 metadata sampling](../../documentation/lanes/container.md#integration-d1-metadata-sampling), [Shutdown elapsed observation](../../documentation/lanes/vault.md#req-vault-006-manual-qualification)
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-247: Monitor-confirmed exit attribution
+
+**Intent:** Operators can distinguish the observation that confirms exit from a Stop request that was already accepted.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. A monitor-confirmed exit retains the observed reason when confirmation is retried. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-025 AC2: a rollout monitor exit retains its reason when D1 confirmation is retried) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-025 AC1-2: $completion exit preserves observed incident without inventing an initiator) -->
+2. A monitor-confirmed exit reports an accepted Stop with matching generation and termination intent separately from the observed exit reason. <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-025 AC2: monitor exit after the Stop intent is claimed preserves its trigger before teardown) --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-025 AC2: monitor exit before SIGTERM records %s Stop separately from the exit reason) -->
+
+**Constraints:** The matching trigger is diagnostic, not exit-cause evidence or teardown authority.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-025](#req-session-025-lifecycle-recovery-is-observably-correlated)
+
+**Verification:** Automated: [session-shutdown.test.ts](../../src/__tests__/routes/session-shutdown.test.ts), [container/index.test.ts](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
 
