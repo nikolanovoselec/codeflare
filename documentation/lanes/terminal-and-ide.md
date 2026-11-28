@@ -306,7 +306,7 @@ The existing desktop and touch auth-link controls also recognize `auth.openai.co
 <a id="explicit-terminal-link-qualification"></a>
 #### Explicit terminal link qualification
 
-Use a disposable Classic terminal to print labeled OSC 8 links. The label is not a plain-text URL, so this exercises xterm’s explicit-link path.
+For [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation), print labeled OSC 8 links in a disposable Classic terminal. The labels are not plain-text URLs, so this exercises xterm’s explicit-link path.
 
 ```sh
 printf '\033]8;;https://example.com/report)\007Explicit web link\033]8;;\007\n'
@@ -858,8 +858,15 @@ AC5: In disposable Classic and Herdr Bash sessions with only harmless clipboard 
 
 AC7: In a disposable desktop Classic Pi primary pane, select Fullscreen. Verify mouse tracking is active: an ordinary drag selects within Pi rather than showing xterm’s native selection. Start with a harmless clipboard sentinel such as `clipboard-before`.
 
-- Display a fixture with a long line that soft-wraps and a second line separated by a hard break. Drag across both boundaries. Without pressing Copy, paste in another window: the selection replaces the sentinel, with a newline only at the hard break.
-- Verify an ordinary click and wheel still reach Pi, and unselected Ctrl+C still interrupts. If the fixture or tracking state cannot be confirmed, leave this check unverified.
+- Enter `!printf '%s\\n' ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 END` in Pi. Narrow the pane until the first output line visibly soft-wraps, while `END` follows a real line break.
+- Drag from the first `A` to the final `D` in the output. Paste into another window without pressing Copy. The sentinel must be replaced by exactly these two lines:
+
+  ```text
+  ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
+  END
+  ```
+
+- Verify an ordinary click and wheel still reach Pi, and unselected Ctrl+C still interrupts. If the soft wrap or tracking state cannot be confirmed, leave this check unverified.
 
 <a id="req-term-036-manual-qualification"></a>
 ### Samsung single activation (REQ-TERM-036)
