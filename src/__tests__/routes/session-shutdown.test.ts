@@ -651,6 +651,28 @@ it('REQ-MEM-044: a legacy Host receipt cannot authorize fixed-master success or 
   expect((await f.app().request(f.path(a))).status).toBe(200);
 });
 
+it('REQ-SESSION-006 AC5: Delete removes the captured row after concurrent Stop confirms exit', async () => {
+  const f = rig(true, false);
+  const process = await f.create(a, { directGeneration: false });
+  process.save.release('saved');
+  process.exit.release();
+  const getSession = D1SessionRepository.prototype.getSession;
+  const finishStopBeforeDelete = vi.spyOn(D1SessionRepository.prototype, 'getSession')
+    .mockImplementationOnce(async function (this: D1SessionRepository, ...args) {
+      const observed = await getSession.apply(this, args);
+      expect(observed).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 1 });
+      expect((await f.stop(a)).status).toBe(200);
+      return observed;
+    });
+  try {
+    const deleted = await f.remove(a);
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toMatchObject({ deleted: true, id: a });
+    expect((await f.app().request(f.path(a))).status).toBe(404);
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:saved`, `${a}:sigterm`, `${a}:exit`]);
+  } finally { finishStopBeforeDelete.mockRestore(); }
+});
+
 it('REQ-SESSION-043: Delete requeues a recovered session and preserves it when the save is refused', async () => {
   const f = rig();
   const process = await f.create(a);

@@ -404,8 +404,10 @@ export async function resolveGithubToken(env: Env, bucketName: string): Promise<
     try {
       refreshed = await provider.refresh(refreshToken);
     } catch (err) {
-      // A sibling request may already have rotated the refresh token.
-      const winner = renewedGrant(conn, readConnection(await readDeployKeys(env, bucketName)));
+      // A sibling may have rotated the token. A failed reread does not
+      // replace the provider outcome or grant authority to use a token.
+      const stored = await readDeployKeys(env, bucketName).catch(() => null);
+      const winner = renewedGrant(conn, readConnection(stored));
       if (winner) return winner;
       throw err;
     }

@@ -197,7 +197,7 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it.each(['503 response', 'interrupted response body'] as const)(
+  it.each(['503 response', 'interrupted response body', '503 response and failed grant reread'] as const)(
     'REQ-GITHUB-002: retries repositories after a transient App token refresh failure (%s)', async failure => {
       mockKV._set(KEY, { githubToken: 'expired', githubTokenSource: 'app', githubLogin: 'octocat',
         githubRefreshToken: 'old-refresh', githubTokenExpiresAt: Date.now() - 1000 } satisfies DeployKeys);
@@ -208,9 +208,12 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
         const path = new URL(input).pathname;
         if (path === '/login/oauth/access_token') {
           if (refreshAvailable) return ok({ access_token: 'fresh', refresh_token: 'next', expires_in: 3600 });
-          return failure === '503 response' ? new Response(null, { status: 503 }) : new Response(new ReadableStream({
+          if (failure === '503 response and failed grant reread') {
+            mockKV.get.mockRejectedValueOnce(new Error('Grant storage unavailable'));
+          }
+          return failure === 'interrupted response body' ? new Response(new ReadableStream({
             pull(controller) { controller.error(new TypeError('Connection dropped after headers')); },
-          }), { headers: { 'Content-Type': 'application/json' } });
+          }), { headers: { 'Content-Type': 'application/json' } }) : new Response(null, { status: 503 });
         }
         if (path !== '/user/repos') throw new Error(`Unexpected fixture path ${path}`);
         const authorization = new Headers(init.headers).get('Authorization');

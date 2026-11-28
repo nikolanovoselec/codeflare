@@ -10,6 +10,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - [Optional GitHub counts](github.md#req-github-324-dashboard-repository-loading-during-github-app-renewal) do not start credential renewal; repository listing retains its request-bound refresh and transient-error recovery.
 
+- If a [Chat conversation change](agents.md#req-agent-286-classic-chat-conversation-selection) cannot prepare the next transcript after releasing the current writer, Chat tells you to stop and reopen the session instead of offering an unusable retry.
+
 ## 2026-11-27: Chat chrome and Dashboard recovery
 
 - [Recent Sessions](github.md#req-github-334-recent-sessions-in-the-vibe-summary) gets up to three full cards and a partial fourth in the scrolling Vibe summary.

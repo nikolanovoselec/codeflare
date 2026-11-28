@@ -194,18 +194,19 @@ describe('getValidGithubToken', () => {
   });
 
   it.each([
-    ['provider rejected the stale refresh', 'octo', 'gho_winner'],
-    ['provider also returned a token', 'octo', 'gho_winner'],
-    ['provider rejected the stale refresh', 'different-account', null],
-    ['provider rejected the stale refresh', null, null],
-  ] as const)('REQ-GITHUB-001: reconciles a lost App renewal (%s, stored login %s)', async (outcome, login, expected) => {
+    ['provider rejected the stale refresh', 'octo', 3_600_000, 'gho_winner'],
+    ['provider also returned a token', 'octo', 3_600_000, 'gho_winner'],
+    ['provider rejected the stale refresh', 'different-account', 3_600_000, null],
+    ['provider rejected the stale refresh', null, 3_600_000, null],
+    ['provider also returned a token', 'octo', 60_000, null],
+  ] as const)('REQ-GITHUB-001: reconciles a lost App renewal (%s, stored login %s, expiry in %d ms)', async (outcome, login, expiryOffsetMs, expected) => {
     mockKV._set(KEY, {
       githubToken: 'gho_stale', githubTokenSource: 'app', githubRefreshToken: 'ghr_stale',
       githubTokenExpiresAt: Date.now() - 1000, githubLogin: 'octo',
     } satisfies DeployKeys);
     const stored = login ? {
       githubToken: 'gho_winner', githubTokenSource: 'app', githubRefreshToken: 'ghr_winner',
-      githubTokenExpiresAt: Date.now() + 3_600_000, githubLogin: login,
+      githubTokenExpiresAt: Date.now() + expiryOffsetMs, githubLogin: login,
     } satisfies DeployKeys : null;
     mockFetch.mockImplementationOnce(async () => {
       if (stored) mockKV._set(KEY, stored);

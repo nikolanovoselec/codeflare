@@ -276,13 +276,18 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
         expectedLifecycleState: session.lifecycleState });
       if (stopped === false) {
         const current = await repository.getSession(bucketName, sessionId);
-        if (current?.lifecycleGeneration === generation) {
-          const queuedAfterRecovery = await maybeQueueShutdown(c.env, current, true);
-          if (queuedAfterRecovery) return queuedAfterRecovery;
+        if (current?.lifecycleGeneration !== generation) {
+          return c.json({ error: 'Session shutdown authority changed' }, 409);
         }
-        return c.json({ error: 'Session shutdown authority changed' }, 409);
+        const queuedAfterRecovery = await maybeQueueShutdown(c.env, current, true);
+        if (queuedAfterRecovery) return queuedAfterRecovery;
+        if (current.lifecycleState !== 'stopped') {
+          return c.json({ error: 'Session shutdown authority changed' }, 409);
+        }
+        await fencePendingBoundaryStart(c.env, repository, current);
+      } else {
+        reqLogger.info('Destroyed container', { containerId });
       }
-      reqLogger.info('Destroyed container', { containerId });
     } catch (err) {
       reqLogger.warn('Could not confirm container destruction; preserving session for retry', {
         containerId,
