@@ -348,7 +348,7 @@ Eligible Enterprise Hermes Stop/Delete requests run the same notification and sy
 
 For enrolled generations, an accepted graceful shutdown takes precedence over idle teardown. Idle must claim that generation before final save. If the claim's reply is lost, a later metrics tick can continue only after confirming that same claim. <!-- @impl: src/lib/session-repository.ts::claimIdleStop --> <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
 
-Once idle claims the generation, no later request can join the Hermes queue for it. A failed save no longer owns a live attempt; quota enforcement and idle deadlines are unchanged. <!-- @impl: src/lib/session-repository.ts::updateShutdown --> <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+Once idle claims the generation, no later request can join the Hermes queue for it. A failed queued Hermes save no longer owns a live attempt. A failed idle final sync can still be followed by SIGTERM if the same idle claim remains confirmed. Quota enforcement and idle deadlines are unchanged. <!-- @impl: src/lib/session-repository.ts::updateShutdown --> <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
 
 Sessions already running without shutdown-merge admission when the fix rolls out keep ordinary Stop/Delete until the next launch or Resume. No eligibility is inferred from an older on-disk layout. <!-- @impl: src/container/index.ts::launchSession --> <!-- @impl: src/container/index.ts::canQueueHermesShutdown -->
 

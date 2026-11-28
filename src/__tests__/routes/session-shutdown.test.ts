@@ -25,10 +25,12 @@ vi.mock('@cloudflare/containers', () => ({
     }
     async destroy() { await this.ctx.container?.destroy(); }
     async stop(signal: string | number = 'SIGTERM') { this.ctx.container?.signal(signal === 'SIGTERM' ? 15 : Number(signal)); }
-    async schedule(delay: number, callback: string) {
+    readonly scheduled = new Map<string, { delay: number; payload: unknown }>();
+    async schedule(delay: number, callback: string, payload: unknown) {
+      this.scheduled.set(callback, { delay, payload });
       return { taskId: crypto.randomUUID(), callback, type: 'delayed', time: Math.floor(Date.now() / 1000) + delay, delayInSeconds: delay };
     }
-    deleteSchedules() {}
+    deleteSchedules(callback: string) { this.scheduled.delete(callback); }
     renewActivityTimeout() {}
   },
 }));
@@ -101,6 +103,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     const monitor = monitorExit?.promise ?? new Promise<void>(() => {});
     const save = gate<'saved' | 'failed' | 'ambiguous' | 'timed-out' | 'pi-shutdown-unconfirmed' | 'pi-shutdown-timeout'
       | 'missing-reason' | 'not-started' | 'disk-refused' | 'disk-without-dispatch-proof' | { disabledGeneration: number }>('saved');
+    const idleSaveEntered = gate<void>(undefined);
     let firstSave = true;
     let disabledAtStartup = false;
     const exit = gate<void | 'failed'>(undefined);
@@ -146,7 +149,14 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         });
         if (path === '/internal/final-sync') {
           trace.push(`${label}:save`);
-          if (idle) return Response.json({ synced: true });
+          if (idle) {
+            if (firstSave) {
+              firstSave = false;
+              idleSaveEntered.release();
+              await save.promise;
+            }
+            return Response.json({ synced: true });
+          }
           const result = firstSave ? await save.promise : 'saved';
           firstSave = false;
           if (typeof result === 'object') {
@@ -193,7 +203,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         return Response.json({ error: `Unexpected fixture Host path ${path}` }, { status: 404 });
       } }),
     };
-    return { native, monitorExit, directGeneration, idle, get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
+    return { native, monitorExit, directGeneration, idle, idleSaveEntered, get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
   }
 
   const idFromName = (name: string) => ({ toString: () => name, equals: (id: DurableObjectId) => id.toString() === name });
@@ -357,12 +367,25 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const kill = (id: string) => app().request(`${path(id)}/kill`, { method: 'POST' });
   const retry = (id: string, bucket = owner) => app(bucket).request(`${path(id)}/retry-memory-consolidation`, { method: 'POST' });
   const session = (id: string) => getByName(`${owner}-${id}`);
+  const metricsTasks = (id: string) => {
+    session(id);
+    return (states.get(`${owner}-${id}`)!.instance as unknown as {
+      scheduled: Map<string, { delay: number; payload: Parameters<SessionContainer['collectMetrics']>[0] }>;
+    }).scheduled;
+  };
+  const nextMetrics = (id: string) => metricsTasks(id).get('collectMetrics');
+  const deliverMetrics = async (id: string) => {
+    const task = nextMetrics(id);
+    if (!task) throw new Error('No scheduled metrics delivery');
+    metricsTasks(id).delete('collectMetrics');
+    await session(id).collectMetrics(task.payload);
+  };
   const replayExit = async (id: string, generation: number, terminationIntentId: string, withoutRetryMarker = false, failCleanup: boolean | 'settlement' = false) => {
     states.get(`${owner}-${id}`)!.restoreExit({ owner, session: id, generation, terminationIntentId }, withoutRetryMarker, failCleanup);
     await session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation });
   };
   return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, cleanup, latestWriterWork: () => lastWriterWork!,
-    publishDelayedAudit: () => publishDelayedAudit!(), wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session,
+    publishDelayedAudit: () => publishDelayedAudit!(), wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session, nextMetrics, deliverMetrics,
     evictSnapshot: (id: string) => { delete retained.get(owner)![id]; },
     evictWhilePreparingRetry: (id: string) => { evictAtLaunch.add(id); } };
 }
@@ -395,7 +418,8 @@ it.each(['graceful', 'idle'] as const)(
 
 it('REQ-SESSION-043: the next metrics tick continues an idle claim that committed after its deadline', async () => {
   const f = rig();
-  await f.create(a, { idle: true });
+  const process = await f.create(a, { idle: true });
+  process.save.release('saved');
   const claimReached = gate<void>(undefined);
   const allowCommit = gate<void>(undefined);
   const committed = gate<boolean>(false);
@@ -413,21 +437,57 @@ it('REQ-SESSION-043: the next metrics tick continues an idle claim that committe
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const first = session.collectMetrics(pin);
     await Promise.race([claimReached.promise, first.then(() => { throw new Error('Idle claim never reached D1'); })]);
+    expect(f.nextMetrics(a)).toMatchObject({ payload: pin });
     await vi.advanceTimersByTimeAsync(CONTAINER_POLL_BUDGET_MS);
     await first;
     expect(f.trace).not.toContain(`${a}:save`);
     expect(f.trace).not.toContain(`${a}:sigterm`);
+    expect(f.nextMetrics(a)).toMatchObject({ delay: 5, payload: pin });
     allowCommit.release();
     expect(await committed.promise).toBe(true);
     expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'stopping', terminationGeneration: 1 });
     vi.useRealTimers();
-    await session.collectMetrics(pin);
+    await f.deliverMetrics(a);
     expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
   } finally {
     vi.useRealTimers();
     allowCommit.release();
     hold.mockRestore();
   }
+});
+
+it('REQ-SESSION-026: an overlapping idle retry cannot repeat the final drain or stop signal', async () => {
+  const f = rig();
+  const process = await f.create(a, { idle: true });
+  const pin = { ownerKey: f.owner, sessionId: a, generation: 1 };
+  const first = f.session(a).collectMetrics(pin);
+  try {
+    await Promise.race([process.idleSaveEntered.promise, first.then(() => { throw new Error('Idle save was not dispatched'); })]);
+    await f.session(a).onError(new Error('network connection lost'));
+    expect(f.nextMetrics(a)).toMatchObject({ delay: 5, payload: pin });
+    await f.deliverMetrics(a);
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`]);
+  } finally {
+    process.save.release('saved');
+    await first;
+  }
+  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
+});
+
+it('REQ-SESSION-026: a lost idle signal acceptance write retries recording without resending', async () => {
+  const f = rig();
+  const process = await f.create(a, { idle: true });
+  process.save.release('saved');
+  const record = vi.spyOn(D1SessionRepository.prototype, 'recordTerminationSignal')
+    .mockRejectedValueOnce(new Error('Acceptance write unavailable'));
+  try {
+    await f.session(a).collectMetrics({ ownerKey: f.owner, sessionId: a, generation: 1 });
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
+    expect((await repository.getSession(f.owner, a))?.terminationSignalAcceptedAt).toBeUndefined();
+    await f.deliverMetrics(a);
+    expect((await repository.getSession(f.owner, a))?.terminationSignalAcceptedAt).toEqual(expect.any(String));
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
+  } finally { record.mockRestore(); }
 });
 
 it.each([true, false])('REQ-SESSION-043: accepts overlapping Stop/Delete in owner order across client reload without duplicating a generation or blocking another owner (workspace sync %s)', async workspaceSyncEnabled => {

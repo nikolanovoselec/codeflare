@@ -671,6 +671,9 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
         }
         mockGlobalFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, result: [{ id: 'acct-pat', name: 'PAT' }] }) });
         expect((await put('replacement-pat')).status).toBe(200);
+        expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toEqual({
+          githubToken: 'github-unchanged', cloudflareApiToken: 'replacement-pat', cloudflareAccountId: 'acct-pat',
+        });
         const providerPaths: string[] = [];
         mockGlobalFetch.mockImplementation(async input => {
           providerPaths.push(new URL(String(input)).pathname);

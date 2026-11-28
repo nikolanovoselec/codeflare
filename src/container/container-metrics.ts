@@ -376,6 +376,13 @@ type AgentEventDeliveryState = {
 const agentEventDeliveryStates = new WeakMap<MetricsState, AgentEventDeliveryState>();
 // Diagnostic state only; activity/timestamps cannot create an ordinary event every tick.
 const idlePolicyObservations = new WeakMap<MetricsState, string>();
+// A warm coordinator can serialize its continuations and retry recording an
+// accepted signal. D1 still owns the claim across coordinator reconstruction.
+const idleStopContinuations = new WeakMap<MetricsState, MetricsPin & {
+  runtime: MetricsExecution['runtime'];
+  active: boolean;
+  signalSentAt?: string;
+}>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -1155,19 +1162,33 @@ export async function collectMetrics(
   // Leave time for a bounded drain and ownership checks before the recovery
   // alarm can take over from an abandoned invocation.
   const armIdleRecovery = () => schedule(Math.ceil((FINAL_SYNC_BUDGET_MS + 5 * CONTAINER_POLL_BUDGET_MS) / 1000));
-  const continueIdleStop = async () => {
+  const continueIdleStop = async (recovering: boolean) => {
+    if (!execution.isCurrent()) return;
+    const existing = idleStopContinuations.get(state);
+    const continuation = existing?.generation === generation && existing.runtime === runtime
+      && existing.ownerKey === ownerKey && existing.sessionId === sessionId
+      ? existing : { ownerKey, sessionId, generation, runtime, active: false, signalSentAt: undefined };
+    if (continuation.active) return;
+    continuation.active = true;
+    idleStopContinuations.set(state, continuation);
     try {
-      if (await readUnsignaledIdle()) {
+      if (recovering) await armIdleRecovery();
+      if (!await readUnsignaledIdle()) return;
+      if (!continuation.signalSentAt) {
         await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
         if (!execution.isCurrent()) return;
         await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent, readUnsignaledIdle);
-        if (await readUnsignaledIdle() && execution.isCurrent()) {
-          await callbacks.stop('SIGTERM');
-          await raceBudget(repository.recordTerminationSignal(ownerKey, sessionId, generation,
-            idleIntent, new Date().toISOString()), CONTAINER_POLL_BUDGET_MS);
-        }
+        if (!await readUnsignaledIdle() || !execution.isCurrent()) return;
+        await callbacks.stop('SIGTERM');
+        continuation.signalSentAt = new Date().toISOString();
       }
-    } finally { await schedule(5); }
+      if (!execution.isCurrent()) return;
+      await raceBudget(repository.recordTerminationSignal(ownerKey, sessionId, generation,
+        idleIntent, continuation.signalSentAt), CONTAINER_POLL_BUDGET_MS).catch(() => null);
+    } finally {
+      try { await schedule(5); }
+      finally { continuation.active = false; }
+    }
   };
   if (execution.idleCompetesWithHermes) {
     // A committed claim remains actionable even if its original acknowledgement
@@ -1176,10 +1197,8 @@ export async function collectMetrics(
     try { current = await readCurrent(); }
     catch { await schedule(5); return; }
     if (ownsIdle(current)) {
-      if (!current.terminationSignalAcceptedAt) {
-        await armIdleRecovery();
-        await continueIdleStop();
-      } else { await schedule(5); }
+      if (!current.terminationSignalAcceptedAt) await continueIdleStop(true);
+      else await schedule(5);
       return;
     }
   }
@@ -1406,7 +1425,7 @@ export async function collectMetrics(
           if (claimed === null) { await schedule(5); return; }
           if (claimed) {
             requiredStopInProgress = true;
-            await continueIdleStop();
+            await continueIdleStop(false);
             return;
           }
         } else if (candidate && execution.isCurrent()) {
