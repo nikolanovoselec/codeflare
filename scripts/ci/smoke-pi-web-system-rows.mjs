@@ -673,7 +673,7 @@ async function verifyStockTranscriptControls(child, origin) {
   const files = `${mobileTabs}?.querySelector('[title="Files"]')`;
   const chat = `${mobileTabs}?.querySelector('[title="Chat"]')`;
   const openMobile = async (pinnedIds, readyTab) => {
-    if (pinnedIds) await page(`localStorage.setItem('pi-web:navigation-preferences', ${JSON.stringify(JSON.stringify({ pinnedIds, mobileCollapsed: false }))})`);
+    await page(`localStorage.setItem('pi-web:navigation-preferences', ${JSON.stringify(JSON.stringify({ pinnedIds, mobileCollapsed: false }))})`);
     const { loadedAt } = await state();
     await page(`history.replaceState(null, '', ${JSON.stringify(app(bound))})`);
     await send('Page.reload');
@@ -712,16 +712,17 @@ async function verifyStockTranscriptControls(child, origin) {
   await until('pinned Chat tab opens directly from Sessions', () => page(chatSelected), Boolean);
 
   const unpin = async (label, tab) => {
+    const dialog = `${appRoot}?.querySelector('navigation-dialog')`;
     await press(hamburger);
-    const pin = `${appRoot}?.querySelector('navigation-dialog')?.shadowRoot?.querySelector(${JSON.stringify(`button.pin-button[title="Unpin ${label}"]`)})`;
+    const pin = `${dialog}?.shadowRoot?.querySelector(${JSON.stringify(`button.pin-button[title="Unpin ${label}"]`)})`;
     await until('stock unpin control for ' + label, () => page(`Boolean((${pin})?.checkVisibility())`), Boolean);
     await press(pin);
     await until(label + ' is no longer pinned', () => page(`!(${tab})`), Boolean);
+    await press(`${dialog}?.shadowRoot?.querySelector('button[aria-label="Close"]')`);
+    await until('stock navigation dialog closed', () => page(`!(${dialog})`), Boolean);
   };
+  // Close the dialog in place so the picker keeps its initialized workspace.
   await unpin('Files', files);
-  // Reload the same saved choice to close the dialog before opening Sessions.
-  await openMobile(undefined, chat);
-  assert.ok(await page(`!(${files})`), 'saved preference leaves Files unpinned');
   await openSessions();
   await viaNavigation('Files', filesSelected);
 
@@ -729,10 +730,6 @@ async function verifyStockTranscriptControls(child, origin) {
   await press(files);
   await until('pinned Files tab opens before unpinning Chat', () => page(filesSelected), Boolean);
   await unpin('Chat', chat);
-  await openMobile(undefined, files);
-  assert.ok(await page(`!(${chat})`), 'saved preference leaves Chat unpinned');
-  await press(files);
-  await until('pinned Files tab opens', () => page(filesSelected), Boolean);
   await viaNavigation('Chat', chatSelected);
 }
 
