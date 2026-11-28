@@ -8,7 +8,7 @@
   "description": "Claude-side Browser Run MCP server: Cloudflare Browser Run REST Quick Actions (markdown/content/scrape) as MCP tools. The analog of Pi's native browser-run extension.",
   "name": "codeflare-browser-run-mcp",
   "overrides": {
-    "@hono/node-server": "2.1.8",
+    "@hono/node-server": "2.1.11",
     "body-parser": "2.4.0",
     "fast-uri": "3.1.9",
     "hono": "^4.13.18",
