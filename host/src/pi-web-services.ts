@@ -223,7 +223,12 @@ export function createPiWebServices(options: {
       } catch { return false; }
     }, () => { sessiondListenMs = elapsed(); });
     mark('gateway-launch');
-    launch('pi-web-server.sh', env, line => line === '  PI WEB is ready', () => { gatewayListenMs = elapsed(); });
+    launch('pi-web-server.sh', env, line => {
+      try {
+        const record = JSON.parse(line);
+        return record?.event === 'web.ready' && record.address === '127.0.0.1' && record.port === PI_WEB_PORT;
+      } catch { return false; }
+    }, () => { gatewayListenMs = elapsed(); });
     const launchMs = elapsed();
     mark('service-health');
     await until(async () => {

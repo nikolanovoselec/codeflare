@@ -8,7 +8,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - Interactive Pi 1.7.0 and Smart Compact 10.9.0 replace the prior pair. [Codex prompt caching](agents.md#req-agent-238-native-codex-prompt-prefix-compatibility) now uses the upstream fix without the temporary patch.
 - [Vibe attachments](agents.md#req-agent-274-stock-pi-chat-controls) share a 50 MB decoded limit across workspace saves and inline images. [Open Chat](agents.md#req-agent-277-retained-chat-on-dashboard-return) stays steady through an isolated transient status failure.
-- [Shadow Pins](operations.md#req-ops-020-shadow-pin-version-bump-automation) defers unqualified SilverBullet major and Impeccable skill/engine upgrades without changing their installed pins.
+- [Shadow Pins](operations.md#req-ops-020-shadow-pin-version-bump-automation) defers [unqualified SilverBullet major upgrades](operations.md#req-ops-032-silverbullet-coupled-release-automation) and unreviewed Impeccable skill/engine pairs without changing their installed pins.
 
 ## 2026-11-28: Pi terminal copy and links
 

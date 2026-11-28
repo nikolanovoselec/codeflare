@@ -8,7 +8,8 @@
     "scripts/operator-boundary-action.mjs"
   ],
   "ignore": [
-    "src/lib/contact-topics.ts"
+    "src/lib/contact-topics.ts",
+    "preseed/agents/pi/test/**/*.mjs"
   ],
   "ignoreBinaries": [
     "mkfifo",

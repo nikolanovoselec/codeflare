@@ -253,7 +253,8 @@ For [REQ-AGENT-019 AC3](../../sdd/spec/agents.md#req-agent-019-branded-settings-
 - Once Chat is ready, submit `pi-fixture-question`. Choose **Yes** on **Continue the ready Chat fixture?**. Verify `pi-fixture-ready-yes.txt` appears without a model turn. Then send a separate harmless prompt and verify the composer works.
 - In the ready Chat composer, use **Save to …** with synthetic attachments totaling 50 MB (50,000,000 bytes). Verify that the files land in the selected workspace folder.
 - Repeat with a batch one byte larger, then with 17 small attachments. Confirm that neither rejected batch saves any files.
-- In Samsung Internet, attach a synthetic JPEG through the photo picker. Before pressing Send, verify that returning to the same Chat keeps the composer steady and shows the thumbnail. Submit to an approved image-capable model and verify it receives the image.
+- In Samsung Internet, select a synthetic JPEG through the photo picker. Before Send, verify the same Chat shows the thumbnail without shifting the composer.
+- Send the JPEG to an approved image-capable model and ask it to identify a visible feature not disclosed in the prompt.
 - Verify Chat and Files remain available and Info, Updates, MCP Manager, Tasks, and Relays are absent from stock navigation. This does not verify MCP configuration.
 - For [REQ-AGENT-282 AC1–2](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), use a fresh browser and verify only Chat and Files are pinned on desktop and phone.
 - Reopen Vibe in a browser with saved navigation preferences. Its fixed tabs stay available. The stock browser smoke verifies the saved values are unchanged. The required Terminal plugin remains enabled.

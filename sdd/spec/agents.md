@@ -130,7 +130,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Constraints:**
 
-- Use the upstream provider without a Codeflare prompt-cache backport.
+- Use the upstream provider without a Codeflare prompt-cache backport. Pi 1.7.0 owns [full request construction](https://github.com/earendil-works/pi/blob/fb0fe823539f6d04850f6e34748c01f01f212e1f/packages/ai/src/api/openai-codex-responses.ts#L562) and [WebSocket continuation](https://github.com/earendil-works/pi/blob/fb0fe823539f6d04850f6e34748c01f01f212e1f/packages/ai/src/api/openai-codex-responses.ts#L1538). The packed CLI uses the same upstream provider.
 - Other providers, request options, streaming and cancellation semantics remain unchanged.
 - Cacheable wire placement is not proof of a live cache hit, reduced cost or successful deployed adoption.
 
@@ -1205,7 +1205,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 4. Alternating between two running, already-open Chats reveals their original frames without the startup screen or another writer request. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (switches between two running Chats without replacing either frame or requesting a writer, then handles %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-between-two-running-chats -->
 5. Page exit discards all parked Chat frames. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (switches between two running Chats without replacing either frame or requesting a writer, then handles %s) -->
 
-6. An already-open Chat does not show a transient status-read failure that clears on the next poll. Consecutive failures are shown without replacing the frame. <!-- @impl: web-ui/src/hooks/usePiWebSurface.ts::createPiWebSurface --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the open Chat stable across a transient status failure without hiding sustained failure) -->
+6. A settled Chat with a retained frame and no switch attempt or mutation suppresses the first network or server status-read failure. A consecutive failure is shown without replacing the frame. <!-- @impl: web-ui/src/hooks/usePiWebSurface.ts::createPiWebSurface --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the open Chat stable across a transient status failure without hiding sustained failure) -->
 
 **Constraints:** Keep at most two mounted Chat frames in the workspace; never show both at once.
 
