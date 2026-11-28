@@ -858,15 +858,17 @@ AC5: In disposable Classic and Herdr Bash sessions with only harmless clipboard 
 
 AC7: In a disposable desktop Classic Pi primary pane, select Fullscreen. Verify mouse tracking is active: an ordinary drag selects within Pi rather than showing xterm’s native selection. Start with a harmless clipboard sentinel such as `clipboard-before`.
 
-- Enter `!printf '%s\\n' ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 END` in Pi. Narrow the pane until the first output line visibly soft-wraps, while `END` follows a real line break.
-- Drag from the first `A` to the final `D` in the output. Paste into another window without pressing Copy. The sentinel must be replaced by exactly these two lines:
+- Enter `!printf '%s\n' START END` in Pi. Confirm the output shows `START` and `END` on separate lines.
+- Drag from the first `S` to the final `D` in the output. Paste into another window without pressing Copy. The sentinel must be replaced by exactly these two lines:
 
   ```text
-  ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
+  START
   END
   ```
 
-- Verify an ordinary click and wheel still reach Pi, and unselected Ctrl+C still interrupts. If the soft wrap or tracking state cannot be confirmed, leave this check unverified.
+- Verify an ordinary click and wheel still reach Pi, and unselected Ctrl+C still interrupts. If the fixture or tracking state cannot be confirmed, leave this check unverified.
+
+The [drag-copy test](../../web-ui/src/__tests__/lib/terminal-drag-copy.test.ts) covers xterm soft wraps with a controlled buffer. Pi Fullscreen draws its own rows, so narrowing the pane does not qualify xterm soft wrapping in a physical browser.
 
 <a id="req-term-036-manual-qualification"></a>
 ### Samsung single activation (REQ-TERM-036)
