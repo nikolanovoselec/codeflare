@@ -324,7 +324,7 @@ For [SESSION-004/005/016/017](../../sdd/spec/session-lifecycle.md), inspect exis
 
 #### Queued idle Stop evidence
 
-Match the idle metrics decision to the same-generation D1 shutdown job and verify its first trigger was idle. After a refusal, pair a later expired tick with the same running D1 job. Verify no repeat save only if existing save-attempt evidence covers that interval before explicit recovery. Require positive evidence to confirm exit. An exit log's `stopTrigger: 'idle'` identifies the request, not the cause of exit. Missing evidence remains unavailable. <!-- @impl: src/container/session-shutdown-queue.ts::acceptShutdown --> <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit -->
+Match the idle metrics decision to the same-generation D1 shutdown job and verify its first trigger was idle. After a refusal, pair a later expired tick with the same-generation D1 session still `running` and the same shutdown intent in `save-failed`. Verify no repeat save only if existing save-attempt evidence covers that interval before explicit recovery. Require positive evidence to confirm exit. An exit log's `stopTrigger: 'idle'` identifies the request, not the cause of exit. See [REQ-SESSION-247 AC2](../../sdd/spec/session-lifecycle.md#req-session-247-monitor-confirmed-exit-attribution). Missing evidence remains unavailable. <!-- @impl: src/container/session-shutdown-queue.ts::acceptShutdown --> <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit -->
 
 #### Shared input clock acceptance
 

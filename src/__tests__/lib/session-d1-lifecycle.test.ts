@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { buildCloneTargets } from '../../lib/clone-targets';
+import { createLogger, setLogLevel } from '../../lib/logger';
 import { confirmMonitoredExit } from '../../container/container-lifecycle';
 import { TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY } from '../../container/container-metrics';
 // @ts-expect-error Vite raw-loader module used only by the Workers test runtime.
@@ -792,8 +793,20 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
   });
 
+  function captureLifecycleLogs() {
+    const entries: Array<{ message: string; data?: Record<string, unknown> }> = [];
+    const capture = (line: unknown) => {
+      try { entries.push(JSON.parse(String(line))); } catch { /* Ignore unrelated non-JSON console output. */ }
+    };
+    vi.spyOn(console, 'log').mockImplementation(capture);
+    vi.spyOn(console, 'warn').mockImplementation(capture);
+    setLogLevel('info');
+    return entries;
+  }
+
   it('D1 outage or ambiguous failed projection cannot authorize reconstruction, SIGTERM or force', async () => {
     const f = await runtimeFixture();
+    const entries = captureLifecycleLogs();
     try {
       f.ctx.container.running = true;
       f.host.env.USAGE_DB = { prepare: () => {
@@ -801,10 +814,15 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
         return failed;
       } } as unknown as D1Database;
       for (const delta of [0, 120_000, 255_000]) { f.time(at + delta); await f.tick(); }
+      expect(entries).toContainEqual(expect.objectContaining({
+        message: 'collectMetrics: D1 lifecycle observation unavailable',
+        data: expect.objectContaining({ sessionId: id, lifecycleGeneration: pin.generation, errorClass: 'd1_unavailable' }),
+      }));
+      expect(entries.some(entry => entry.data?.reason === 'host_transport_loss')).toBe(false);
       expect(f.effects).toEqual([]);
       expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'running' });
       expect(f.schedules.at(-1)).toEqual(pin);
-    } finally { vi.restoreAllMocks(); }
+    } finally { setLogLevel('silent'); vi.restoreAllMocks(); }
   });
 
   it('deliberate shutdown and unreadable shutdown ownership suppress reconstruction and effects', async () => {
@@ -953,6 +971,8 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
 
   it('first failed probe is nonbillable, survives reconstruction, signals at 120s even with SDK false, destroys only after 135s grace', async () => {
     const f = await runtimeFixture();
+    const entries = captureLifecycleLogs();
+    f.host.logger = createLogger('container');
     try {
       await f.tick();
       const first = await repository().getSession(owner, id);
@@ -970,9 +990,16 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       expect(f.hostRequests.some(request => request.url === 'http://localhost/internal/final-sync')).toBe(false);
       expect(f.hostRequests.some(request => request.url === 'http://localhost/internal/agent-events/drain' && request.final)).toBe(false);
       expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'stopped' });
+      const context = { sessionId: id, lifecycleGeneration: pin.generation, incidentId: first!.unreachableIncidentId };
+      expect(entries).toContainEqual(expect.objectContaining({ message: 'unreachable_incident_opened',
+        data: expect.objectContaining({ ...context, reason: 'host_transport_loss' }),
+      }));
+      expect(entries).toContainEqual(expect.objectContaining({ message: 'process_exit_confirmed',
+        data: expect.objectContaining({ ...context, reason: 'recovery_expiry' }),
+      }));
       expect(f.host._usageSeconds).toBe(0);
       expect(f.effects).not.toContain('sdk-stop'); expect(f.effects).not.toContain('sdk-destroy');
-    } finally { vi.restoreAllMocks(); }
+    } finally { setLogLevel('silent'); vi.restoreAllMocks(); }
   });
 
   it('a failed native SIGTERM remains stopping and escalates at the same finite grace deadline', async () => {
