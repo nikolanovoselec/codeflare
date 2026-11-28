@@ -66,11 +66,11 @@ RUN mkdir -p /out \
 # ---- Same gh release with the fixed HTML parser dependency (CVE-2026-78661) ----
 FROM rclone-builder AS gh-builder
 WORKDIR /src/gh
-RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/e1219499a578b69e3437adaa31cd60614e23c802" -o /tmp/gh-src.tar.gz && \
-    echo "09bc3a29ab105e5cd36589550550ab6246711002b8f53a7237ce316e3482315c  /tmp/gh-src.tar.gz" | sha256sum -c - && \
+RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/529111a21612ff1e29dc45e567a157df24e0e243" -o /tmp/gh-src.tar.gz && \
+    echo "1c142ce019804721ce688316e349f553b72cd3ced0f5bbec3f6d137357f819cf  /tmp/gh-src.tar.gz" | sha256sum -c - && \
     tar --strip-components=1 -xzf /tmp/gh-src.tar.gz && rm /tmp/gh-src.tar.gz && \
     go mod edit -require=golang.org/x/net@v0.62.0 && go mod tidy && \
-    GH_VERSION=2.105.0-codeflare-xnet1 SOURCE_DATE_EPOCH=1794958518 GO_LDFLAGS="-s -w" go run script/build.go bin/gh && \
+    GH_VERSION=2.106.0-codeflare-xnet1 SOURCE_DATE_EPOCH=1795646094 GO_LDFLAGS="-s -w" go run script/build.go bin/gh && \
     cp bin/gh /out/gh && \
     go version -m /out/gh | grep -E '^/out/gh: go1\.27\.4$' && \
     go version -m /out/gh | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' && \
@@ -525,8 +525,8 @@ COPY .cache-bust /tmp/.cache-bust
 COPY preseed/silverbullet/ /opt/silverbullet-preseed/
 
 # Install an integrity-pinned gh release built with Go 1.27.3 (CVE-2026-111943).
-RUN GH_VERSION="2.105.0" && \
-    GH_SHA256="1dac939af3e84fb3861927c984b357531341be9403b889e4aa86e8822145a09d" && \
+RUN GH_VERSION="2.106.0" && \
+    GH_SHA256="d76d387b8fe7619b9b7bfdf40883fa2b38f6e80cf773a3f4b1fcd5e8070ab346" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
       "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" \
       -o /tmp/gh.deb && \
@@ -536,7 +536,7 @@ RUN GH_VERSION="2.105.0" && \
     rm /tmp/gh.deb /usr/bin/gh
 # Retain official support files; replace only the dependency-rebuilt executable.
 COPY --from=gh-builder /out/gh /usr/bin/gh
-RUN gh --version | grep -F "gh version 2.105.0-codeflare-xnet1"
+RUN gh --version | grep -F "gh version 2.106.0-codeflare-xnet1"
 
 # Privileged npm tools execute user code, hold OAuth tokens, or participate in
 # image builds. Install from one committed lock so exact package bytes and
