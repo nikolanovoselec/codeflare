@@ -1180,7 +1180,10 @@ const Layout: Component<LayoutProps> = (props) => {
     finally { if (implicitAgent) setLaunchingVibe(false); }
   };
 
+  const vibeMode = () => (showDashboard() ? dashboardWorkspaceMode()?.value
+    : sessionWorkspaceMode()?.value ?? dashboardWorkspaceMode()?.value) === 'chat';
   const handleOpenMultiView = () => {
+    if (vibeMode()) return;
     if (!terminalWorkspaceStore.openMultiView(
       sessionStore.sessions,
       (sessionId) => sessionStore.getTerminalsForSession(sessionId)?.activeTabId || '1',
@@ -1399,6 +1402,7 @@ const Layout: Component<LayoutProps> = (props) => {
             onDeleteSession={id => batch(() => { keepDashboardOwnership('replace'); void handleDeleteSession(id); })}
             onCreateSession={handleCreateSession}
             onOpenMultiView={handleOpenMultiView}
+            disableMultiView={vibeMode()}
             onCloseMultiView={handleCloseMultiView}
           />
         </Show>

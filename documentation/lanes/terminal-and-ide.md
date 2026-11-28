@@ -66,6 +66,7 @@ When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi
 
 - When the picker is available, choose Vibe or Code in the header before using a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
 - For [REQ-TERM-049](../../sdd/spec/terminal.md#req-term-049-shared-workspace-startup-progress), check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**.
+- Start a fresh Vibe session, then switch to another browser tab or window before the Chat frame finishes loading. On return, verify the original startup screen remains and **Open** reveals the same conversation once ready. Do not count a successful foreground start as this check.
 - While waiting for Open, Vibe shows **Loading Chat** with the same one-decimal elapsed timer as the other startup steps and a loading icon that spins with default motion.
 - With a non-green theme accent, check the final startup row, not the subtitle. For **Loading Chat**, expect accent text and a muted-accent icon background.
 - When **Open** appears, the row still says **Loading Chat** with its final elapsed time, success text, and a muted-success icon background.
@@ -188,10 +189,8 @@ Use these checks for the handoff header in [REQ-AGENT-272](../../sdd/spec/agents
 - With Codeflare still active, verify user messages have a tint and stronger leading border without fading text ([REQ-AGENT-288 AC5](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
 - On desktop and mobile, verify the stock Refresh and Actions controls are absent, including their keyboard focus stops. Confirm navigation is still usable ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 - Check that the sidebar omits Projects, its divider, and the stock title and mark. On mobile, check that the context header omits project, workspace, and machine identity ([REQ-AGENT-289 AC1–2](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome), [REQ-AGENT-290](../../sdd/spec/agents.md#req-agent-290-embedded-mobile-workspace-context)).
-- Verify Chat, Files, Sessions, New session, and the sidebar toggle remain usable. On mobile, pin Chat and Files.
-- Open the stock menu from Chat and unpin Files. Re-pin Files, switch to it, and open the menu to unpin Chat ([REQ-AGENT-289 AC3](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
-- Pin both tabs again, leave Sessions unpinned, and open Sessions from the session picker. Verify the hamburger takes no space or focus, then return using the pinned Chat tab.
-- With Files unpinned, open Sessions from the picker, then open Files from stock Navigation. Repeat with Chat unpinned by opening pinned Files first, then returning to Chat through stock Navigation.
+- Verify Chat, Files, Sessions, New session, and the sidebar toggle remain usable. Vibe hides the navigation hamburger at every width and does not expose pin controls.
+- Open Vibe with previously saved unpinned or collapsed tabs. Verify Chat and Files stay available, the hamburger takes no space or keyboard focus, and opening Sessions through the picker does not bring it back. Saved preferences remain unchanged ([REQ-AGENT-289 AC3](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
 - The [pinned browser fixture](../../scripts/ci/smoke-pi-web-system-rows.mjs) checks that the stale notice is hidden and an interrupted refresh is visible. It does not exercise live recovery ([REQ-AGENT-289 AC4](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
 - Live recovery is **unexercised**. Proceed only with a disposable Chat and an authorized browser control that can isolate its open session-scoped `/events` WebSocket and hold reconnects. No such control has been verified; blocking new requests alone is insufficient.
 - To count live recovery, require evidence that the original socket closed, reconnects stayed blocked until the same session independently recorded the reply as complete, and a post-reconnect `transcript-snapshot` restored that reply in the retained frame without a reload.
@@ -247,7 +246,7 @@ For [REQ-AGENT-019 AC3](../../sdd/spec/agents.md#req-agent-019-branded-settings-
 - Repeat with a batch one byte larger, then with 17 small attachments. Confirm that neither rejected batch saves any files.
 - Verify Chat and Files remain available and Info, Updates, MCP Manager, Tasks, and Relays are absent from stock navigation. This does not verify MCP configuration.
 - For [REQ-AGENT-282 AC1–2](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), use a fresh browser and verify only Chat and Files are pinned on desktop and phone.
-- Change the pins and reopen Chat in the same browser to verify the saved choices win. Stock Navigation can re-pin Terminal or mobile Sessions; the default does not disable the required Terminal plugin.
+- Reopen Vibe in a browser with saved navigation preferences. Its fixed tabs stay available without changing the saved values. The required Terminal plugin remains enabled.
 - Recovering an already-pending question after refresh is not required. For a [recoverable initial Chat service failure](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery), retry the same transcript only after the previous attempt is confirmed closed.
 
 Workspace attachments survive Stop and Resume only with [full Workspace Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) and a successful sync. For independent persistence, use **Dashboard → Storage → Uploads**, then **Sync now** to read the files in `~/Uploads` in the running session.

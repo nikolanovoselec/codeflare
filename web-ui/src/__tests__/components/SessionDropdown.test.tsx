@@ -3,6 +3,7 @@ import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import { mdiViewCompactOutline } from '@mdi/js';
 import SessionDropdown from '../../components/SessionDropdown';
+import SessionSwitcher from '../../components/SessionSwitcher';
 import { sessionStore } from '../../stores/session';
 import type { SessionWithStatus } from '../../types';
 
@@ -411,6 +412,17 @@ describe('SessionDropdown', () => {
   });
 
   describe('MultiView selection', () => {
+    it('REQ-TERM-012: keeps sessions selectable but hides MultiView in the Vibe switcher', () => {
+      const onSelectSession = vi.fn();
+      const [vibe, setVibe] = createSignal(true);
+      render(() => <SessionSwitcher {...defaultProps} onSelectSession={onSelectSession} disableMultiView={vibe()} />);
+      fireEvent.click(screen.getByTestId('session-switcher'));
+      expect(screen.queryByRole('button', { name: 'Launch MultiView' })).not.toBeInTheDocument();
+      expect(screen.getByTestId('session-card-s3')).toBeInTheDocument();
+      setVibe(false);
+      expect(screen.getByRole('button', { name: 'Launch MultiView' })).toBeInTheDocument();
+    });
+
     it('REQ-TERM-013: keeps the dropdown open while toggling MultiView member sessions', () => {
       const onLaunchMultiView = vi.fn();
       render(() => (

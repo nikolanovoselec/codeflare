@@ -336,8 +336,7 @@ export default function (pi) {
       'x-forwarded-host': new URL(origin).host, 'x-forwarded-proto': 'http', 'x-codeflare-pi-generation': String(generation),
     };
     if (exerciseStartupWaits) {
-      // The dashboard can remain on Ready beyond the writer-confirmation budget.
-      await delay(26_000);
+      // A failed initial document navigation must keep the attachment available.
       const firstFrame = await nativeFetch(deepLink, { headers: browserHeaders });
       assert.equal(firstFrame.status, 503, 'first navigation fails before reaching the Host proxy');
       await firstFrame.arrayBuffer();
@@ -345,9 +344,7 @@ export default function (pi) {
       assert.equal(stillWaiting.chatUrl, chatUrl, 'reload can use the same deep link');
       assert.equal((await request(stock, '/api/sessiond/health')).activeSessions, 0);
     }
-    const beforeAdmission = performance.now();
     const app = await nativeFetch(deepLink, { headers: browserHeaders });
-    const afterAdmission = performance.now();
     assert.equal(app.status, 200);
     const entry = (await app.text()).match(/<script[^>]+src="(\.\/assets\/[^"]+\.js)"/);
     assert.ok(entry, 'stock HTML must retain its relative client entry');
@@ -388,6 +385,14 @@ export default function (pi) {
       eventsUrl.protocol = 'ws:';
       return new WebSocket(eventsUrl, { headers: browserHeaders, handshakeTimeout: 5000 });
     };
+    if (exerciseStartupWaits) {
+      // HTML and assets may load before a hidden browser runs its Chat bootstrap.
+      await delay(26_000);
+      const waitingForBrowser = await readSwitch();
+      assert.equal(waitingForBrowser.phase, 'opening');
+      assert.equal(waitingForBrowser.chatUrl, chatUrl);
+      assert.equal((await health()).activeSessions, 0);
+    }
     const startupDialogIds = new Set();
     if (exerciseStartupWaits) {
       startupEvents = connectEvents();
@@ -399,11 +404,13 @@ export default function (pi) {
       });
       await once(startupEvents, 'open', { signal: AbortSignal.timeout(5000) });
     }
+    const beforeAdmission = performance.now();
     const firstSnapshot = snapshot(60_000);
     void firstSnapshot.catch(() => {});
-    let beforeWriter;
+    let afterAdmission, beforeWriter;
     if (exerciseStartupWaits) {
       await until('original Pi startup question entered', () => existsSync(startupQuestionSeen));
+      afterAdmission = performance.now();
       const question = await until('stock startup status exposes the original question', async () => {
         const status = await api(`${ref}/status?${query}`);
         assert.equal(status.sessionId, id);

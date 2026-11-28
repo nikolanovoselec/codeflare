@@ -222,10 +222,11 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
         body = JSON.stringify(data);
       }
       startup?.throwIfAborted();
-      if (opening && req.method === 'GET' && runtime.binding && (
-        path === '/' && url.searchParams.get('session') === runtime.binding.id
-        || path === `/api/sessions/${runtime.binding.id}/transcript-snapshot` && url.searchParams.get('cwd') === runtime.cwd
-      )) runtime.beginChatAttachment();
+      // The shell can preload while the browser is suspended. Start the writer
+      // deadline only when stock boot requests its scoped transcript snapshot.
+      if (opening && req.method === 'GET' && runtime.binding
+        && path === `/api/sessions/${runtime.binding.id}/transcript-snapshot`
+        && url.searchParams.get('cwd') === runtime.cwd) runtime.beginChatAttachment();
       dispatched = true;
       // Node fetch can replace Host with the loopback authority. Stock checks
       // Host and Origin as a pair, so use Node HTTP with the verified public Host.

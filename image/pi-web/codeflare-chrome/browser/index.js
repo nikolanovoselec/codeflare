@@ -33,12 +33,32 @@ function hideEmptySessionTitle(context) {
     session?.messageCount === 0 && !session.name?.trim() && session.firstMessage === '(no messages)');
 }
 
-// Hide the menu only in Sessions when either visible tab can take the user
-// back to a view where the stock menu exposes pin settings.
-function hideRedundantNavigation(context) {
-  markStockControl(context, 'app-mobile-main-tabs', 'data-codeflare-direct-tabs', ({ tabs, controlsOnly, selectedTab }) =>
-    !controlsOnly && selectedTab === 'navigation' && tabs.some(({ id }) => id === 'chat')
-      && tabs.some(({ id }) => id === 'files:workspace.files'));
+// Keep the embedded stock tabs directly reachable without writing the user's
+// ordinary navigation preferences. Lit calls hostUpdate before rendering.
+function fixVibeNavigation({ lifetimeSignal }) {
+  const app = document.querySelector('pi-web-app');
+  if (!app?.navigationPreferences) return;
+  const pinnedIds = ['chat', 'files:workspace.files'];
+  const showNavigation = app.showNavigation;
+  const suppressNavigation = () => {};
+  let original;
+  let applied;
+  const update = () => {
+    const current = app.navigationPreferences;
+    if (current === applied) return;
+    original = current;
+    applied = { ...current, pinnedIds, mobileCollapsed: false };
+    app.navigationPreferences = applied;
+  };
+  const controller = { hostUpdate: update };
+  app.showNavigation = suppressNavigation;
+  app.addController(controller);
+  update();
+  lifetimeSignal.addEventListener('abort', () => {
+    app.removeController(controller);
+    if (app.showNavigation === suppressNavigation) app.showNavigation = showNavigation;
+    if (app.navigationPreferences === applied) app.navigationPreferences = original;
+  }, { once: true });
 }
 
 function markStockControl({ lifetimeSignal }, selector, attribute, matches) {
@@ -76,7 +96,7 @@ export default {
     activateTranscriptIntent(context);
     hideStaleConversationNotice(context);
     hideEmptySessionTitle(context);
-    hideRedundantNavigation(context);
+    fixVibeNavigation(context);
     return { contributions: {
       stylesheets: [{ id: 'footer', url: new URL('./footer.css', import.meta.url).href }],
     } };

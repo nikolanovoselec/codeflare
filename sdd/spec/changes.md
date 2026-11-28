@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-28: Vibe navigation and startup
+
+- Vibe always exposes [Chat and Files](agents.md#req-agent-289-embedded-chat-chrome) without the stock menu. [MultiView](terminal.md#req-term-012-multiview-virtual-session-workspace) remains available in Code only.
+- The [Vibe startup screen](agents.md#req-agent-275-classic-pi-chat-startup) waits for Open, even when document preload finishes while the browser is away.
+
 ## 2026-11-28: Graceful shutdown and repository recovery
 
 - For eligible sessions, idle timeout requests the same [graceful Stop](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) as the Stop button, including Hermes consolidation. A [verified no-op](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) does not need a model; a missing snapshot disables Retry without disabling Resume.

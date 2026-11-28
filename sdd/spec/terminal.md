@@ -669,7 +669,9 @@ None.
 3. MultiView never appears as a normal Dashboard session card. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-TERM-012: keeps MultiView virtual and opens it from the dashboard icon action) -->
 4. Opening MultiView renders one connected terminal surface for each selected backend session: internal terminal `1` for a Herdr member, or the selected classic terminal for a classic member, following each session's immutable terminal mode. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-TERM-012: renders one connected terminal pane for each visible MultiView member) -->
 5. Workspace switches preserve MultiView membership. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore visible pane ownership) -->
-6. When saved panes exist, Dashboard exposes an icon-only MultiView action beside the new-session button. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-TERM-012: keeps MultiView virtual and opens it from the dashboard icon action) -->
+6. In Code, when saved panes exist, Dashboard exposes an icon-only MultiView action beside the new-session button. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-TERM-012: keeps MultiView virtual and opens it from the dashboard icon action) -->
+
+7. Vibe hides the MultiView launch and reopen controls without deleting saved membership. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/components/SessionSwitcher.tsx::SessionSwitcher --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-012: keeps sessions selectable but hides MultiView in the Vibe switcher) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-TERM-012: hides saved MultiView from the Vibe Dashboard) -->
 
 **Constraints:**
 

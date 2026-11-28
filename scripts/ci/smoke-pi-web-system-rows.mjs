@@ -672,65 +672,42 @@ async function verifyStockTranscriptControls(child, origin) {
   const hamburger = `${mobileTabs}?.querySelector('.navigation-menu-button')`;
   const files = `${mobileTabs}?.querySelector('[title="Files"]')`;
   const chat = `${mobileTabs}?.querySelector('[title="Chat"]')`;
-  const openMobile = async (pinnedIds, readyTab) => {
-    await page(`localStorage.setItem('pi-web:navigation-preferences', ${JSON.stringify(JSON.stringify({ pinnedIds, mobileCollapsed: false }))})`);
-    const { loadedAt } = await state();
-    await page(`history.replaceState(null, '', ${JSON.stringify(app(bound))})`);
-    await send('Page.reload');
-    await until('mobile pinned tab ready', () => page(`performance.timeOrigin !== ${loadedAt} && Boolean((${readyTab})?.checkVisibility())`), Boolean);
-  };
   const filesId = 'files:workspace.files';
   const filesContent = `${appRoot}?.querySelector('workspace-panel')?.shadowRoot?.querySelector('[data-fixture-files]')`;
-  const filesSelected = `new URL(location.href).searchParams.get('tool') === '${filesId}' && Boolean((${filesContent})?.checkVisibility({ visibilityProperty: true, opacityProperty: true }))`;
-  const expectHiddenHamburger = () => until('Sessions open without redundant navigation', () => page(`(() => {
+  const chatSelected = `(${appRoot}?.querySelector('main')?.classList.contains('chat-view') && new URL(location.href).searchParams.get('view') === 'chat')`;
+  const expectFixedTabs = () => until('Chat and Files are directly available without a menu', () => page(`(() => {
     const button = ${hamburger};
     button?.focus();
     return Boolean((${chat})?.checkVisibility() && (${files})?.checkVisibility()
-      && new URL(location.href).searchParams.get('view') === 'navigation'
-      && button && !button.checkVisibility() && button.getClientRects().length === 0
-      && button.getRootNode().activeElement !== button);
+      && (!button || (!button.checkVisibility() && button.getClientRects().length === 0
+        && button.getRootNode().activeElement !== button)));
   })()`), Boolean);
-  await openMobile(['chat', filesId], files);
-  await press(files);
-  await until('Files content visible with both tabs pinned', () => page(filesSelected), Boolean);
-  await until('stock menu is reachable from Files with both tabs pinned', () => page(`Boolean((${hamburger})?.checkVisibility())`), Boolean);
-  const chatSelected = `(${appRoot}?.querySelector('main')?.classList.contains('chat-view') && new URL(location.href).searchParams.get('view') === 'chat')`;
-  await press(chat);
-  await until('pinned Chat tab opens directly from Files', () => page(chatSelected), Boolean);
-
-  const viaNavigation = async (label, arrived) => {
-    await until('stock navigation fallback', () => page(`Boolean((${hamburger})?.checkVisibility())`), Boolean);
-    await press(hamburger);
-    const destination = `Array.from(${appRoot}?.querySelector('navigation-dialog')?.shadowRoot?.querySelectorAll('button.destination-button') ?? []).find(button => button.textContent.trim() === ${JSON.stringify(label)})`;
-    await until(label + ' navigation destination', () => page(`Boolean((${destination})?.checkVisibility())`), Boolean);
-    await press(destination);
-    await until(label + ' destination opens', () => page(arrived), Boolean);
-  };
-  await openSessions();
-  await expectHiddenHamburger();
-  await press(chat);
-  await until('pinned Chat tab opens directly from Sessions', () => page(chatSelected), Boolean);
-
-  const unpin = async (label, tab) => {
-    const dialog = `${appRoot}?.querySelector('navigation-dialog')`;
-    await press(hamburger);
-    const pin = `${dialog}?.shadowRoot?.querySelector(${JSON.stringify(`button.pin-button[title="Unpin ${label}"]`)})`;
-    await until('stock unpin control for ' + label, () => page(`Boolean((${pin})?.checkVisibility())`), Boolean);
-    await press(pin);
-    await until(label + ' is no longer pinned', () => page(`!(${tab})`), Boolean);
-    await press(`${dialog}?.shadowRoot?.querySelector('button[aria-label="Close"]')`);
-    await until('stock navigation dialog closed', () => page(`!(${dialog})`), Boolean);
-  };
-  // Close the dialog in place so the picker keeps its initialized workspace.
-  await unpin('Files', files);
-  await openSessions();
-  await viaNavigation('Files', filesSelected);
-
-  await openMobile(['chat', filesId], files);
-  await press(files);
-  await until('pinned Files tab opens before unpinning Chat', () => page(filesSelected), Boolean);
-  await unpin('Chat', chat);
-  await viaNavigation('Chat', chatSelected);
+  for (const preferences of [{ pinnedIds: ['chat'], mobileCollapsed: true }, { pinnedIds: [filesId], mobileCollapsed: false }]) {
+    const saved = JSON.stringify(preferences);
+    await page(`localStorage.setItem('pi-web:navigation-preferences', ${JSON.stringify(saved)})`);
+    const { loadedAt } = await state();
+    await page(`history.replaceState(null, '', ${JSON.stringify(app(bound))})`);
+    await send('Page.reload');
+    await until('new mobile document', () => page(`performance.timeOrigin !== ${loadedAt} && Boolean(${picker})`), Boolean);
+    await expectFixedTabs();
+    await press(files);
+    await until('Files opens directly', () => page(`new URL(location.href).searchParams.get('tool') === '${filesId}' && Boolean((${filesContent})?.checkVisibility())`), Boolean);
+    await expectFixedTabs();
+    await openSessions();
+    await expectFixedTabs();
+    await press(chat);
+    await until('Chat opens directly from Sessions', () => page(chatSelected), Boolean);
+    assert.equal(await page(`localStorage.getItem('pi-web:navigation-preferences')`), saved);
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 1081, height: 844, deviceScaleFactor: 1, mobile: false });
+  await until('no desktop navigation hamburger', () => page(`(() => {
+    const root = ${appRoot};
+    if (!root?.querySelector('main.chat-view') || root.querySelector('app-context-bar')) return false;
+    return Array.from(root.querySelectorAll('app-mobile-main-tabs, workspace-panel'), host => host.shadowRoot)
+      .flatMap(shadow => Array.from(shadow?.querySelectorAll('[data-navigation-trigger]') ?? []))
+      .every(button => !button.checkVisibility() && button.getClientRects().length === 0);
+  })()`), Boolean);
+  await expectFixedTabs();
 }
 
 const profile = await mkdtemp(join(tmpdir(), 'pi-web-system-rows-'));

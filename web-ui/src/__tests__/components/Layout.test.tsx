@@ -778,7 +778,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   describe('REQ-AGENT-275: startup Open and the phone prompt', () => {
     it.each(['fresh empty', 'Resume', 'desktop', 'mouse on phone', 'keyboard activation', 'nonempty', 'unknown history',
       'native question', 'transcript question', 'stock modal', 'activity notice', 'replaced document', 'different conversation',
-      'switched attachment'] as const)(
+      'switched attachment', 'background until ready'] as const)(
       'opens the retained Chat in place: %s', async scenario => {
         navigationRendering.realTerminalArea = true;
         const id = 'abcdef0123456789';
@@ -809,6 +809,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
           ? { phase: 'complete', surface: 'chat', target: 'chat', requestId: `00000000-0000-4000-8000-00000000000${attachment + 2}`,
             chatUrl: `/api/pi-web/${id}/g/${generation}/a/00000000-0000-4000-8000-00000000000${attachment}/?project=p&workspace=w&session=native&view=chat` } : {}));
         vi.useFakeTimers();
+        const visibility = scenario === 'background until ready' ? vi.spyOn(document, 'visibilityState', 'get') : undefined;
+        const hidden = visibility ? vi.spyOn(document, 'hidden', 'get') : undefined;
         try {
           render(() => <Layout />);
           fireEvent.click(screen.getByRole('button', { name: creating ? 'Start fresh Vibe' : 'Start session' }));
@@ -860,8 +862,20 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
           let stock = stockDocument(frame.contentDocument);
           Object.defineProperty(frame, 'contentDocument', { get: () => stock.doc });
           expect(frame).not.toBeVisible();
+          if (visibility) {
+            visibility.mockReturnValue('hidden');
+            hidden?.mockReturnValue(true);
+            document.dispatchEvent(new Event('visibilitychange'));
+          }
           fireEvent.load(frame);
-          await vi.advanceTimersByTimeAsync(5000);
+          await vi.advanceTimersByTimeAsync(visibility ? 60_000 : 5000);
+          if (visibility) {
+            expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled();
+            expect(frame).not.toBeVisible();
+            visibility.mockReturnValue('visible');
+            hidden?.mockReturnValue(false);
+            document.dispatchEvent(new Event('visibilitychange'));
+          }
           if (scenario === 'replaced document') {
             stock = stockDocument(document.implementation.createHTMLDocument());
             fireEvent.load(frame);
@@ -872,7 +886,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
           fireEvent(open, new PointerEvent('click', { bubbles: true, composed: true,
             detail: scenario === 'keyboard activation' ? 0 : 1,
             pointerType: scenario === 'mouse on phone' || scenario === 'desktop' ? 'mouse' : 'touch' }));
-          if (scenario === 'fresh empty') {
+          if (scenario === 'fresh empty' || scenario === 'background until ready') {
             expect(stock.editorRoot.activeElement).toBe(stock.input);
             expect(stock.focusedWhileVisible).toEqual([true]);
           } else {
@@ -887,6 +901,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
           expect(frame.src).toBe(src);
           expect(frame).toBeVisible();
         } finally {
+          visibility?.mockRestore();
+          hidden?.mockRestore();
           cleanup();
           vi.useRealTimers();
           vi.unstubAllGlobals();
