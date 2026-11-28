@@ -651,6 +651,32 @@ it('REQ-MEM-044: a legacy Host receipt cannot authorize fixed-master success or 
   expect((await f.app().request(f.path(a))).status).toBe(200);
 });
 
+it('REQ-SESSION-043: Delete requeues a recovered session and preserves it when the save is refused', async () => {
+  const f = rig();
+  const process = await f.create(a);
+  const incident = 'delete-route-read';
+  expect(await repository.observeUnreachable(f.owner, a, 1, 1, incident, Date.now())).not.toBeNull();
+  process.save.release('disk-refused');
+  process.exit.release();
+  const claimStop = D1SessionRepository.prototype.claimStop;
+  const restoreBeforeClaim = vi.spyOn(D1SessionRepository.prototype, 'claimStop')
+    .mockImplementationOnce(async function (this: D1SessionRepository, ...args) {
+      expect(await repository.recoverUnreachable(f.owner, a, 1, 2, incident, stamp)).toBe(true);
+      return claimStop.apply(this, args);
+    });
+  try {
+    await expectAccepted(f.remove(a));
+    await vi.waitFor(async () => {
+      const session = (await f.batch())[a];
+      expect(session).toMatchObject({ status: 'stopping', pendingDelete: true });
+      expect(session?.shutdownPhase).toBeUndefined();
+    });
+    expect((await f.app().request(f.path(a))).status).toBe(200);
+    expect(process.native.running).toBe(true);
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:save-failed`]);
+  } finally { restoreBeforeClaim.mockRestore(); }
+});
+
 it('REQ-SESSION-043: retains an accepted Delete through finishing and removes the row only after confirmed exit', async () => {
   const f = rig();
   const A = await f.create(a);

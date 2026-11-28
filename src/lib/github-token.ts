@@ -382,6 +382,13 @@ export async function getValidGithubToken(env: Env, bucketName: string): Promise
   return typeof result === 'string' ? result : null;
 }
 
+function renewedGrant(previous: GithubConnection, current: GithubConnection | null): string | null {
+  if (!previous.login || current?.source !== 'app' || current.login?.toLowerCase() !== previous.login.toLowerCase()
+      || !current.refreshToken || current.refreshToken === previous.refreshToken || current.accessToken === previous.accessToken
+      || !current.expiresAt || needsAppRenewal(current)) return null;
+  return current.accessToken;
+}
+
 /** Distinguish temporary refresh outages without admitting expired credentials. */
 export async function resolveGithubToken(env: Env, bucketName: string): Promise<GithubTokenResolution> {
   const conn = readConnection(await readDeployKeys(env, bucketName));
@@ -393,10 +400,20 @@ export async function resolveGithubToken(env: Env, bucketName: string): Promise<
   try {
     const provider = await getGithubProvider(env);
     if (!provider || provider.source !== 'app') return null;
-    const refreshed = await provider.refresh(refreshToken);
+    let refreshed: GithubConnection;
+    try {
+      refreshed = await provider.refresh(refreshToken);
+    } catch (err) {
+      // A sibling request may already have rotated the refresh token.
+      const winner = renewedGrant(conn, readConnection(await readDeployKeys(env, bucketName)));
+      if (winner) return winner;
+      throw err;
+    }
     const current = readConnection(await readDeployKeys(env, bucketName));
-    // Refuse a replacement already visible to this read; KV is not an atomic write fence.
-    if (current?.source !== 'app' || current.refreshToken !== refreshToken) return null;
+    // Reuse only a visible same-account winner; never overwrite a replacement
+    // on this read. KV is not an atomic write fence.
+    if (current?.source !== 'app' || current.refreshToken !== refreshToken
+        || current.accessToken !== conn.accessToken || current.login !== conn.login) return renewedGrant(conn, current);
     refreshed.login ??= conn.login;
     await storeGithubConnection(env, bucketName, refreshed);
     return refreshed.accessToken;

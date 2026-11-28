@@ -16,6 +16,7 @@ export interface PiSwitchStatus {
   surface: PiSurface | null;
   target?: PiSurface;
   requestId?: string;
+  recovery?: 'reopen-session';
 }
 interface RebindAttempt {
   requestId: string;
@@ -155,7 +156,7 @@ export function createPiWebHandoff(options: Options) {
         }
         try { transcript = rebind.destination = await rebind.prepare(); }
         catch {
-          set({ ...attempt, phase: 'failed', surface: null });
+          set({ ...attempt, phase: 'failed', surface: null, recovery: 'reopen-session' });
           return status();
         }
       }

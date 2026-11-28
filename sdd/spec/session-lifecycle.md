@@ -260,6 +260,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 **Constraints:**
 
 - Fence passive Pi Chat admission and delivery too. <!-- @impl: src/container/index.ts::forwardPiWebRead --> <!-- @impl: src/container/index.ts::admitsPiWeb --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (rejects a passive Chat app read when graceful shutdown begins %s) -->
+- Delete rechecks queue eligibility when the same session generation recovers before a fallback Stop can be claimed. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/lib/session-repository.ts::claimStop --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-043: Delete requeues a recovered session and preserves it when the save is refused) -->
 - An unconfirmed save does not authorize force stop, consolidation or deletion. <!-- @impl: src/container/hermes-shutdown.ts::mergeAfterFinalSave --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-043: unconfirmed final sync (%s) preserves Delete target and holds its successor until authority is revoked) -->
 - [REQ-SESSION-045](#req-session-045-shutdown-card-presentation) owns card presentation.
 - Retired discard requests cannot stop or delete the session. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-043: retains a saved failed Delete after exit and advances the queue without deleting it) -->

@@ -44,6 +44,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Constraints:**
 
 - Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo gist read:org workflow read:user`; see [REQ-GITHUB-317](#req-github-317-additive-github-connection-and-scope-contract) AC4 and [REQ-GITHUB-013](#req-github-013-connected-github-tokens-grant-gist-access)); the GitHub App's equivalent permissions are fixed at registration and ignore the tier.
+- A losing App renewal can reuse only a visible, fresh rotation for the same account, never a cleared or different connection. <!-- @impl: src/lib/github-token.ts::resolveGithubToken --> <!-- @test: src/__tests__/lib/github-token.test.ts (REQ-GITHUB-001: reconciles a lost App renewal (%s, stored login %s)) -->
 - Enterprise GitHub Apps must be **internal** to the customer's enterprise.
 - GitHub connection controls use OAuth without manual token paste on the dashboard ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)); Settings → Integrations manages owner Cloudflare connections independently of administrator Browser Run credentials ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 - Keep non-Enterprise deploy-key PAT behavior; Enterprise direct-credential denial changes neither provider resolution nor legacy handling.

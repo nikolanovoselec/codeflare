@@ -287,6 +287,7 @@ test('REQ-AGENT-272: a rejected candidate cannot reopen or replace the committed
   const requestId = 'missing-candidate';
   const result = await handoff.rebindChat({ generation, requestId }, async () => { throw new Error('missing'); });
   assert.equal(result.phase, 'failed');
+  assert.equal(handoff.status().recovery, 'reopen-session');
   assert.equal(writer, null);
   await assert.rejects(handoff.switchTo({ generation, requestId, target: 'chat' }), /unavailable/);
   assert.equal(writer, null, 'an explicit retry cannot substitute the previous or a new transcript');

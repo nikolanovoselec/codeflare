@@ -1354,6 +1354,24 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { cleanup(); vi.unstubAllGlobals(); }
   });
 
+  it('REQ-AGENT-286: gives Stop and reopen guidance when the released Chat destination cannot be prepared', async () => {
+    navigationRendering.realTerminalArea = true;
+    const id = 'abcdef0123456789';
+    mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    vi.stubGlobal('fetch', async (url: string) => url.startsWith(`/api/pi-web/${id}/_switch`)
+      ? Response.json({ phase: 'failed', surface: null, target: 'chat', recovery: 'reopen-session',
+        requestId: 'd00c2f0c-c268-44ad-a23a-384e27941ad1' })
+      : Response.json({}));
+    try {
+      render(() => <Layout />);
+      const guidance = await screen.findAllByText('Stop and reopen the session to continue.');
+      expect(guidance.some(node => node.getAttribute('role') === 'status')).toBe(true);
+      expect(screen.queryByRole('button', { name: 'Retry switch' })).not.toBeInTheDocument();
+      expect(screen.queryByTitle('Pi Chat')).not.toBeInTheDocument();
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  });
+
   it('keeps the original native terminal reachable when a post-quit terminal switch needs a retry', async () => {
     navigationRendering.realTerminalArea = true;
     const sessionId = 'abcdef0123456789';

@@ -193,6 +193,31 @@ describe('getValidGithubToken', () => {
     expect(await getValidGithubToken(env(APP_ENV), BUCKET)).toBeNull();
   });
 
+  it.each([
+    ['provider rejected the stale refresh', 'octo', 'gho_winner'],
+    ['provider also returned a token', 'octo', 'gho_winner'],
+    ['provider rejected the stale refresh', 'different-account', null],
+    ['provider rejected the stale refresh', null, null],
+  ] as const)('REQ-GITHUB-001: reconciles a lost App renewal (%s, stored login %s)', async (outcome, login, expected) => {
+    mockKV._set(KEY, {
+      githubToken: 'gho_stale', githubTokenSource: 'app', githubRefreshToken: 'ghr_stale',
+      githubTokenExpiresAt: Date.now() - 1000, githubLogin: 'octo',
+    } satisfies DeployKeys);
+    const stored = login ? {
+      githubToken: 'gho_winner', githubTokenSource: 'app', githubRefreshToken: 'ghr_winner',
+      githubTokenExpiresAt: Date.now() + 3_600_000, githubLogin: login,
+    } satisfies DeployKeys : null;
+    mockFetch.mockImplementationOnce(async () => {
+      if (stored) mockKV._set(KEY, stored);
+      else await mockKV.delete(KEY);
+      return outcome === 'provider also returned a token'
+        ? ok({ access_token: 'gho_loser', refresh_token: 'ghr_loser', expires_in: 28_800 })
+        : { ok: false, status: 401, json: async () => ({ error: 'bad_refresh' }) };
+    });
+    expect(await getValidGithubToken(env(APP_ENV), BUCKET)).toBe(expected);
+    expect(await mockKV.get(KEY, 'json')).toEqual(stored);
+  });
+
   it('returns null when not connected', async () => {
     expect(await getValidGithubToken(env(), BUCKET)).toBeNull();
   });

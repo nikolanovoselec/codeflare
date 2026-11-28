@@ -1493,6 +1493,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 4. Chat history lists only retained root transcripts associated with the current Codeflare session. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
 5. Deep links, browser history, programmatic selection, and raw stock creation cannot replace the current writer. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) --> <!-- @test: scripts/ci/smoke-pi-web-system-rows.mjs (verifyStockTranscriptControls) -->
 6. A retired attachment cannot read or write the conversation even after the user selects the same transcript again. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualifyHistory) -->
+7. If the destination cannot be prepared after the source writer has released, offer Stop and reopen instead of Retry switch. <!-- @impl: host/src/pi-web-handoff.ts::createPiWebHandoff --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: host/__tests__/pi-web-handoff.test.js (REQ-AGENT-272: a rejected candidate cannot reopen or replace the committed transcript) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-AGENT-286: gives Stop and reopen guidance when the released Chat destination cannot be prepared) -->
 
 **Constraints:** Chat history excludes native forks, even when standalone Classic Terminal can resume them.
 
@@ -1500,7 +1501,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [Stock browser controls](../../scripts/ci/smoke-pi-web-system-rows.mjs), [Packaged handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs), [Host coordinator](../../host/__tests__/pi-web-handoff.test.js); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time)
+**Verification:** Automated: [Stock browser controls](../../scripts/ci/smoke-pi-web-system-rows.mjs), [Packaged handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs), [Host coordinator](../../host/__tests__/pi-web-handoff.test.js), [Workspace layout](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time)
 
 **Status:** Planned
 

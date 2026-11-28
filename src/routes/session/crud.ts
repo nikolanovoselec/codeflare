@@ -267,11 +267,21 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   } else {
     const containerId = getContainerId(bucketName, sessionId);
     const container = getContainer(c.env.CONTAINER, containerId) as unknown as {
-      stopSession(input: SessionStopRequest): Promise<void>;
+      stopSession(input: SessionStopRequest): Promise<boolean>;
     };
-    // The DO owns generation-fenced graceful teardown, including final sync.
+    // The DO owns teardown. Fence the lifecycle that selected the legacy path
+    // so a recovered Hermes session still goes through the queued save.
     try {
-      await container.stopSession({ bucket: bucketName, sessionId, generation });
+      const stopped = await container.stopSession({ bucket: bucketName, sessionId, generation,
+        expectedLifecycleState: session.lifecycleState });
+      if (stopped === false) {
+        const current = await repository.getSession(bucketName, sessionId);
+        if (current?.lifecycleGeneration === generation) {
+          const queuedAfterRecovery = await maybeQueueShutdown(c.env, current, true);
+          if (queuedAfterRecovery) return queuedAfterRecovery;
+        }
+        return c.json({ error: 'Session shutdown authority changed' }, 409);
+      }
       reqLogger.info('Destroyed container', { containerId });
     } catch (err) {
       reqLogger.warn('Could not confirm container destruction; preserving session for retry', {

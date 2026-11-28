@@ -157,7 +157,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     cancellation: AbortController; startup: { ready: boolean }; completion: Promise<void>;
   };
   private sessionConfigurationInFlight?: Promise<Response>;
-  private sessionStopInFlight?: SessionStopRequest & { completion: Promise<void> };
+  private sessionStopInFlight?: SessionStopRequest & { completion: Promise<boolean> };
   private sessionKillInFlight?: SessionStopRequest & { completion: Promise<void> };
 
   private hermesDirectGeneration?: number;
@@ -2081,11 +2081,11 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   /** Own claim through confirmation even if the invoking Worker disconnects. */
-  async stopSession(input: SessionStopRequest): Promise<void> {
+  async stopSession(input: SessionStopRequest): Promise<boolean> {
     return this.stopOwnedSession(input);
   }
 
-  private async stopOwnedSession(input: SessionStopRequest, shutdownIntent?: string): Promise<void> {
+  private async stopOwnedSession(input: SessionStopRequest, shutdownIntent?: string): Promise<boolean> {
     if (this.env.CONTAINER.idFromName(`${input.bucket}-${input.sessionId}`).toString() !== this.ctx.id.toString()) {
       throw new Error('Session stop address mismatch');
     }
@@ -2094,14 +2094,16 @@ export class container extends Container<Env> implements ContainerEnvState {
       if (pending.bucket !== input.bucket || pending.sessionId !== input.sessionId || pending.generation !== input.generation) {
         throw new Error('Another session stop generation is in progress');
       }
-      await pending.completion;
-      return;
+      const completed = await pending.completion;
+      if (completed || input.expectedLifecycleState) return completed;
+      // An unguarded Stop may proceed after a conditional Delete was refused.
+      return this.stopOwnedSession(input, shutdownIntent);
     }
     // Capture authority before ownership I/O: even a delayed old D1 reply
     // cannot authorize teardown after KILL or a replacement start supersedes it.
     const epoch = this._teardownEpoch;
     // Register the entire operation before any I/O, including its claim.
-    const completion: Promise<void> = Promise.resolve().then(() =>
+    const completion = Promise.resolve().then(() =>
       lifecycleStopSession(this.env, input, async owned => {
         if (this._teardownEpoch !== epoch || (shutdownIntent && this.sessionKillInFlight)) throw new Error('Session stop superseded');
         if (shutdownIntent) {
@@ -2129,7 +2131,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     });
     this.sessionStopInFlight = { ...input, completion };
     this.ctx.waitUntil(completion);
-    await completion;
+    return completion;
   }
 
   /** A caller-independent force lane, separate from any blocked graceful Stop. */

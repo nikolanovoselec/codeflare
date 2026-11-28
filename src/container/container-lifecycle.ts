@@ -80,6 +80,7 @@ export interface SessionStopRequest {
   bucket: string;
   sessionId: string;
   generation: number;
+  expectedLifecycleState?: D1Session['lifecycleState'];
 }
 
 // Non-secret lifecycle evidence, retained through graceful cleanup so a
@@ -117,17 +118,21 @@ function clearOperationalMemory(host: LifecycleHost): void {
 }
 
 /** Complete an owner-authorized Stop without depending on operational DO keys. */
-export async function stopSession(env: Env, input: SessionStopRequest, destroyContainer: (owned: D1Session) => Promise<void>, expectedIntent?: string): Promise<void> {
-  const { bucket, sessionId, generation } = input;
+export async function stopSession(env: Env, input: SessionStopRequest, destroyContainer: (owned: D1Session) => Promise<void>, expectedIntent?: string): Promise<boolean> {
+  const { bucket, sessionId, generation, expectedLifecycleState } = input;
   const repository = new D1SessionRepository(env.USAGE_DB);
   const current = await repository.getSession(bucket, sessionId);
   if (!current || current.lifecycleGeneration !== generation) throw new Error('Session stop generation changed');
-  if (current.lifecycleState === 'stopped') return;
+  if (expectedLifecycleState && current.lifecycleState !== expectedLifecycleState) return false;
+  if (current.lifecycleState === 'stopped') return true;
 
-  const claimed = current.lifecycleState === 'stopping'
-    ? current
-    : await repository.claimStop(bucket, sessionId, expectedIntent ?? crypto.randomUUID(), new Date().toISOString(), generation)
-      ?? await repository.getSession(bucket, sessionId);
+  let claimed = current.lifecycleState === 'stopping' ? current
+    : await repository.claimStop(bucket, sessionId, expectedIntent ?? crypto.randomUUID(), new Date().toISOString(),
+      generation, expectedLifecycleState);
+  // A refused conditional claim must return to shutdown routing, not adopt a
+  // Stop that may have been accepted after the legacy path was selected.
+  if (!claimed && expectedLifecycleState) return false;
+  claimed ??= await repository.getSession(bucket, sessionId);
   if (!claimed || claimed.lifecycleState !== 'stopping' || claimed.lifecycleGeneration !== generation
       || claimed.terminationGeneration !== generation || !claimed.terminationIntentId
       || (expectedIntent && claimed.terminationIntentId !== expectedIntent)) {
@@ -139,7 +144,7 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
   // Cancellation may yield to an observed exit or a newer lifecycle. Never
   // borrow its authority to destroy a replacement after that asynchronous fence.
   const owned = await repository.getSession(bucket, sessionId);
-  if (owned?.lifecycleGeneration === generation && owned.lifecycleState === 'stopped') return;
+  if (owned?.lifecycleGeneration === generation && owned.lifecycleState === 'stopped') return true;
   if (!owned || owned.lifecycleGeneration !== generation || owned.lifecycleState !== 'stopping'
       || owned.terminationGeneration !== generation || owned.terminationIntentId !== intentId) {
     throw new Error('Session stop ownership changed');
@@ -150,11 +155,12 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
     if (stopped?.lifecycleGeneration !== generation || stopped.lifecycleState !== 'stopped') {
       throw new Error('Confirmed exit could not be persisted');
     }
-    return; // The already-observed exit owns the confirmation event.
+    return true; // The already-observed exit owns the confirmation event.
   }
   logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
     incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: intentId,
     reason: queuedStopTrigger(owned.shutdown, expectedIntent) ?? 'user' });
+  return true;
 }
 
 /** Force destruction shares D1 ownership with Stop, but never its graceful I/O. */

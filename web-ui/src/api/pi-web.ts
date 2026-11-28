@@ -11,6 +11,7 @@ const statusSchema = z.object({
   target: surface.optional(),
   chatUrl: z.string().optional(),
   startupQuestion: z.boolean().optional(),
+  recovery: z.literal('reopen-session').optional(),
 });
 
 export type PiWebStatus = z.infer<typeof statusSchema>;

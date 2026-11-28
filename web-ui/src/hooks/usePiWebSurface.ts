@@ -94,6 +94,7 @@ export function createPiWebSurface(sessionId: string, generation: number) {
 
   const retryAttempt = () => {
     const current = status();
+    if (current?.recovery === 'reopen-session') return undefined;
     if ((current?.phase === 'failed' || current?.phase === 'uncertain') && current.requestId && current.target) {
       return { requestId: current.requestId, target: current.target };
     }
@@ -102,7 +103,7 @@ export function createPiWebSurface(sessionId: string, generation: number) {
 
   const select = (target: PiSurface) => {
     const current = status();
-    if (lifetime.signal.aborted || mutation() || isPiWebSwitchPending(current)) return;
+    if (lifetime.signal.aborted || mutation() || isPiWebSwitchPending(current) || current?.recovery === 'reopen-session') return;
     const retry = retryAttempt();
     if (!retry && current?.surface === target) return;
     if (retry && retry.target !== target) return;

@@ -458,8 +458,10 @@ const Layout: Component<LayoutProps> = (props) => {
     const fit = chatKeyboardFit();
     return fit && showOpenChatPanel() && fit.frame === shownChatStatus().frame ? fit.inset : 0;
   };
-  const piWebProblem = () => piWeb()?.mutationError()
-    ?? (piWeb()?.unavailable() && (piWebStatus() || awaitingChatStart()) ? 'Could not read the current Pi surface.' : undefined);
+  const piWebProblem = () => piWebStatus()?.recovery === 'reopen-session'
+    ? 'Stop and reopen the session to continue.'
+    : piWeb()?.mutationError()
+      ?? (piWeb()?.unavailable() && (piWebStatus() || awaitingChatStart()) ? 'Could not read the current Pi surface.' : undefined);
   const canCancelPiWeb = () => !!piWebStatus()?.requestId && piWeb()?.mutation() !== 'cancel';
   const retryPiWeb = () => {
     const handoff = piWeb();
