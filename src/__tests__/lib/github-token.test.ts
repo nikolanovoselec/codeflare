@@ -193,25 +193,30 @@ describe('getValidGithubToken', () => {
     expect(await getValidGithubToken(env(APP_ENV), BUCKET)).toBeNull();
   });
 
-  it.each([
-    ['provider rejected the stale refresh', 'octo', 3_600_000, 'gho_winner'],
-    ['provider also returned a token', 'octo', 3_600_000, 'gho_winner'],
-    ['provider rejected the stale refresh', 'different-account', 3_600_000, null],
-    ['provider rejected the stale refresh', null, 3_600_000, null],
-    ['provider also returned a token', 'octo', 60_000, null],
-  ] as const)('REQ-GITHUB-001: reconciles a lost App renewal (%s, stored login %s, expiry in %d ms)', async (outcome, login, expiryOffsetMs, expected) => {
+  it.each<[string, Partial<DeployKeys> | null, string | null, boolean?]>([
+    ['provider rejected the stale refresh', {}, 'gho_winner'],
+    ['provider also returned a token', {}, 'gho_winner', true],
+    ['same login with different casing', { githubLogin: 'Octo' }, 'gho_winner'],
+    ['different account', { githubLogin: 'different-account' }, null],
+    ['disconnected', null, null],
+    ['different provider', { githubTokenSource: 'oauth' }, null],
+    ['unchanged access token', { githubToken: 'gho_stale' }, null],
+    ['unchanged refresh token', { githubRefreshToken: 'ghr_stale' }, null],
+    ['no recorded expiry', { githubTokenExpiresAt: null }, null],
+    ['competing grant already due for renewal', { githubTokenExpiresAt: Date.now() + 60_000 }, null, true],
+  ])('REQ-GITHUB-001: reconciles a lost App renewal (%s)', async (_scenario, grant, expected, providerAlsoReturnedToken) => {
     mockKV._set(KEY, {
       githubToken: 'gho_stale', githubTokenSource: 'app', githubRefreshToken: 'ghr_stale',
       githubTokenExpiresAt: Date.now() - 1000, githubLogin: 'octo',
     } satisfies DeployKeys);
-    const stored = login ? {
+    const stored = grant === null ? null : {
       githubToken: 'gho_winner', githubTokenSource: 'app', githubRefreshToken: 'ghr_winner',
-      githubTokenExpiresAt: Date.now() + expiryOffsetMs, githubLogin: login,
-    } satisfies DeployKeys : null;
+      githubTokenExpiresAt: Date.now() + 3_600_000, githubLogin: 'octo', ...grant,
+    } satisfies DeployKeys;
     mockFetch.mockImplementationOnce(async () => {
       if (stored) mockKV._set(KEY, stored);
       else await mockKV.delete(KEY);
-      return outcome === 'provider also returned a token'
+      return providerAlsoReturnedToken
         ? ok({ access_token: 'gho_loser', refresh_token: 'ghr_loser', expires_in: 28_800 })
         : { ok: false, status: 401, json: async () => ({ error: 'bad_refresh' }) };
     });
