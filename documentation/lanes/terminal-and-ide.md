@@ -40,7 +40,7 @@ OPEN still renders the selected pane before viewport dimensions are known. Genui
 
 Browser Back or Dashboard during terminal startup selects a usable dashboard independently of any session's initialization latch. Startup and its progress/OPEN ownership continue in the background; returning restores progress or Ready without another Start or Stop while that state still belongs to the session. Background completion/failure cannot hide Dashboard or steal selection. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> [REQ-SESSION-037](../../sdd/spec/session-lifecycle.md#req-session-037-dashboard-navigation-remains-available-during-startup).
 
-Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); normal [Storage & Sync](storage-and-sync.md) retains the structural `session.json` and the current Herdr session’s exact Pi `agent-session-id` under private home metadata ([REQ-TERM-033](../../sdd/spec/terminal.md#req-term-033-durable-herdr-structural-session-recovery)). Pane output and arbitrary processes do not survive. Fresh Herdr Pi runs fullscreen and owns its transcript.
+Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); normal [Storage & Sync](storage-and-sync.md) retains the structural `session.json` and the current Herdr session’s exact Pi `agent-session-id` under private home metadata ([REQ-TERM-033](../../sdd/spec/terminal.md#req-term-033-durable-herdr-structural-session-recovery)). Pane output and arbitrary processes do not survive. Pi defaults to Regular; in Fullscreen, Pi owns its transcript.
 
 ### Pi Chat handoff acceptance
 
@@ -66,6 +66,15 @@ When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi
 
 - When the picker is available, choose Vibe or Code in the header before using a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
 - For [REQ-TERM-049](../../sdd/spec/terminal.md#req-term-049-shared-workspace-startup-progress), check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**.
+- Start Vibe, switch tabs during Chat bootstrap, and confirm `document.hidden` becomes true in the original tab. On return, the original startup screen should remain until Open reveals the same conversation.
+- Before starting Vibe in a disposable browser, set up capture on one clock for the initial iframe’s `load` event, frame identity and URL, tab visibility changes, and any frame replacement.
+- Block only the initial Chat document’s stock client module request. Start Vibe, confirm the iframe loaded the stock document with `data-pi-web-loading` still present, and verify no startup question is active.
+- Hide the tab for more than 30 seconds. After returning, confirm no frame replacement occurred during the hidden interval.
+- Starting at the initial stock iframe’s `load` event, add the visible time before hiding and after returning. At 30 seconds total, keep the tab visible for the separate one-second delay before the automatic same-URL replacement.
+- Let the replacement request its module without blocking it. Verify the original conversation becomes ready without a manual reload or recovery UI.
+- The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) simulates a failed Host writer start and verifies the same request retries with Open gated. Hosted writer-start recovery is unexercised.
+- Separately, the [Host smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) waits beyond the 25-second writer budget after passive preload. That budget does not start until a request can open the writer. The smoke does not establish browser visibility.
+- Mark hosted recovery unexercised if you cannot confirm visibility, the loading state, frame identity, or the relevant timing.
 - While waiting for Open, Vibe shows **Loading Chat** with the same one-decimal elapsed timer as the other startup steps and a loading icon that spins with default motion.
 - With a non-green theme accent, check the final startup row, not the subtitle. For **Loading Chat**, expect accent text and a muted-accent icon background.
 - When **Open** appears, the row still says **Loading Chat** with its final elapsed time, success text, and a muted-success icon background.
@@ -93,7 +102,7 @@ When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi
 - For each direction, record notice transitions as they happen; a success notice clears after five seconds. Confirm the destination answers a harmless prompt while the restore notice remains visible through the switch. <!-- @impl: web-ui/src/stores/session.ts::watchRepositoryRestore -->
 - Mark only that direction unexercised if you observe a restore outcome before the reply. A notice disappearing while restore is still active is a failure, not evidence of completion.
 - If the destination replies first, keep observing. Record **Repositories restored**, **Some repositories weren’t restored**, or no observed outcome. Disappearance alone proves neither outcome. See [REQ-GITHUB-320 AC2–3](../../sdd/spec/github.md#req-github-320-nonblocking-terminal-repository-restore-notice). <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
-- In a disposable browser check, block the first Chat frame navigation before it reaches the Host. Clear the block and choose **Reload Chat**. Verify the same conversation opens without a second handoff.
+- In a disposable browser check, block the first Chat frame navigation before it reaches the Host. Clear the block. Verify Chat retries automatically and opens the same conversation without a second handoff.
 - Verify unchanged workspace defaults, manually opened panes, and independent Browser VS Code behavior.
 
 #### Switch one writer at a time
@@ -116,7 +125,7 @@ For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-
   3. After the Host reports the handoff, verify Code stays visible until Chat attaches and only the original switch POST was sent.
 - For the acknowledged case, also require exactly one POST. If Chat attached before return, or the outgoing status was not observed in the unpublished case, mark that case unexercised. The Layout regression controls publication timing deterministically.
 
-- During Code-to-Vibe handoff, fail the first destination frame navigation. Verify Vibe reveals **Reload Chat** before normal readiness, then clear the failure and reload the same conversation without a new handoff.
+- During Code-to-Vibe handoff, fail the first destination frame navigation. Keep Code visible during recovery. Clear the failure and verify Vibe reveals the same conversation only when ready, without another handoff.
 - For [REQ-AGENT-286 AC7](../../sdd/spec/agents.md#req-agent-286-classic-chat-conversation-selection), the [Host coordinator test](../../host/__tests__/pi-web-handoff.test.js#L280-L295) injects a preparation failure after release and verifies that no replacement writer opens.
 - The [Layout test](../../web-ui/src/__tests__/components/Layout.test.tsx#L1357-L1373) supplies that failure status and verifies **Stop and reopen** guidance with no **Retry switch** button. It does not observe native writer ownership.
 - The manual post-release failure case remains unexercised until a reproducible fixture can trigger the failure and observe writer ownership. Failing frame navigation does not exercise this case.
@@ -188,10 +197,9 @@ Use these checks for the handoff header in [REQ-AGENT-272](../../sdd/spec/agents
 - With Codeflare still active, verify user messages have a tint and stronger leading border without fading text ([REQ-AGENT-288 AC5](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
 - On desktop and mobile, verify the stock Refresh and Actions controls are absent, including their keyboard focus stops. Confirm navigation is still usable ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 - Check that the sidebar omits Projects, its divider, and the stock title and mark. On mobile, check that the context header omits project, workspace, and machine identity ([REQ-AGENT-289 AC1–2](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome), [REQ-AGENT-290](../../sdd/spec/agents.md#req-agent-290-embedded-mobile-workspace-context)).
-- Verify Chat, Files, Sessions, New session, and the sidebar toggle remain usable. On mobile, pin Chat and Files.
-- Open the stock menu from Chat and unpin Files. Re-pin Files, switch to it, and open the menu to unpin Chat ([REQ-AGENT-289 AC3](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
-- Pin both tabs again, leave Sessions unpinned, and open Sessions from the session picker. Verify the hamburger takes no space or focus, then return using the pinned Chat tab.
-- With Files unpinned, open Sessions from the picker, then open Files from stock Navigation. Repeat with Chat unpinned by opening pinned Files first, then returning to Chat through stock Navigation.
+- Verify Chat, Files, Sessions, New session, and the sidebar toggle remain usable. Vibe hides the navigation hamburger at every width and does not expose pin controls.
+- Open Vibe with previously saved unpinned or collapsed tabs. Verify Chat and Files stay available, the hamburger takes no space or keyboard focus, and opening Sessions through the picker does not bring it back.
+- The [stock browser smoke](../../scripts/ci/smoke-pi-web-system-rows.mjs) compares the stored values before and after ([REQ-AGENT-289 AC3](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
 - The [pinned browser fixture](../../scripts/ci/smoke-pi-web-system-rows.mjs) checks that the stale notice is hidden and an interrupted refresh is visible. It does not exercise live recovery ([REQ-AGENT-289 AC4](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
 - Live recovery is **unexercised**. Proceed only with a disposable Chat and an authorized browser control that can isolate its open session-scoped `/events` WebSocket and hold reconnects. No such control has been verified; blocking new requests alone is insufficient.
 - To count live recovery, require evidence that the original socket closed, reconnects stayed blocked until the same session independently recorded the reply as complete, and a post-reconnect `transcript-snapshot` restored that reply in the retained frame without a reload.
@@ -204,11 +212,11 @@ Use these checks for the handoff header in [REQ-AGENT-272](../../sdd/spec/agents
 - Open a fresh Vibe conversation. Verify zero-height history and a usable composer. Above the phone breakpoint the header stays immediately above the frame; on phones only the Chat frame centers below the top-edge header ([REQ-AGENT-287](../../sdd/spec/agents.md#req-agent-287-empty-and-restored-vibe-layout)).
 - Send the first message. Verify Chat grows up and down without replacing the frame or losing composer focus. On phones, confirm the same header stays at the top.
 - Open a saved populated conversation and verify it starts full-size. Enable reduced motion and verify empty Chat expands instantly after the first message.
-- Open Files and return before sending a message; confirm Files gets the full panel. An early native question or a failed load must remain reachable without typing a message.
+- Open Files and return before sending a message; confirm Files gets the full panel. An early native question remains reachable without typing a message. For failed navigation, use the silent recovery check above.
 - On a phone, open and dismiss the keyboard in ready empty Chat. Verify the composer stays reachable ([REQ-AGENT-287 AC5](../../sdd/spec/agents.md#req-agent-287-empty-and-restored-vibe-layout)).
 - In Samsung Browser, lock then unlock the phone with Chat open, once empty and once populated. Check that the same frame visibly refits without a reload or another handoff ([REQ-AGENT-287 AC6](../../sdd/spec/agents.md#req-agent-287-empty-and-restored-vibe-layout)).
 - Save a different theme with **Use in this browser**, reload Codeflare, and reopen Chat. Verify the new choice is still selected and active ([REQ-AGENT-288 AC3](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
-- With the alternate theme saved after the first open, repeat the [failed frame navigation check](#switch-one-writer-at-a-time) and verify **Reload Chat** still opens the same conversation. Confirm navigation stays available ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
+- With the alternate theme saved after the first open, repeat the [failed frame navigation check](#switch-one-writer-at-a-time) and verify automatic recovery still opens the same conversation. Confirm navigation stays available ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 
 The [Chat wrapper tests](../../web-ui/src/__tests__/components/PiWebChat.test.tsx) check that fresh browsers have no stored override, previously saved overrides are cleared on first open, and later values survive wrapper remount. They supplement the browser checks; they do not verify the stock picker or rendered theme.
 
@@ -247,7 +255,7 @@ For [REQ-AGENT-019 AC3](../../sdd/spec/agents.md#req-agent-019-branded-settings-
 - Repeat with a batch one byte larger, then with 17 small attachments. Confirm that neither rejected batch saves any files.
 - Verify Chat and Files remain available and Info, Updates, MCP Manager, Tasks, and Relays are absent from stock navigation. This does not verify MCP configuration.
 - For [REQ-AGENT-282 AC1–2](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults), use a fresh browser and verify only Chat and Files are pinned on desktop and phone.
-- Change the pins and reopen Chat in the same browser to verify the saved choices win. Stock Navigation can re-pin Terminal or mobile Sessions; the default does not disable the required Terminal plugin.
+- Reopen Vibe in a browser with saved navigation preferences. Its fixed tabs stay available. The stock browser smoke verifies the saved values are unchanged. The required Terminal plugin remains enabled.
 - Recovering an already-pending question after refresh is not required. For a [recoverable initial Chat service failure](../../sdd/spec/agents.md#req-agent-283-initial-chat-service-recovery), retry the same transcript only after the previous attempt is confirmed closed.
 
 Workspace attachments survive Stop and Resume only with [full Workspace Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) and a successful sync. For independent persistence, use **Dashboard → Storage → Uploads**, then **Sync now** to read the files in `~/Uploads` in the running session.
@@ -291,7 +299,22 @@ The restore checks below apply only if Herdr handoff is enabled in a future rele
 
 OAuth shims print URLs rather than opening container browsers. The shared xterm link provider owns detection, reconstruction and browser opening. Classic retains activation; Herdr Ctrl-/Cmd-click and stationary mobile link taps open once without SGR input. Same-cell pointer jitter is allowed; moving cells cancels modified activation. Mobile link taps do not focus input or reset fullscreen history. Modified non-links still reach Herdr. Focused connected pane owns URL detection; cleanup is scoped to that session/terminal, never unscoped on ordinary unmount. <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> [REQ-TERM-015](../../sdd/spec/terminal.md#req-term-015-focused-pane-owns-url-detection), [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
 
-Terminal links exclude unmatched trailing closing parentheses from both the destination and clickable range, preserving balanced and percent-encoded parentheses. The existing desktop and touch auth-link controls also recognize `auth.openai.com` regardless of path. <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
+Detected plain-text links exclude unmatched trailing closing parentheses and sentence punctuation after a prose wrapper from the destination and clickable range. Internal, balanced, and percent-encoded parentheses are preserved. <!-- @impl: web-ui/src/lib/terminal-url-delimiters.ts::trimTerminalUrlParentheses --> <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider -->
+
+The existing desktop and touch auth-link controls also recognize `auth.openai.com` regardless of path. <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
+
+<a id="explicit-terminal-link-qualification"></a>
+#### Explicit terminal link qualification
+
+For [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation), print labeled OSC 8 links in a disposable Classic terminal. The labels are not plain-text URLs, so this exercises xterm’s explicit-link path.
+
+```sh
+printf '\033]8;;https://example.com/report)\007Explicit web link\033]8;;\007\n'
+printf '\033]8;;mailto:fixture@example.com\007Unsupported link\033]8;;\007\n'
+```
+
+- Click **Explicit web link** and decline. No tab opens. Click it again and approve. The initial navigation target must be exactly `https://example.com/report)`, before any redirect.
+- Click **Unsupported link**. It must not offer navigation confirmation or open a destination. Only HTTP(S) explicit links are eligible.
 
 ### Terminal evidence boundaries
 
@@ -521,7 +544,7 @@ Use authorized disposable Integration sessions on the selected image. These are 
 <a id="multiview-availability"></a>
 ### MultiView Availability
 
-Phone capacity is zero: shared `getTerminalViewportClass` hides MultiView launch and prevents tiled selection. Tablet capacity is two, desktop two–four. Saved browser membership survives being hidden; tablet/desktop can reopen `MultiView #1` if two eligible terminal members remain. Eligibility includes initializing sessions and mounted starting, running, unreachable or stopping lifecycles; stopped, errored and VS Code sessions are excluded. [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow).
+MultiView is available in Code on tablet (two panes) and desktop (two to four). It is hidden on phones and in Vibe. Vibe preserves saved membership; in Code, reopen `MultiView #1` if two eligible terminal members remain. Eligibility includes initializing sessions and mounted starting, running, unreachable or stopping lifecycles; stopped, errored and VS Code sessions are excluded. [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow).
 
 When choosing panes, active shutdown makes a session ineligible even if it still reports running. A selected session entering shutdown frees its slot; Cancel remains available if too few choices remain. Resume for unmerged memory is disabled while choosing panes. Resizing to a viewport without MultiView exits selection without launching. These rules do not change saved workspace membership. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard -->
 
@@ -643,7 +666,7 @@ Synchronized DEC 2026 frames remain whole byte-identical units across WS chunks,
 
 ### Herdr Viewport Ownership
 
-Fresh Pi starts `--tui-mode fullscreen`; Pi owns history. Codeflare queues/presents complete differential frames in order on the standard 33-ms cadence. The shared output pipeline bypasses read-hold for alternate-buffer application history; normal-buffer scrollback above the live bottom receives the bounded hold regardless of terminal mode. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite --> <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> [REQ-TERM-040](../../sdd/spec/terminal.md#req-term-040-stable-herdr-pane-scrollback).
+Pi defaults to Regular when no renderer is saved; explicit choices are preserved. In Fullscreen, Pi owns its application history. Codeflare queues/presents complete differential frames in order on the standard 33-ms cadence. The shared output pipeline bypasses read-hold for alternate-buffer application history; normal-buffer scrollback above the live bottom receives the bounded hold regardless of terminal mode. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite --> <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> [REQ-TERM-040](../../sdd/spec/terminal.md#req-term-040-stable-herdr-pane-scrollback).
 
 ### Viewport DOM Desync (instant yank to top)
 
@@ -833,6 +856,20 @@ AC6: On a tablet/desktop with two authorized running sessions, open the session 
 
 AC5: In disposable Classic and Herdr Bash sessions with only harmless clipboard fixtures, set the clipboard to `clipboard-before`, then emit `printf '\033]52;c;Y2xpcGJvYXJkLWFmdGVy\007'`. Inspect using the browser's ordinary clipboard paste into a disposable field. Classic must leave `clipboard-before` unchanged and request no Herdr write; Herdr may write `clipboard-after` only as browser permission allows. Repeat with clipboard permission denied: denial must remain authoritative. Never log clipboard content or send a read/query sequence; personal clipboard data is excluded. Restore only the disposable fixture, not private clipboard history.
 
+AC7: In a disposable desktop Classic Pi primary pane, select Fullscreen. Verify mouse tracking is active: an ordinary drag selects within Pi rather than showing xterm’s native selection. Start with a harmless clipboard sentinel such as `clipboard-before`.
+
+- In Pi’s `/settings`, note the current **Output padding** and set it to `0`. Enter `!printf '%s\n' START END` and confirm the output shows `START` and `END` on separate lines.
+- Drag from the first `S` to the final `D` in the output. Paste into another window without pressing Copy. The sentinel must be replaced by exactly these two lines:
+
+  ```text
+  START
+  END
+  ```
+
+- Verify an ordinary click and wheel still reach Pi, and unselected Ctrl+C still interrupts. Restore the previous **Output padding**. If the fixture or tracking state cannot be confirmed, leave this check unverified.
+
+This browser procedure checks a hard line break. The [drag-copy test](../../web-ui/src/__tests__/lib/terminal-drag-copy.test.ts) covers xterm soft wraps with a controlled buffer.
+
 <a id="req-term-036-manual-qualification"></a>
 ### Samsung single activation (REQ-TERM-036)
 
@@ -846,10 +883,11 @@ AC6: In Samsung Internet Herdr, tap Pi input and a Herdr control with the keyboa
 AC2/AC4: Inspect the exact image's “Verify packaged Herdr runtime” workflow evidence for pinned-binary `config check` and Help/Settings bindings. In the authorized browser session press Ctrl+B then ?, dismiss Help, then Ctrl+B then s. Pass only when Herdr opens Help and Settings respectively and browser bookmarks do not consume the prefix. Record unsupported OS-reserved combinations as outside browser control, not a promise to override the OS. Classic/unrelated-key handling stays unchanged.
 
 <a id="req-term-040-manual-qualification"></a>
-### Samsung fullscreen history during output (REQ-TERM-040)
+### Pi renderer selection and fullscreen history (REQ-TERM-040)
 
+AC1: In disposable Classic and managed Herdr Code sessions with no saved renderer, open Pi and check that `/settings` reports Regular. Set Fullscreen, stop the session, then resume it and confirm the launched Pi still uses Fullscreen. Record each mode separately; do not count a settings-file inspection as a launch check.
 
-AC3: On Samsung Internet in a fresh Herdr Pi fullscreen session with separately approved ongoing inference/output, scroll above the live bottom and stop touching the screen while output continues. Pass only if the chosen historical viewport remains stable with no mixed rows and without clicking to repair it; explicitly move the viewport afterward. Do not replace this with a Bash line stream: Pi owns this fullscreen transcript. Without an approved output/inference budget this remains blocked.
+AC3: On Samsung Internet, open a Herdr Pi session and explicitly select Fullscreen. With separately approved ongoing inference/output, scroll above the live bottom and stop touching the screen while output continues. Pass only if the chosen historical viewport remains stable with no mixed rows and without clicking to repair it; explicitly move the viewport afterward. Do not replace this with a Bash line stream: Pi owns this fullscreen transcript. Without an approved output/inference budget this remains blocked.
 
 <a id="req-mob-009-manual-qualification"></a>
 ### Chrome visibility-return focus ordering (REQ-MOB-009)

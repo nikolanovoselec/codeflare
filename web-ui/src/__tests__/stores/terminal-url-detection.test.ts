@@ -55,7 +55,7 @@ describe('terminal-url-detection / REQ-AGENT-013 / REQ-TERM-015 (browser shim fo
   ])('REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination', ({ url, auth }) => {
     const mockTerminal = { cols: 160, rows: 24, buffer: { active: {
       length: 1, viewportY: 0,
-      getLine: (index: number) => index === 0 ? { isWrapped: false, translateToString: () => `(${url})` } : undefined,
+      getLine: (index: number) => index === 0 ? { isWrapped: false, translateToString: () => `(${url}).` } : undefined,
     } } } as unknown as Terminal;
     let authUrl: string | null = null;
     let normalUrl: string | null = null;

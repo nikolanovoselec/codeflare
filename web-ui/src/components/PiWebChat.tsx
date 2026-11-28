@@ -16,7 +16,8 @@ interface PiWebChatProps {
   progressInMenu?: boolean;
   switchingTarget?: PiWebStatus['target'];
   onStartupReady?: (ready: boolean, focusPrompt?: () => void) => void;
-  onStartupFailure?: (failed: boolean) => void;
+  recoveryEnabled?: boolean;
+  retryBudget?: { attempts: number };
   onPanelSize?: (size?: ChatPanelSize) => void;
   onKeyboardInset?: (inset: number) => void;
   fitTabletKeyboard?: boolean;
@@ -66,7 +67,7 @@ function focusStockStartupPrompt(frame: HTMLIFrameElement, doc: Document, src: s
   } catch { /* The normal Open already revealed Chat. Never retry focus. */ }
 }
 
-function StockChatFrame(props: { src: string; keyboardInset: number; onStartupReady?: PiWebChatProps['onStartupReady']; onStartupFailure?: (failed: boolean) => void; onPanelSize?: PiWebChatProps['onPanelSize'] }) {
+function StockChatFrame(props: { src: string; keyboardInset: number; startupQuestion?: boolean; onStartupReady?: PiWebChatProps['onStartupReady']; onStartupFailure?: (failed: boolean) => void; onPanelSize?: PiWebChatProps['onPanelSize'] }) {
   // Pi Web 1.202611.5 prefers a saved browser theme to the gateway default.
   // Return to the Codeflare default once per origin, before the stock frame reads storage.
   try {
@@ -91,7 +92,14 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
   let sampleCompactHistory: (() => void) | undefined;
   createEffect(on(() => props.keyboardInset, () => sampleCompactHistory?.()));
   let accentObserver: MutationObserver | undefined;
-  const cancel = () => { observer?.disconnect(); accentObserver?.disconnect(); clearTimeout(timer); stopCompactWatch?.(); };
+  let stopBootstrapWatch: (() => void) | undefined;
+  let updateBootstrapWatch: (() => void) | undefined;
+  createEffect(on(() => props.startupQuestion, () => updateBootstrapWatch?.()));
+  const cancel = () => {
+    observer?.disconnect(); accentObserver?.disconnect(); clearTimeout(timer);
+    stopBootstrapWatch?.(); stopBootstrapWatch = undefined;
+    stopCompactWatch?.();
+  };
   const [compactHeight, setCompactHeight] = createSignal<number>();
   let expansionTimer: ReturnType<typeof setTimeout> | undefined;
   const compact = (height?: number, animate = false) => {
@@ -194,11 +202,45 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
     // Publish a handle to this document; only the startup Open gesture calls it.
     const focusPrompt = () => focusStockStartupPrompt(frame, doc, props.src);
     const root = doc.documentElement;
+    if (root.hasAttribute('data-pi-web-loading')) {
+      // Stock can mount before it is usable. Charge only foreground time
+      // outside a Host-confirmed native startup question.
+      let remaining = 30_000;
+      let started: number | undefined;
+      let bootstrapTimer: ReturnType<typeof setTimeout> | undefined;
+      const update = () => {
+        clearTimeout(bootstrapTimer);
+        const now = Date.now();
+        if (started !== undefined) remaining -= now - started;
+        started = undefined;
+        if (document.hidden || props.startupQuestion) return;
+        started = now;
+        bootstrapTimer = setTimeout(() => {
+          started = undefined;
+          if (!document.hidden && !props.startupQuestion && frame.isConnected && frame.contentDocument === doc
+            && root.hasAttribute('data-pi-web-loading')) {
+            remaining = 0;
+            props.onStartupFailure?.(true);
+          }
+        }, Math.max(0, remaining));
+      };
+      stopBootstrapWatch = () => {
+        clearTimeout(bootstrapTimer);
+        document.removeEventListener('visibilitychange', update);
+        updateBootstrapWatch = undefined;
+      };
+      updateBootstrapWatch = update;
+      document.addEventListener('visibilitychange', update);
+      update();
+    }
     const check = () => {
       clearTimeout(timer);
       if (root.hasAttribute('data-pi-web-loading')) {
         props.onStartupReady?.(false);
       } else {
+        stopBootstrapWatch?.();
+        stopBootstrapWatch = undefined;
+        props.onStartupFailure?.(false);
         timer = setTimeout(() => {
           if (frame.isConnected && frame.contentDocument === doc && !root.hasAttribute('data-pi-web-loading')) {
             if (doc === firstDocument && app.shadowRoot) {
@@ -223,7 +265,14 @@ export default function PiWebChat(props: PiWebChatProps) {
   const innerKeyboardInset = () => fitWorkspace() ? 0 : keyboardInset();
   createEffect(() => props.onKeyboardInset?.(fitWorkspace() ? keyboardInset() : 0));
   const [frameRevision, setFrameRevision] = createSignal(0);
+  const localRetryBudgets = new Map<string, { attempts: number }>();
   const [frameFailed, setFrameFailed] = createSignal(false);
+  const [foreground, setForeground] = createSignal(!document.hidden);
+  const syncVisibility = () => setForeground(!document.hidden);
+  onMount(() => {
+    document.addEventListener('visibilitychange', syncVisibility);
+    onCleanup(() => document.removeEventListener('visibilitychange', syncVisibility));
+  });
   onMount(() => {
     disableVirtualKeyboardOverlay();
     const media = window.matchMedia?.('(width > 640px) and (pointer: coarse)');
@@ -271,27 +320,38 @@ export default function PiWebChat(props: PiWebChatProps) {
 
   const frame = createMemo(() => {
     const src = frameUrl();
-    // A generation change always remounts the frame, even for the same deep link.
-    return src ? { src, generation: props.generation, revision: frameRevision() } : undefined;
+    frameRevision();
+    if (!src) return;
+    const attachment = new URL(src).pathname;
+    const budget = props.retryBudget ?? localRetryBudgets.get(attachment) ?? { attempts: 0 };
+    if (!props.retryBudget) localRetryBudgets.set(attachment, budget);
+    return { src, budget };
+  });
+
+  createEffect(() => {
+    const source = frame();
+    // Observe later failures even at the cap: readiness resets the budget in place.
+    if (!source || !frameFailed() || source.budget.attempts >= 2 || !foreground() || props.recoveryEnabled === false || props.status.startupQuestion) return;
+    const retry = setTimeout(() => {
+      if (frame() !== source || document.hidden || !frameFailed()) return;
+      source.budget.attempts++;
+      setFrameRevision(value => value + 1);
+    }, 1000);
+    onCleanup(() => clearTimeout(retry));
   });
 
   return (
     <section class="pi-web-chat" aria-label="Pi Chat" style={{ 'margin-block-end': `${innerKeyboardInset()}px` }}>
-      <Show when={frameUrl() && frameFailed()}>
-        <div class="pi-web-controls">
-          <button type="button" class="pi-web-action" onClick={() => setFrameRevision(value => value + 1)}>Reload Chat</button>
-        </div>
-      </Show>
       <PiWebSwitchControls progressInMenu={props.progressInMenu} phase={props.status.phase} target={props.switchingTarget ?? props.status.target}
         switching={!!props.switchingTarget} problem={props.problem}
         canCancel={props.canCancel} onCancel={props.onCancel} onRetry={props.onRetry} />
       <div class="pi-web-chat__space">
         <Show when={frame()} keyed
           fallback={<p role="status">{props.status.chatUrl ? 'Chat could not be opened.' : 'Preparing Chat…'}</p>}>
-          {source => <StockChatFrame src={source.src} keyboardInset={innerKeyboardInset()} onPanelSize={props.onPanelSize} onStartupReady={props.onStartupReady} onStartupFailure={failed => {
-            setFrameFailed(failed);
-            props.onStartupFailure?.(failed);
-          }} />}
+          {source => <StockChatFrame src={source.src} keyboardInset={innerKeyboardInset()} startupQuestion={props.status.startupQuestion} onPanelSize={props.onPanelSize} onStartupReady={(...result) => {
+            if (result[0]) source.budget.attempts = 0;
+            props.onStartupReady?.(...result);
+          }} onStartupFailure={setFrameFailed} />}
         </Show>
       </div>
     </section>

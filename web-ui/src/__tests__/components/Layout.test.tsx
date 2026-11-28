@@ -269,8 +269,8 @@ vi.mock('../../stores/terminal', () => ({
 vi.mock('../../stores/terminal-workspace', () => ({
   terminalWorkspaceStore: {
     reconcileMultiView: vi.fn(() => null),
-    getMultiViewCapacity: () => 0,
-    getActiveWorkspace: vi.fn(() => mockActiveWorkspace),
+    getMultiViewCapacity: vi.fn(() => 0),
+    getActiveWorkspace: vi.fn(() => { readSessionStoreVersion(); return mockActiveWorkspace; }),
     getVisiblePanes: vi.fn(() => {
       readSessionStoreVersion();
       return navigationRendering.realTerminalArea
@@ -776,126 +776,259 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   });
 
   describe('REQ-AGENT-275: startup Open and the phone prompt', () => {
-    it.each(['fresh empty', 'Resume', 'desktop', 'mouse on phone', 'keyboard activation', 'nonempty', 'unknown history',
+    const scenarios = ['fresh empty', 'Resume', 'desktop', 'mouse on phone', 'keyboard activation', 'nonempty', 'unknown history',
       'native question', 'transcript question', 'stock modal', 'activity notice', 'replaced document', 'different conversation',
-      'switched attachment'] as const)(
-      'opens the retained Chat in place: %s', async scenario => {
-        navigationRendering.realTerminalArea = true;
-        const id = 'abcdef0123456789';
-        const creating = scenario !== 'Resume';
-        const generation = creating ? 1 : 2;
-        const session: SessionWithStatus = { ...createMockSession(), id, workspace: 'terminal', terminalMode: 'classic', agentType: 'pi',
-          status: 'stopped', generation: generation - 1 };
-        mockPreferences = { defaultPiSurface: 'chat' };
-        mockPhone = scenario !== 'desktop';
-        mockSessions = creating ? [] : [session];
-        const [initializing, setInitializing] = createSignal(false);
-        vi.mocked(sessionStore.isSessionInitializing).mockImplementation(initializing);
-        vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Container ready' });
-        vi.mocked(sessionStore.dismissInitProgressForSession).mockImplementation(() => setInitializing(false));
-        if (creating) vi.mocked(sessionStore.createSession).mockImplementationOnce(async () => {
-          mockSessions = [session];
-          bumpSessionStoreVersion();
-          return session;
-        });
-        vi.mocked(sessionStore.startSession).mockImplementationOnce(async (_id, _surface, freshChat?: boolean) => {
-          if (freshChat) mockFreshChatStart = { id, generation };
-          mockSessions = [{ ...session, status: 'running', generation }];
-          setInitializing(true);
-          bumpSessionStoreVersion();
-        });
-        let attachment = 1;
-        vi.stubGlobal('fetch', async (url: string) => Response.json(url.endsWith(`/_switch?generation=${generation}`)
-          ? { phase: 'complete', surface: 'chat', target: 'chat', requestId: `00000000-0000-4000-8000-00000000000${attachment + 2}`,
-            chatUrl: `/api/pi-web/${id}/g/${generation}/a/00000000-0000-4000-8000-00000000000${attachment}/?project=p&workspace=w&session=native&view=chat` } : {}));
-        vi.useFakeTimers();
-        try {
-          render(() => <Layout />);
-          fireEvent.click(screen.getByRole('button', { name: creating ? 'Start fresh Vibe' : 'Start session' }));
-          await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).toBeInTheDocument());
-          if (scenario === 'switched attachment') {
-            const first = screen.getByTitle('Pi Chat');
-            attachment = 2;
-            await vi.advanceTimersByTimeAsync(5000);
-            await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).not.toBe(first));
+      'switched attachment', 'background until ready', 'startup attachment retry', 'conflicted startup retry', 'denied startup retry',
+      'persistent startup failure', 'frame-only startup retry'] as const;
+    it.each(scenarios)('opens the retained Chat in place: %s', runStartup);
+    it('does not reset an exhausted Chat frame on Dashboard return', () => runStartup('exhausted frame after Dashboard'));
+
+    async function runStartup(scenario: typeof scenarios[number] | 'exhausted frame after Dashboard') {
+      navigationRendering.realTerminalArea = true;
+      const id = 'abcdef0123456789';
+      const creating = scenario !== 'Resume';
+      const generation = creating ? 1 : 2;
+      const session: SessionWithStatus = { ...createMockSession(), id, workspace: 'terminal', terminalMode: 'classic', agentType: 'pi',
+        status: 'stopped', generation: generation - 1 };
+      mockPreferences = { defaultPiSurface: 'chat' };
+      mockPhone = scenario !== 'desktop';
+      mockSessions = creating ? [] : [session];
+      const [initializing, setInitializing] = createSignal(false);
+      vi.mocked(sessionStore.isSessionInitializing).mockImplementation(initializing);
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'ready', progress: 100, message: 'Container ready' });
+      vi.mocked(sessionStore.dismissInitProgressForSession).mockImplementation(() => setInitializing(false));
+      if (creating) vi.mocked(sessionStore.createSession).mockImplementationOnce(async () => {
+        mockSessions = [session];
+        bumpSessionStoreVersion();
+        return session;
+      });
+      vi.mocked(sessionStore.startSession).mockImplementationOnce(async (_id, _surface, freshChat?: boolean) => {
+        if (freshChat) mockFreshChatStart = { id, generation };
+        mockSessions = [{ ...session, status: 'running', generation }];
+        setInitializing(true);
+        bumpSessionStoreVersion();
+      });
+      let attachment = 1;
+      const retrying = ['startup attachment retry', 'conflicted startup retry', 'denied startup retry', 'persistent startup failure'].includes(scenario);
+      const rejected = scenario === 'denied startup retry';
+      const persistent = scenario === 'persistent startup failure';
+      let finishRetry!: () => void;
+      const pendingRetry = new Promise<void>(resolve => { finishRetry = resolve; });
+      const requestId = () => `00000000-0000-4000-8000-00000000000${retrying ? 3 : attachment + 2}`;
+      let retryCount = 0;
+      let conflict = false;
+      let postConflictReads = 0;
+      let releaseStatus!: () => void;
+      const delayedStatus = new Promise<void>(resolve => { releaseStatus = resolve; });
+      const failed = () => ({ phase: 'failed', surface: null, target: 'chat', requestId: requestId() });
+      const readyStatus = () => ({ phase: 'complete', surface: 'chat', target: 'chat', requestId: requestId(),
+        chatUrl: `/api/pi-web/${id}/g/${generation}/a/00000000-0000-4000-8000-00000000000${attachment}/?project=p&workspace=w&session=native&view=chat` });
+      vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+        if (retrying && url.endsWith('/_switch') && init?.method === 'POST') {
+          expect(JSON.parse(String(init.body))).toEqual({ generation, target: 'chat', requestId: requestId() });
+          retryCount++;
+          await pendingRetry;
+          if (rejected) return Response.json({}, { status: 403 });
+          if (persistent) return Response.json(failed());
+          if (scenario === 'conflicted startup retry' && retryCount === 1) {
+            conflict = true;
+            return Response.json({}, { status: 409 });
           }
-          const frame = screen.getByTitle('Pi Chat');
-          if (!(frame instanceof HTMLIFrameElement) || !frame.contentDocument) throw new Error('Expected the stock Chat frame');
-          const src = frame.src;
-          const stockDocument = (doc: Document) => {
-            if (!doc.body) {
-              doc.open();
-              doc.write('<!doctype html><html><body></body></html>');
-              doc.close();
+          attachment = 2;
+          return Response.json(readyStatus());
+        }
+        if (conflict && url.endsWith(`/_switch?generation=${generation}`)) {
+          postConflictReads++;
+          await delayedStatus;
+        }
+        return Response.json(url.endsWith(`/_switch?generation=${generation}`)
+          ? retrying && attachment === 1 ? failed() : readyStatus()
+          : {});
+      });
+      vi.useFakeTimers();
+      const visibility = scenario === 'background until ready' ? vi.spyOn(document, 'visibilityState', 'get') : undefined;
+      const hidden = visibility || retrying || scenario === 'frame-only startup retry' || scenario === 'exhausted frame after Dashboard' ? vi.spyOn(document, 'hidden', 'get').mockReturnValue(false) : undefined;
+      try {
+        render(() => <Layout />);
+        fireEvent.click(screen.getByRole('button', { name: creating ? 'Start fresh Vibe' : 'Start session' }));
+        if (retrying) {
+          await vi.waitFor(() => expect(screen.getAllByText('Loading Chat', { exact: true })[0]).toBeInTheDocument());
+          expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+          expect(screen.queryByText('Could not switch Pi surfaces.')).not.toBeInTheDocument();
+          expect(screen.queryByRole('button', { name: /reload chat|retry switch/i })).not.toBeInTheDocument();
+          hidden?.mockReturnValue(true);
+          document.dispatchEvent(new Event('visibilitychange'));
+          await vi.advanceTimersByTimeAsync(6000);
+          expect(retryCount).toBe(0);
+          hidden?.mockReturnValue(false);
+          document.dispatchEvent(new Event('visibilitychange'));
+          await vi.advanceTimersByTimeAsync(1500);
+          expect(retryCount).toBe(1);
+          expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+          if (rejected) {
+            fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeVisible();
+          }
+          finishRetry();
+          if (scenario === 'conflicted startup retry') {
+            await vi.advanceTimersByTimeAsync(3000);
+            expect(postConflictReads).toBeGreaterThan(0);
+            expect(retryCount).toBe(1);
+            releaseStatus();
+          }
+          await vi.advanceTimersByTimeAsync(15_000);
+          if (rejected || persistent) {
+            expect(retryCount).toBe(rejected ? 1 : 2);
+            expect(screen.queryByRole('button', { name: /^(open|reload chat|retry switch)$/i })).not.toBeInTheDocument();
+            expect(screen.queryByText('Could not switch Pi surfaces.')).not.toBeInTheDocument();
+            if (persistent) {
+              fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+              await vi.advanceTimersByTimeAsync(1000);
             }
-            Object.defineProperty(doc, 'URL', { value: src });
-            const app = doc.body.appendChild(Object.assign(doc.createElement('pi-web-app'), {
-              isRenderedModalOpen: () => scenario === 'stock modal', isChatVisible: () => true,
-            }));
-            const root = app.attachShadow({ mode: 'open' });
-            root.innerHTML = '<main class="chat-view"><conversation-layout><chat-view></chat-view>'
-              + '<div slot="composer"><prompt-editor></prompt-editor></div></conversation-layout></main>';
-            Object.assign(root.querySelector('conversation-layout')!, { questionActions: scenario === 'transcript question' ? {} : undefined });
-            Object.assign(root.querySelector('chat-view')!, { sessionId: 'native',
-              historyReady: scenario !== 'unknown history', messageTotal: scenario === 'nonempty' ? 1 : 0,
-              messages: scenario === 'nonempty' ? [{ role: 'system' }] : [], hasMore: false,
-              pendingDialogs: scenario === 'native question' ? [{}] : [], closedDialogs: [] });
-            const editor = root.querySelector('prompt-editor')!;
-            const editorRoot = editor.attachShadow({ mode: 'open' });
-            const input = editorRoot.appendChild(doc.createElement('div'));
-            input.className = 'cm-content';
-            input.setAttribute('contenteditable', 'true');
-            input.tabIndex = 0;
-            Object.defineProperty(input, 'getClientRects', { value: () => [new DOMRect(0, 0, 100, 20)] });
-            if (scenario === 'activity notice') editor.setAttribute('inert', '');
-            // Stand in for the pinned stock focus method; observe actual focus and the reveal at that moment.
-            const focusedWhileVisible: boolean[] = [];
-            Object.assign(editor, { disabled: false, sessionId: scenario === 'different conversation' ? 'other' : 'native',
-              projectId: 'p', workspaceId: 'w', focusInput: () => {
-                focusedWhileVisible.push(!frame.closest('[inert]') && frame.closest('main > .pi-web-chat')?.getAttribute('style')?.includes('visibility: hidden') !== true);
-                input.focus();
-              } });
-            return { doc, editorRoot, input, focusedWhileVisible };
+            fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
+            await vi.advanceTimersByTimeAsync(15_000);
+            expect(retryCount).toBe(rejected ? 1 : 2);
+            expect(screen.getAllByText('Loading Chat', { exact: true })[0]).toBeInTheDocument();
+            return;
+          }
+          expect(retryCount).toBe(scenario === 'conflicted startup retry' ? 2 : 1);
+        }
+        await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).toBeInTheDocument());
+        if (scenario === 'switched attachment') {
+          const first = screen.getByTitle('Pi Chat');
+          attachment = 2;
+          await vi.advanceTimersByTimeAsync(5000);
+          await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).not.toBe(first));
+        }
+        if (scenario === 'exhausted frame after Dashboard') {
+          const failFrame = () => {
+            const frame = screen.getByTitle('Pi Chat') as HTMLIFrameElement;
+            const doc = document.implementation.createHTMLDocument();
+            Object.defineProperty(doc, 'URL', { value: frame.src });
+            Object.defineProperty(frame, 'contentDocument', { value: doc });
+            fireEvent.load(frame);
+            return frame;
           };
-          let stock = stockDocument(frame.contentDocument);
-          Object.defineProperty(frame, 'contentDocument', { get: () => stock.doc });
+          for (let i = 0; i < 2; i++) {
+            const failedFrame = failFrame();
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(screen.getByTitle('Pi Chat')).not.toBe(failedFrame);
+          }
+          const exhausted = failFrame();
+          fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+          await vi.advanceTimersByTimeAsync(1000);
+          fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
+          await vi.advanceTimersByTimeAsync(0);
+          const returned = failFrame();
+          expect(returned).not.toBe(exhausted);
+          expect(returned.src).toBe(exhausted.src);
+          await vi.advanceTimersByTimeAsync(15_000);
+          expect(screen.getByTitle('Pi Chat')).toBe(returned);
+          expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+          return;
+        }
+        if (scenario === 'frame-only startup retry') {
+          const first = screen.getByTitle('Pi Chat') as HTMLIFrameElement;
+          const errorDoc = document.implementation.createHTMLDocument();
+          Object.defineProperty(errorDoc, 'URL', { value: first.src });
+          Object.defineProperty(first, 'contentDocument', { value: errorDoc });
+          fireEvent.load(first);
+          await vi.advanceTimersByTimeAsync(1000);
+          const recovered = screen.getByTitle('Pi Chat') as HTMLIFrameElement;
+          expect(recovered).not.toBe(first);
+          expect(recovered.src).toBe(first.src);
+        }
+        const frame = screen.getByTitle('Pi Chat');
+        if (!(frame instanceof HTMLIFrameElement) || !frame.contentDocument) throw new Error('Expected the stock Chat frame');
+        const src = frame.src;
+        const stockDocument = (doc: Document) => {
+          if (!doc.body) {
+            doc.open();
+            doc.write('<!doctype html><html><body></body></html>');
+            doc.close();
+          }
+          Object.defineProperty(doc, 'URL', { value: src });
+          const app = doc.body.appendChild(Object.assign(doc.createElement('pi-web-app'), {
+            isRenderedModalOpen: () => scenario === 'stock modal', isChatVisible: () => true,
+          }));
+          const root = app.attachShadow({ mode: 'open' });
+          root.innerHTML = '<main class="chat-view"><conversation-layout><chat-view></chat-view>'
+            + '<div slot="composer"><prompt-editor></prompt-editor></div></conversation-layout></main>';
+          Object.assign(root.querySelector('conversation-layout')!, { questionActions: scenario === 'transcript question' ? {} : undefined });
+          Object.assign(root.querySelector('chat-view')!, { sessionId: 'native',
+            historyReady: scenario !== 'unknown history', messageTotal: scenario === 'nonempty' ? 1 : 0,
+            messages: scenario === 'nonempty' ? [{ role: 'system' }] : [], hasMore: false,
+            pendingDialogs: scenario === 'native question' ? [{}] : [], closedDialogs: [] });
+          const editor = root.querySelector('prompt-editor')!;
+          const editorRoot = editor.attachShadow({ mode: 'open' });
+          const input = editorRoot.appendChild(doc.createElement('div'));
+          input.className = 'cm-content';
+          input.setAttribute('contenteditable', 'true');
+          input.tabIndex = 0;
+          Object.defineProperty(input, 'getClientRects', { value: () => [new DOMRect(0, 0, 100, 20)] });
+          if (scenario === 'activity notice') editor.setAttribute('inert', '');
+          // Stand in for the pinned stock focus method; observe actual focus and the reveal at that moment.
+          const focusedWhileVisible: boolean[] = [];
+          Object.assign(editor, { disabled: false, sessionId: scenario === 'different conversation' ? 'other' : 'native',
+            projectId: 'p', workspaceId: 'w', focusInput: () => {
+              focusedWhileVisible.push(!frame.closest('[inert]') && frame.closest('main > .pi-web-chat')?.getAttribute('style')?.includes('visibility: hidden') !== true);
+              input.focus();
+            } });
+          return { doc, editorRoot, input, focusedWhileVisible };
+        };
+        let stock = stockDocument(frame.contentDocument);
+        Object.defineProperty(frame, 'contentDocument', { get: () => stock.doc });
+        expect(frame).not.toBeVisible();
+        if (visibility) {
+          visibility.mockReturnValue('hidden');
+          hidden?.mockReturnValue(true);
+          document.dispatchEvent(new Event('visibilitychange'));
+        }
+        fireEvent.load(frame);
+        await vi.advanceTimersByTimeAsync(visibility ? 60_000 : 5000);
+        if (visibility) {
+          expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled();
           expect(frame).not.toBeVisible();
+          visibility.mockReturnValue('visible');
+          hidden?.mockReturnValue(false);
+          document.dispatchEvent(new Event('visibilitychange'));
+        }
+        if (scenario === 'replaced document') {
+          stock = stockDocument(document.implementation.createHTMLDocument());
           fireEvent.load(frame);
           await vi.advanceTimersByTimeAsync(5000);
-          if (scenario === 'replaced document') {
-            stock = stockDocument(document.implementation.createHTMLDocument());
-            fireEvent.load(frame);
-            await vi.advanceTimersByTimeAsync(5000);
-          }
-          expect(stock.editorRoot.activeElement).toBeNull();
-          const open = screen.getByRole('button', { name: 'Open' });
-          fireEvent(open, new PointerEvent('click', { bubbles: true, composed: true,
-            detail: scenario === 'keyboard activation' ? 0 : 1,
-            pointerType: scenario === 'mouse on phone' || scenario === 'desktop' ? 'mouse' : 'touch' }));
-          if (scenario === 'fresh empty') {
-            expect(stock.editorRoot.activeElement).toBe(stock.input);
-            expect(stock.focusedWhileVisible).toEqual([true]);
-          } else {
-            expect(stock.editorRoot.activeElement).toBeNull();
-            await vi.runOnlyPendingTimersAsync();
-            expect(stock.editorRoot.activeElement).toBeNull();
-            expect(stock.focusedWhileVisible).toEqual([]);
-          }
-          expect(open).not.toBeInTheDocument();
-          expect(screen.getByTitle('Pi Chat')).toBe(frame);
-          expect(frame.contentDocument).toBe(stock.doc);
-          expect(frame.src).toBe(src);
-          expect(frame).toBeVisible();
-        } finally {
-          cleanup();
-          vi.useRealTimers();
-          vi.unstubAllGlobals();
-          vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
-          vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
-          vi.mocked(sessionStore.dismissInitProgressForSession).mockReset();
         }
-      },
-    );
+        expect(stock.editorRoot.activeElement).toBeNull();
+        const open = screen.getByRole('button', { name: 'Open' });
+        fireEvent(open, new PointerEvent('click', { bubbles: true, composed: true,
+          detail: scenario === 'keyboard activation' ? 0 : 1,
+          pointerType: scenario === 'mouse on phone' || scenario === 'desktop' ? 'mouse' : 'touch' }));
+        if (scenario === 'fresh empty' || scenario === 'background until ready' || scenario === 'frame-only startup retry') {
+          expect(stock.editorRoot.activeElement).toBe(stock.input);
+          expect(stock.focusedWhileVisible).toEqual([true]);
+        } else {
+          expect(stock.editorRoot.activeElement).toBeNull();
+          await vi.runOnlyPendingTimersAsync();
+          expect(stock.editorRoot.activeElement).toBeNull();
+          expect(stock.focusedWhileVisible).toEqual([]);
+        }
+        expect(open).not.toBeInTheDocument();
+        expect(screen.getByTitle('Pi Chat')).toBe(frame);
+        expect(frame.contentDocument).toBe(stock.doc);
+        expect(frame.src).toBe(src);
+        expect(frame).toBeVisible();
+      } finally {
+        visibility?.mockRestore();
+        hidden?.mockRestore();
+        cleanup();
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+        vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+        vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
+        vi.mocked(sessionStore.dismissInitProgressForSession).mockReset();
+      }
+    }
   });
 
   it.each(['generation replacement', 'page exit'])('reuses the open Chat frame on Dashboard return and discards it on %s', async invalidation => {
@@ -1008,7 +1141,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { cleanup(); vi.unstubAllGlobals(); }
   }, 10000);
 
-  it.each(['acknowledged', 'unacknowledged', 'superseded', 'rejected', 'other tab'] as const)('restores the matching Chat attachment gate or saved preference after a %s handoff', async scenario => {
+  it.each(['acknowledged', 'unacknowledged', 'superseded', 'rejected', 'other tab', 'frame recovery'] as const)('restores the matching Chat attachment gate or saved preference after a %s handoff', async scenario => {
     navigationRendering.realTerminalArea = true;
     const first = 'abcdef0123456789';
     const second = 'fedcba9876543210';
@@ -1043,6 +1176,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         chatUrl: `/api/pi-web/${first}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` });
     });
     const dashboard = () => fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+    const hidden = scenario === 'frame recovery' ? vi.spyOn(document, 'hidden', 'get').mockReturnValue(false) : undefined;
     try {
       render(() => <Layout />);
       const mode = () => within(screen.getByRole('banner')).getByRole('button', { name: 'Workspace mode: Code Mode' });
@@ -1095,11 +1229,25 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         await waitFor(() => expect(switches).toEqual([first, first]));
         return;
       }
-      const frame = unpublished ? screen.getByTitle('Pi Chat') : await screen.findByTitle('Pi Chat');
+      let frame = unpublished ? screen.getByTitle('Pi Chat') : await screen.findByTitle('Pi Chat');
       expect(frame).not.toBeVisible();
       expect(screen.getByTestId('workspace-content')).toBeVisible();
-      if (!(frame instanceof HTMLIFrameElement)) throw new Error('Expected the stock Chat frame');
       if (!unpublished) vi.useFakeTimers();
+      if (hidden && frame instanceof HTMLIFrameElement) {
+        const failed = frame;
+        const errorDoc = document.implementation.createHTMLDocument();
+        Object.defineProperty(errorDoc, 'URL', { value: failed.src });
+        Object.defineProperty(failed, 'contentDocument', { value: errorDoc });
+        fireEvent.load(failed);
+        expect(screen.getByTestId('workspace-content')).toBeVisible();
+        expect(failed).not.toBeVisible();
+        await vi.advanceTimersByTimeAsync(1000);
+        frame = screen.getByTitle('Pi Chat');
+        expect(frame).not.toBe(failed);
+        expect(frame).not.toBeVisible();
+        expect(screen.getByTestId('workspace-content')).toBeVisible();
+      }
+      if (!(frame instanceof HTMLIFrameElement)) throw new Error('Expected the stock Chat frame');
       const doc = document.implementation.createHTMLDocument();
       Object.defineProperty(doc, 'URL', { value: frame.src });
       doc.body.innerHTML = '<pi-web-app></pi-web-app>';
@@ -1108,7 +1256,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await vi.advanceTimersByTimeAsync(5000);
       expect(frame).toBeVisible();
       expect(switches).toEqual([first]);
-    } finally { acknowledge(); cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); }
+    } finally { hidden?.mockRestore(); acknowledge(); cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); }
   });
 
   it.each(['workspace', 'Dashboard'] as const)('returns from %s Profile Usage to the same Chat without another writer request', async origin => {
@@ -1612,6 +1760,31 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       finishReload();
       vi.mocked(sessionStore.loadSessions).mockReset();
       Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    }
+  });
+
+  it('REQ-TERM-012: Code can open and close MultiView with Vibe saved for Dashboard', async () => {
+    navigationRendering.realHeader = true;
+    const id = 'abcdef0123456789';
+    const second = 'abcdef0123456780';
+    mockPreferences = { defaultPiSurface: 'chat' };
+    mockSessions = [id, second].map(id => createMockSession({ id, agentType: 'claude-code', status: 'running' }));
+    vi.mocked(terminalWorkspaceStore.getMultiViewCapacity).mockReturnValue(4);
+    vi.mocked(terminalWorkspaceStore.reconcileMultiView).mockReturnValue({ id: 'multiview:1', name: 'MultiView #1',
+      memberSessionIds: [id, second], focusedSessionId: id, layout: '2-split' });
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    try {
+      render(() => <Layout />);
+      const switcher = await screen.findByTestId('session-switcher');
+      fireEvent.click(switcher);
+      fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
+      expect(screen.getByTestId('session-switcher-name')).toHaveTextContent('MultiView #1');
+      if (!screen.queryByRole('button', { name: 'Close MultiView' })) fireEvent.click(switcher);
+      fireEvent.click(screen.getByRole('button', { name: 'Close MultiView' }));
+      await waitFor(() => expect(screen.queryByTestId('session-switcher')).not.toBeInTheDocument());
+    } finally {
+      vi.mocked(terminalWorkspaceStore.getMultiViewCapacity).mockReturnValue(0);
+      vi.mocked(terminalWorkspaceStore.reconcileMultiView).mockReturnValue(null);
     }
   });
 

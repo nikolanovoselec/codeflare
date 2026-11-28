@@ -8,13 +8,13 @@ export function isPiWebSwitchPending(status?: PiWebStatus): boolean {
 }
 
 /** A read-only observer by default, scoped to the selected session generation. */
-export function createPiWebSurface(sessionId: string, generation: number) {
+export function createPiWebSurface(sessionId: string, generation: number, onDefinitiveRejection?: (requestId: string) => void) {
   const [status, setStatus] = createSignal<PiWebStatus>();
   const [unavailable, setUnavailable] = createSignal(false);
   const [mutation, setMutation] = createSignal<'switch' | 'cancel'>();
   const [mutationError, setMutationError] = createSignal<string>();
   const [attempt, setAttempt] = createSignal<{ requestId: string; target: PiSurface }>();
-  const [rejectedSwitchId, setRejectedSwitchId] = createSignal<string>();
+  const [rejectedSwitch, setRejectedSwitch] = createSignal<{ id: string; status: number; observation: number }>();
   const lifetime = new AbortController();
   let read: AbortController | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -77,7 +77,10 @@ export function createPiWebSurface(sessionId: string, generation: number) {
       if (stillCurrent()) {
         const rejected = error instanceof ApiError && error.status >= 400 && error.status < 500;
         if (rejected && kind === 'switch') {
-          setRejectedSwitchId(requestId);
+          if (requestId) {
+            if (error.status !== 409) onDefinitiveRejection?.(requestId);
+            setRejectedSwitch({ id: requestId, status: error.status, observation });
+          }
           setAttempt(undefined);
         }
         setMutationError(kind === 'cancel'
@@ -124,7 +127,13 @@ export function createPiWebSurface(sessionId: string, generation: number) {
     unavailable,
     mutation,
     submittedSwitch: attempt,
-    rejectedSwitchId,
+    rejectedSwitchId: () => rejectedSwitch()?.id,
+    canRetryFailedStartup: (requestId: string) => {
+      const current = status();
+      const rejection = rejectedSwitch();
+      return !unavailable() && !mutation() && current?.phase === 'failed' && current.requestId === requestId
+        && (rejection?.id !== requestId || (rejection.status === 409 && observation > rejection.observation));
+    },
     switchingTarget: () => !mutationError() ? attempt()?.target : undefined,
     mutationError,
     select,

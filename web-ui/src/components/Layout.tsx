@@ -107,8 +107,20 @@ const Layout: Component<LayoutProps> = (props) => {
     return interrupted?.generation === generation && interrupted.requestId === status.requestId
       && status.target === 'chat' && (isPiWebSwitchPending(status) || status.phase === 'complete');
   };
+  // Recovery belongs to the running identity, not its observer or iframe.
+  const chatRecovery = new Map<string, { generation: number; writers: Map<string, { attempts: number; denied: boolean }>;
+    frames: Map<string, { attempts: number }> }>();
+  const recoveryFor = (id: string, generation: number) => {
+    const previous = chatRecovery.get(id);
+    if (previous?.generation === generation) return previous;
+    const next = { generation, writers: new Map<string, { attempts: number; denied: boolean }>(),
+      frames: new Map<string, { attempts: number }>() };
+    chatRecovery.set(id, next);
+    return next;
+  };
   const forgetChat = (id: string) => {
     interruptedChat.delete(id);
+    chatRecovery.delete(id);
     setRetainedChats(entries => entries.filter(entry => entry.frame.id !== id));
   };
   const [retainedTerminal, setRetainedTerminal] = createSignal<{ pane: VisibleTerminalPane; generation: number }>();
@@ -159,14 +171,20 @@ const Layout: Component<LayoutProps> = (props) => {
   // A parked Chat keeps its read-only status observer until evicted. Retaining
   // the observer avoids reapplying the Dashboard's default surface on return.
   const observers = new Map<ChatFrame['scope'], () => void>();
+  const startupSubmissions = new Map<ChatFrame['scope'], { id: string; generation: number }>();
   const activePi = createMemo((previous?: { id: string; generation: number; scope: ChatFrame['scope'] }) => {
     const id = piWebSid();
     const generation = piWebGeneration();
     if (!id || generation === undefined || generation < 1) return;
     if (previous && previous.id === id && previous.generation === generation) return previous;
     const parked = retainedChats().find(entry => entry.frame.id === id && entry.frame.generation === generation);
-    const scope = parked?.frame.scope ?? createRoot(dispose => {
-      const observer = createPiWebSurface(id, generation);
+    const submitting = [...startupSubmissions].find(([, owner]) => owner.id === id && owner.generation === generation)?.[0];
+    const scope = parked?.frame.scope ?? submitting ?? createRoot(dispose => {
+      const observer = createPiWebSurface(id, generation, requestId => {
+        const record = chatRecovery.get(id);
+        const retry = record?.generation === generation ? record.writers.get(requestId) : undefined;
+        if (retry) retry.denied = true;
+      });
       observers.set(observer, dispose);
       return observer;
     });
@@ -177,6 +195,9 @@ const Layout: Component<LayoutProps> = (props) => {
   createEffect(() => {
     const entries = retainedChats();
     const sessions = sessionStore.sessions;
+    for (const [id, { generation }] of chatRecovery) {
+      if (!sessions.some(session => session.id === id && session.generation === generation)) chatRecovery.delete(id);
+    }
     for (const [id, { generation }] of interruptedChat) {
       if (!sessions.some(session => session.id === id && session.generation === generation
         && session.status === 'running' && session.lifecycle !== 'stopping')) interruptedChat.delete(id);
@@ -206,6 +227,10 @@ const Layout: Component<LayoutProps> = (props) => {
       else if (submitting.mutation() === 'switch') keep.add(submitting);
       else entry.submitting = undefined;
     }
+    for (const scope of startupSubmissions.keys()) {
+      if (scope.mutation() === 'switch') keep.add(scope);
+      else startupSubmissions.delete(scope);
+    }
     for (const [scope, dispose] of observers) {
       if (!keep.has(scope)) { dispose(); observers.delete(scope); }
     }
@@ -231,7 +256,7 @@ const Layout: Component<LayoutProps> = (props) => {
     }
     const { frame, status } = shownChatStatus();
     if (displayed === 'chat' && frame && status?.surface === 'chat' && reported?.surface === 'chat'
-      && !sessionStore.isSessionInitializing(session.id) && !chatStartupFailed()) {
+      && !sessionStore.isSessionInitializing(session.id)) {
       setRetainedChats(entries => [...entries.filter(entry => entry.frame.id !== frame.id), { frame, status }].slice(-2));
     }
   };
@@ -309,10 +334,10 @@ const Layout: Component<LayoutProps> = (props) => {
     return (sessionStore.getTabOrder(session.id) ?? []).filter(id => ids.has(id)).slice(0, tiledSlotCount(tiling.layout));
   };
 
-  const [chatLoad, setChatLoad] = createSignal<{ frame: ChatFrame; state: 'ready' | 'failed'; focusPrompt?: () => void }>();
-  const chatLoadFor = (state: 'ready' | 'failed', requestId?: string) => {
+  const [chatLoad, setChatLoad] = createSignal<{ frame: ChatFrame; focusPrompt?: () => void }>();
+  const chatLoadFor = (requestId?: string) => {
     const load = chatLoad();
-    return load?.frame.scope === piWeb() && load?.state === state
+    return !!load && load.frame.scope === piWeb()
       && (requestId === undefined || load.frame.requestId === requestId);
   };
   const codeAttachment = createMemo((previous?: { scope: ReturnType<typeof piWeb>; requestId: string; terminalId: string }) => {
@@ -361,7 +386,7 @@ const Layout: Component<LayoutProps> = (props) => {
     if (isPiWebSwitchPending(status) && last) return { scope, surface: last };
     if (status.phase === 'complete' && status.requestId && last && status.surface && last !== status.surface) {
       const ready = status.surface === 'chat'
-        ? chatLoadFor('ready', status.requestId)
+        ? chatLoadFor(status.requestId)
         : attachedCode() !== undefined && attachedCode() === codeAttachment();
       if (!ready) return { scope, surface: last };
     }
@@ -375,7 +400,7 @@ const Layout: Component<LayoutProps> = (props) => {
       status?.phase === 'complete' && status.surface !== shown ? status.surface ?? undefined : undefined);
   };
   const prepareNativeTerminal = () => (handoffTarget() === 'terminal' && piWebStatus()?.surface === 'terminal')
-    || (handoffTarget() === 'chat' && displayedPi().surface === 'terminal' && !!(piWebStatus()?.startupQuestion || chatStartupFailed()));
+    || (handoffTarget() === 'chat' && displayedPi().surface === 'terminal' && !!piWebStatus()?.startupQuestion);
   const preparePiWebPanel = () => handoffTarget() === 'chat';
   const shownChatStatus = createMemo((previous?: { frame?: ChatFrame; status?: NonNullable<ReturnType<typeof piWebStatus>> }) => {
     const active = activePi();
@@ -401,13 +426,12 @@ const Layout: Component<LayoutProps> = (props) => {
     // Retain insertion-independent DOM order so changing selection never moves an iframe.
     return (active ? [...parked.slice(-1), active] : parked).sort((a, b) => a.id.localeCompare(b.id) || a.generation - b.generation);
   });
-  const reportChatLoad = (frame: ChatFrame, state: 'ready' | 'failed', value: boolean, focusPrompt?: () => void) => {
+  const reportChatLoad = (frame: ChatFrame, ready: boolean, focusPrompt?: () => void) => {
     if (shownChatStatus().frame !== frame) return;
-    if (value && state === 'ready' && interruptedChat.get(frame.id)?.requestId === frame.requestId) interruptedChat.delete(frame.id);
-    setChatLoad(previous => value ? { frame, state, focusPrompt } : previous?.frame === frame && previous.state === state ? undefined : previous);
+    if (ready && interruptedChat.get(frame.id)?.requestId === frame.requestId) interruptedChat.delete(frame.id);
+    setChatLoad(previous => ready ? { frame, focusPrompt } : previous?.frame === frame ? undefined : previous);
   };
-  const chatStartupReady = () => chatLoad()?.frame === shownChatStatus().frame && chatLoad()?.state === 'ready';
-  const chatStartupFailed = () => chatLoad()?.frame === shownChatStatus().frame && chatLoad()?.state === 'failed';
+  const chatStartupReady = () => !!chatLoad() && chatLoad()?.frame === shownChatStatus().frame;
   const freshChatOpen = createMemo((previous?: { start: FreshChatStart; frame?: ChatFrame; blocked: boolean }) => {
     const start = sessionStore.freshChatStart;
     if (!start) return;
@@ -419,7 +443,7 @@ const Layout: Component<LayoutProps> = (props) => {
     const ownScope = active?.id === start.id && active.generation === start.generation;
     const status = ownScope ? piWebStatus() : undefined;
     // Pin the first attachment of this launch, not a later replacement, retry or handoff.
-    const blocked = !!((prior?.frame && prior.frame !== frame) || (ownScope && (status?.startupQuestion || chatStartupFailed()
+    const blocked = !!((prior?.frame && prior.frame !== frame) || (ownScope && (status?.startupQuestion
       || piWebSwitchingTarget() || status?.surface === 'terminal'
       || (status && status.phase !== 'opening' && status.phase !== 'complete' && status.phase !== 'active'))));
     return { start, frame, blocked };
@@ -427,14 +451,18 @@ const Layout: Component<LayoutProps> = (props) => {
   const showPiWebPanel = createMemo(() => {
     const status = piWebStatus();
     const displayed = displayedPi().surface;
-    if (displayed) return displayed === 'chat' || !!status?.startupQuestion || (preparePiWebPanel() && chatStartupFailed());
+    if (displayed) return displayed === 'chat' || !!status?.startupQuestion;
     if (status) return status.surface !== 'terminal' && !(status.phase === 'failed' && status.target === 'terminal' && status.surface === null);
     if (selectedStartupSurface() === 'terminal') return false;
     return awaitingChatStart() || (!!piWeb() && piWebSession()?.status === 'running'
       && (!piWeb()?.unavailable() || !!piWeb()?.mutation() || !!piWeb()?.canRetry()));
   });
   createEffect(() => {
-    if (selectedStartupSurface() && piWebStatus()?.surface) setStartupSurface(undefined);
+    const opening = selectedStartupSurface();
+    const id = piWebSid();
+    if (opening && piWebStatus()?.surface && (opening !== 'chat' || !id || !sessionStore.isSessionInitializing(id))) {
+      setStartupSurface(undefined);
+    }
   });
   const [chatPanelSizes, setChatPanelSizes] = createSignal(new Map<ChatFrame, ChatPanelSize>());
   const activeChatPanelSize = () => {
@@ -468,6 +496,35 @@ const Layout: Component<LayoutProps> = (props) => {
     if (!modeAvailable() || !handoff?.canRetry()) return undefined;
     return () => { if (modeAvailable() && piWeb() === handoff) handoff.retry(); };
   };
+  // A failed Chat start with no remaining writer can retry its original
+  // request. Never auto-retry an uncertain writer or a user surface switch.
+  const retryableChatStart = () => {
+    const id = piWebSid();
+    const status = piWebStatus();
+    return showTerminal() && awaitingChatStart() && !!id && sessionStore.isSessionInitializing(id)
+      && status?.phase === 'failed' && status.target === 'chat' && status.surface === null
+      && !!status.requestId && !status.recovery;
+  };
+  const [chatForeground, setChatForeground] = createSignal(!document.hidden);
+  createEffect(() => {
+    const active = activePi();
+    const handoff = active?.scope;
+    const status = handoff?.status();
+    const requestId = status?.requestId;
+    if (!active || !handoff || !requestId || !retryableChatStart() || !handoff.canRetryFailedStartup(requestId) || !chatForeground()) return;
+    const { writers } = recoveryFor(active.id, active.generation);
+    const record = writers.get(requestId) ?? { attempts: 0, denied: false };
+    if (record.attempts >= 2 || record.denied) return;
+    const retry = setTimeout(() => {
+      if (document.hidden || record.denied || !retryableChatStart() || piWeb() !== handoff || handoff.status() !== status
+        || !handoff.canRetryFailedStartup(requestId)) return;
+      record.attempts++;
+      writers.set(requestId, record);
+      startupSubmissions.set(handoff, active);
+      handoff.retry();
+    }, 1000 * (record.attempts + 1));
+    onCleanup(() => clearTimeout(retry));
+  });
   const cancelPiWeb = () => piWeb()?.cancel();
   const saveMode = (target: PiSurface) => {
     if (modeAvailable()) void sessionStore.updatePreferences({ defaultPiSurface: target });
@@ -867,6 +924,7 @@ const Layout: Component<LayoutProps> = (props) => {
 
   // Auto-refresh sessions + storage when tab returns from background
   const handleVisibilityChange = () => {
+    setChatForeground(!document.hidden);
     if (!document.hidden) {
       sessionStore.refreshSessionStatuses?.();
       void storageStore.refreshListingOnReturn?.();
@@ -1180,7 +1238,10 @@ const Layout: Component<LayoutProps> = (props) => {
     finally { if (implicitAgent) setLaunchingVibe(false); }
   };
 
+  const vibeMode = () => (showDashboard() ? dashboardWorkspaceMode()?.value
+    : sessionWorkspaceMode()?.value) === 'chat';
   const handleOpenMultiView = () => {
+    if (vibeMode()) return;
     if (!terminalWorkspaceStore.openMultiView(
       sessionStore.sessions,
       (sessionId) => sessionStore.getTerminalsForSession(sessionId)?.activeTabId || '1',
@@ -1213,7 +1274,7 @@ const Layout: Component<LayoutProps> = (props) => {
       && status.surface === 'chat' && !status.startupQuestion
       && !piWeb()?.unavailable()
       && sessionStore.getActiveSession()?.status === 'running' && sessionStore.getInitProgressForSession(id)?.stage === 'ready'
-      && loaded?.frame === frame && loaded.state === 'ready' ? loaded.focusPrompt : undefined;
+      && loaded?.frame === frame ? loaded.focusPrompt : undefined;
     handleOpenSessionById(id);
     // Solid updates the retained wrapper synchronously. Stay on the Open click stack.
     if (shownChatStatus().frame === frame) focus?.();
@@ -1399,6 +1460,7 @@ const Layout: Component<LayoutProps> = (props) => {
             onDeleteSession={id => batch(() => { keepDashboardOwnership('replace'); void handleDeleteSession(id); })}
             onCreateSession={handleCreateSession}
             onOpenMultiView={handleOpenMultiView}
+            disableMultiView={vibeMode()}
             onCloseMultiView={handleCloseMultiView}
           />
         </Show>
@@ -1460,8 +1522,8 @@ const Layout: Component<LayoutProps> = (props) => {
             piWebTerminalConnect={handoffTarget() ? piWebStatus()?.surface === 'terminal' : undefined}
             piWebOpenReady={chatStartupReady() && piWebStatus()?.surface === 'chat' && !piWebStatus()?.startupQuestion}
             onOpenChatStartup={handleChatStartupOpen}
-            piWebShowDuringStartup={chatStartupFailed() || !!piWebStatus()?.startupQuestion
-              || piWebStatus()?.phase === 'failed' || piWebStatus()?.phase === 'uncertain'}
+            piWebShowDuringStartup={!!piWebStatus()?.startupQuestion
+              || (piWebStatus()?.phase === 'failed' && !retryableChatStart()) || piWebStatus()?.phase === 'uncertain'}
             retainPiWebPanel={retainedChats().length > 0}
             parkedTerminalPane={!showTerminal() ? parkedTerminalPane() : undefined}
             piWebTerminalStatus={
@@ -1473,9 +1535,11 @@ const Layout: Component<LayoutProps> = (props) => {
               <>
               <Show when={!shownChatStatus().frame && showTerminal() && (showPiWebPanel() || preparePiWebPanel())}>
                 <div class="pi-web-chat">
-                  <PiWebSwitchControls progressInMenu={modeAvailable()} phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
-                    switching={!!piWebSwitchingTarget()} problem={piWebProblem()} canCancel={canCancelPiWeb()}
-                    onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
+                  <Show when={!retryableChatStart()}>
+                    <PiWebSwitchControls progressInMenu={modeAvailable()} phase={piWebStatus()?.phase} target={piWebSwitchingTarget() ?? piWebStatus()?.target}
+                      switching={!!piWebSwitchingTarget()} problem={piWebProblem()} canCancel={canCancelPiWeb()}
+                      onCancel={cancelPiWeb} onRetry={retryPiWeb()} />
+                  </Show>
                   <Show when={!piWebStatus() && !piWebProblem()}>
                     <div class="pi-web-chat__space"><p role="status">{awaitingChatStart() ? 'Preparing Chat…' : 'Checking Pi surface…'}</p></div>
                   </Show>
@@ -1483,6 +1547,10 @@ const Layout: Component<LayoutProps> = (props) => {
               </Show>
               <For each={chatFrames()}>{frame => {
                 const selected = () => shownChatStatus().frame === frame;
+                const { frames } = recoveryFor(frame.id, frame.generation);
+                const attachment = frame.url.split('?', 1)[0];
+                const retryBudget = frames.get(attachment) ?? { attempts: 0 };
+                frames.set(attachment, retryBudget);
                 const parked = untrack(() => retainedChats().find(entry => entry.frame === frame)?.status ?? shownChatStatus().status!);
                 return <div class="pi-web-chat" style={{ display: selected() ? undefined : 'none' }}>
                   <PiWebChat sessionId={frame.id} generation={frame.generation} status={selected() ? shownChatStatus().status! : parked}
@@ -1490,8 +1558,8 @@ const Layout: Component<LayoutProps> = (props) => {
                     onPanelSize={size => reportChatPanelSize(frame, size)}
                     fitTabletKeyboard={selected() && showOpenChatPanel()}
                     onKeyboardInset={inset => { if (selected()) setChatKeyboardFit(inset > 0 ? { frame, inset } : undefined); }}
-                    onStartupReady={(ready, focus) => reportChatLoad(frame, 'ready', ready, focus)}
-                    onStartupFailure={failed => reportChatLoad(frame, 'failed', failed)}
+                    recoveryEnabled={selected() && showTerminal()} retryBudget={retryBudget}
+                    onStartupReady={(ready, focus) => reportChatLoad(frame, ready, focus)}
                     problem={selected() ? piWebProblem() : undefined} canCancel={selected() && canCancelPiWeb()}
                     switchingTarget={selected() ? piWebSwitchingTarget() : undefined} />
                 </div>;

@@ -58,6 +58,7 @@ const mockTerminalInstance = {
   cols: 80,
   rows: 24,
   options: { fontFamily: 'monospace', theme: {} },
+  modes: { mouseTrackingMode: 'none' },
   textarea: null,
   element: mockXtermElement,
   scrollLines: vi.fn(),
@@ -244,6 +245,46 @@ describe('useTerminal hook', () => {
   afterEach(() => {
     document.body.removeChild(containerEl);
     vi.restoreAllMocks();
+  });
+
+  it.each([true, false])('REQ-TERM-032 AC7: copies a tracked fullscreen drag only on a visible Classic Pi pane (visible=%s)', visible => {
+    const sessions = sessionState.sessions;
+    sessionState.sessions = [{ id: defaultProps.sessionId, name: 'Pi', agentType: 'pi' }];
+    vi.mocked(isTouchDevice).mockReturnValue(false);
+    const active = mockTerminalInstance.buffer.active;
+    const type = Object.getOwnPropertyDescriptor(active, 'type');
+    Object.defineProperty(active, 'type', { configurable: true, value: 'alternate' });
+    mockTerminalInstance.modes.mouseTrackingMode = 'drag';
+    active.getLine.mockReturnValue({ translateToString: () => 'copy-fixture', getCell: () => ({ getWidth: () => 1 }) } as never);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    vi.spyOn(mockXtermScreen, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 240));
+    const listeners = vi.spyOn(mockXtermScreen, 'addEventListener');
+    const dispose = createRoot(dispose => {
+      useTerminal({ ...defaultProps, terminalMode: 'classic', visible }).containerRef(containerEl);
+      return dispose;
+    });
+    try {
+      for (const [type, clientX] of [['pointerdown', 5], ['pointerup', 115]] as const) {
+        const listener = listeners.mock.calls.find(([name]) => name === type)?.[1] as EventListener | undefined;
+        const preventDefault = vi.fn();
+        listener?.({ isTrusted: true, isPrimary: true, pointerId: 1, pointerType: 'mouse',
+          button: 0, clientX, clientY: 5, preventDefault } as unknown as PointerEvent);
+        expect(preventDefault).not.toHaveBeenCalled();
+      }
+      if (visible) expect(writeText).toHaveBeenCalledExactlyOnceWith('copy-fixture');
+      else expect(writeText).not.toHaveBeenCalled();
+    } finally {
+      dispose();
+      if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+      active.getLine.mockReset().mockReturnValue(null);
+      if (type) Object.defineProperty(active, 'type', type);
+      else Reflect.deleteProperty(active, 'type');
+      mockTerminalInstance.modes.mouseTrackingMode = 'none';
+      sessionState.sessions = sessions;
+    }
   });
 
   it('reveals a prepared Code attachment without a hidden or duplicate initial resize', async () => {

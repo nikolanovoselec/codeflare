@@ -1220,6 +1220,13 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(defaultProps.onOpenSessionById).not.toHaveBeenCalledWith('multiview:1');
   });
 
+  it('REQ-TERM-012: hides saved MultiView from the Vibe Dashboard', () => {
+    mockMultiView = { id: 'multiview:1', memberSessionIds: ['sess1', 'sess2'] };
+    render(() => <Dashboard {...defaultProps} workspaceMode={{ value: 'chat', onSelect: () => {} }} />);
+    expect(screen.queryByRole('button', { name: 'Open MultiView' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('session-card-sess1')).toBeInTheDocument();
+  });
+
   it('REQ-TERM-013: reconciles MultiView against the current viewport after resize', async () => {
     render(() => <Dashboard {...defaultProps} />);
 

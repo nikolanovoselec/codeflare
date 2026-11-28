@@ -251,7 +251,8 @@ report_waiting_pane
 register_waiting_wrapper
 while true; do
     if read_ticket && (umask 077; set -o noclobber; : > "$tickets/$ticket") 2>/dev/null; then
-        args=("$@" --extension /opt/codeflare/pi-web/handoff-extension.ts)
+        # Herdr's saved wrapper argv is an identity marker, not a renderer override.
+        args=(--extension /opt/codeflare/pi-web/handoff-extension.ts)
         [ -z "$path" ] || args+=(--session "$path")
         (
             # This is the exact PID that execs Pi and that the wrapper waits on.

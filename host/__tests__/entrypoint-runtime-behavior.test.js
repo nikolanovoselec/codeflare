@@ -183,6 +183,23 @@ describe('entrypoint production helpers', () => {
     assert.equal(second.status, 0, second.stderr);
     assert.equal(readFileSync(settings, 'utf8'), before);
   });
+  it('REQ-TERM-040: defaults fresh and upgraded Pi profiles to Regular without replacing an explicit choice', (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-renderer-default-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    for (const [name, initial, expected] of [
+      ['fresh', undefined, 'regular'], ['restored', { quietMode: true }, 'regular'],
+      ['fullscreen', { tuiMode: 'fullscreen' }, 'fullscreen'], ['regular', { tuiMode: 'regular' }, 'regular'],
+    ]) {
+      const settings = join(root, `${name}.json`);
+      if (initial) writeFileSync(settings, JSON.stringify(initial));
+      const result = runFunction('configure_pi_packages_and_review_inventory', '', 'configure_pi_packages_and_review_inventory', { PI_SETTINGS_FILE: settings });
+      assert.equal(result.status, 0, result.stderr);
+      const configured = JSON.parse(readFileSync(settings, 'utf8'));
+      assert.equal(configured.tuiMode, expected, name);
+      if (initial?.quietMode) assert.equal(configured.quietMode, true);
+    }
+  });
+
   it('REQ-AGENT-012: Classic Codex launch honors Fast Start without changing user settings', () => {
     for (const fastStart of [undefined, 'true', 'false']) {
       const home = mkdtempSync(join(tmpdir(), 'classic-codex-fast-start-'));

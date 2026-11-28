@@ -3,6 +3,8 @@ import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import { mdiViewCompactOutline } from '@mdi/js';
 import SessionDropdown from '../../components/SessionDropdown';
+import SessionSwitcher from '../../components/SessionSwitcher';
+import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import { sessionStore } from '../../stores/session';
 import type { SessionWithStatus } from '../../types';
 
@@ -411,6 +413,27 @@ describe('SessionDropdown', () => {
   });
 
   describe('MultiView selection', () => {
+    it('REQ-TERM-012: selects sessions in Vibe and reopens the same saved members in Code', () => {
+      const onSelectSession = vi.fn();
+      const [vibe, setVibe] = createSignal(true);
+      const members = ['s1', 's3'];
+      const { sessions } = defaultProps;
+      expect(terminalWorkspaceStore.createOrUpdateMultiView(members, sessions, 'desktop')).toBe(true);
+      try {
+        render(() => <SessionSwitcher {...defaultProps} onSelectSession={onSelectSession} disableMultiView={vibe()}
+          onOpenMultiView={() => terminalWorkspaceStore.openMultiView(sessions)} />);
+        fireEvent.click(screen.getByTestId('session-switcher'));
+        expect(screen.queryByRole('button', { name: 'Launch MultiView' })).not.toBeInTheDocument();
+        fireEvent.click(screen.getByTestId('session-card-s3'));
+        expect(onSelectSession).toHaveBeenCalledWith('s3');
+        expect(screen.queryByTestId('session-dropdown')).not.toBeInTheDocument();
+        setVibe(false);
+        fireEvent.click(screen.getByTestId('session-switcher'));
+        fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
+        expect(terminalWorkspaceStore.getVisiblePanes().map(pane => pane.sessionId)).toEqual(members);
+      } finally { terminalWorkspaceStore.closeMultiView(); }
+    });
+
     it('REQ-TERM-013: keeps the dropdown open while toggling MultiView member sessions', () => {
       const onLaunchMultiView = vi.fn();
       render(() => (

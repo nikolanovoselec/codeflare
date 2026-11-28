@@ -9,14 +9,11 @@
   display: none;
 }
 
-/* Remove the stock controls without hiding the navigation trigger. */
-:host(app-context-bar) .context-actions > app-refresh-control,
-:host(app-context-bar) .context-actions > button.context-action-button:not([data-navigation-trigger]),
+/* Vibe has fixed Chat and Files tabs and an independent Sessions picker. */
+:host(app-context-bar) .context-actions,
+:host(app-mobile-main-tabs) [data-navigation-trigger],
+:host(workspace-panel) [data-navigation-trigger],
 :host(app-navigation-panel) .header-actions {
-  display: none;
-}
-
-:host(app-context-bar) .context-actions:not(:has(> [data-navigation-trigger])) {
   display: none;
 }
 
@@ -25,8 +22,7 @@
 :host(app-navigation-panel) header > machine-switcher,
 :host(app-navigation-panel) .navigation-sections > project-list,
 :host(app-navigation-panel) .navigation-sections > project-list + navigation-section-resize-handle,
-:host(app-context-bar) .context-items > .context-item:not(:last-child),
-:host(app-mobile-main-tabs[data-codeflare-direct-tabs]) .navigation-menu-button[data-navigation-trigger] {
+:host(app-context-bar) .context-items > .context-item:not(:last-child) {
   display: none;
 }
 

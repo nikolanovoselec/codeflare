@@ -63,7 +63,6 @@ interface DashboardProps {
 const Dashboard: Component<DashboardProps> = (props) => {
   const [collapseReady, setCollapseReady] = createSignal(false);
   const viewport = createTerminalViewportClass();
-  const multiViewWorkspace = createMemo(() => terminalWorkspaceStore.reconcileMultiView(props.sessions, viewport()));
   // Mobile-only: which single right-column face is visible (GitHub vs R2 storage).
   // GitHub leads — whenever it is enabled it is the DEFAULT face (the Connect card
   // until connected, the repo browser once connected), with a flip control to reach
@@ -73,6 +72,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   // by CSS, so there is nothing to flip. (REQ-GITHUB-007/010)
   const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');
   const vibe = () => props.workspaceMode?.value === 'chat';
+  const multiViewWorkspace = createMemo(() => vibe() ? null : terminalWorkspaceStore.reconcileMultiView(props.sessions, viewport()));
   const directPiLaunch = () => vibe() || (sessionStore.preferences.sessionMode === 'advanced'
     && sessionStore.preferences.defaultWorkspace === 'vscode' && sessionStore.allowedAgents?.includes('pi') === true);
   const [githubReturnError, setGithubReturnError] = createSignal<string | null>(null);

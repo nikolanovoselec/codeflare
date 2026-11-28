@@ -136,6 +136,58 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it('recovers a stalled Chat client after its foreground bootstrap budget', async () => {
+    vi.useFakeTimers();
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    const setHidden = (value: boolean) => {
+      hidden.mockReturnValue(value);
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    const stockDocument = (frame: HTMLIFrameElement, loading: boolean) => {
+      const doc = document.implementation.createHTMLDocument();
+      Object.defineProperty(doc, 'URL', { value: frame.src });
+      doc.body.appendChild(doc.createElement('pi-web-app')).attachShadow({ mode: 'open' });
+      doc.documentElement.toggleAttribute('data-pi-web-loading', loading);
+      Object.defineProperty(frame, 'contentDocument', { value: doc });
+      fireEvent.load(frame);
+    };
+    const ready = vi.fn();
+    const [question, setQuestion] = createSignal(false);
+    const view = render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={{ ...active, startupQuestion: question() }}
+      onCancel={() => {}} onStartupReady={ready} />);
+    try {
+      const first = chatFrame();
+      stockDocument(first, true);
+      await vi.advanceTimersByTimeAsync(10_000);
+      setHidden(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      setHidden(false);
+      await vi.advanceTimersByTimeAsync(10_000);
+      setQuestion(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      setQuestion(false);
+      await vi.advanceTimersByTimeAsync(9999);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      expect(chatFrame()).toBe(first);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(1000);
+      const replacement = chatFrame();
+      expect(replacement).not.toBe(first);
+      expect(replacement.src).toBe(first.src);
+      stockDocument(replacement, false);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(ready).toHaveBeenLastCalledWith(true, expect.any(Function));
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+    } finally {
+      view.unmount();
+      hidden.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('compacts only ready empty history and expands in place on the first message', async () => {
     vi.useFakeTimers();
     try {
@@ -315,24 +367,52 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it('reloads the same Chat frame only after a failed navigation, without switching writers', async () => {
-    const onRetry = () => { throw new Error('Reload must not dispatch a handoff'); };
-    const [status, setStatus] = createSignal<typeof active | (typeof opening & { target: 'chat'; chatUrl: string })>(
-      { ...opening, target: 'chat', chatUrl: CHAT_URL });
-    render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}
-      onCancel={() => {}} onRetry={onRetry} />);
-    const failedFrame = chatFrame();
-    expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
-    const errorDocument = document.implementation.createHTMLDocument();
-    Object.defineProperty(errorDocument, 'URL', { value: failedFrame.src });
-    Object.defineProperty(failedFrame, 'contentDocument', { value: errorDocument });
-    fireEvent.load(failedFrame);
-    await fireEvent.click(screen.getByRole('button', { name: 'Reload Chat' }));
-    expect(failedFrame).not.toBeInTheDocument();
-    expect(chatFrame().src).toBe(failedFrame.src);
-    expect(chatFrame()).toBeVisible();
-    setStatus(active);
-    expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+  it('recovers failed navigation at the same Chat URL without switching writers', async () => {
+    vi.useFakeTimers();
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    try {
+      const onRetry = () => { throw new Error('Reload must not dispatch a handoff'); };
+      const [status, setStatus] = createSignal<typeof active | (typeof opening & { target: 'chat'; chatUrl: string })>(
+        { ...opening, target: 'chat', chatUrl: CHAT_URL });
+      render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}
+        onCancel={() => {}} onRetry={onRetry} onStartupReady={() => {}} />);
+      const failedFrame = chatFrame();
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      const errorDocument = document.implementation.createHTMLDocument();
+      Object.defineProperty(errorDocument, 'URL', { value: failedFrame.src });
+      Object.defineProperty(failedFrame, 'contentDocument', { value: errorDocument });
+      fireEvent.load(failedFrame);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(failedFrame).not.toBeInTheDocument();
+      expect(chatFrame().src).toBe(failedFrame.src);
+      expect(chatFrame()).toBeVisible();
+      const second = chatFrame();
+      Object.defineProperty(second, 'contentDocument', { value: errorDocument });
+      fireEvent.load(second);
+      await vi.advanceTimersByTimeAsync(1000);
+      const last = chatFrame();
+      expect(last).not.toBe(second);
+      Object.defineProperty(last, 'contentDocument', { configurable: true, value: errorDocument });
+      fireEvent.load(last);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(chatFrame()).toBe(last);
+      const good = document.implementation.createHTMLDocument();
+      Object.defineProperty(good, 'URL', { value: last.src });
+      good.body.appendChild(good.createElement('pi-web-app'));
+      let currentDocument = good;
+      Object.defineProperty(last, 'contentDocument', { configurable: true, get: () => currentDocument });
+      fireEvent.load(last);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(chatFrame()).toBe(last);
+      currentDocument = errorDocument;
+      fireEvent.load(last);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(chatFrame()).not.toBe(last);
+      expect(chatFrame().src).toBe(last.src);
+      setStatus(active);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+    } finally { hidden.mockRestore(); vi.useRealTimers(); }
   });
 
   it('REQ-AGENT-273 AC1: announces the destination without replacing the source frame', async () => {

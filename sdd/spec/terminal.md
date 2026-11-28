@@ -669,7 +669,9 @@ None.
 3. MultiView never appears as a normal Dashboard session card. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-TERM-012: keeps MultiView virtual and opens it from the dashboard icon action) -->
 4. Opening MultiView renders one connected terminal surface for each selected backend session: internal terminal `1` for a Herdr member, or the selected classic terminal for a classic member, following each session's immutable terminal mode. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-TERM-012: renders one connected terminal pane for each visible MultiView member) -->
 5. Workspace switches preserve MultiView membership. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore visible pane ownership) -->
-6. When saved panes exist, Dashboard exposes an icon-only MultiView action beside the new-session button. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-TERM-012: keeps MultiView virtual and opens it from the dashboard icon action) -->
+6. In Code, when saved panes exist, Dashboard exposes an icon-only MultiView action beside the new-session button. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-TERM-012: keeps MultiView virtual and opens it from the dashboard icon action) -->
+
+7. Vibe hides the MultiView launch and reopen controls without deleting saved membership. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/components/SessionSwitcher.tsx::SessionSwitcher --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-012: selects sessions in Vibe and reopens the same saved members in Code) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-TERM-012: hides saved MultiView from the Vibe Dashboard) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-012: Code can open and close MultiView with Vibe saved for Dashboard) -->
 
 **Constraints:**
 
@@ -681,7 +683,7 @@ None.
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
-**Verification:** Automated: [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [TerminalGrid.test.tsx](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [FloatingTerminalButtons.test.tsx](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx)
+**Verification:** Automated: [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [TerminalGrid.test.tsx](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [FloatingTerminalButtons.test.tsx](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx)
 
 **Status:** Implemented
 
@@ -695,7 +697,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. The session switcher exposes a `Launch MultiView` control with the compact-view icon only when at least two sessions are running or initializing on tablet or desktop, and hides the control on mobile. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/MultiViewActionRow.tsx::MultiViewActionRow --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (SessionDropdown) -->
+1. In Code, the session switcher exposes a `Launch MultiView` control with the compact-view icon only when at least two sessions are running or initializing on tablet or desktop, and hides the control on mobile. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/MultiViewActionRow.tsx::MultiViewActionRow --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (SessionDropdown) --> <!-- @impl: web-ui/src/components/Layout.tsx::vibeMode --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-012: Code can open and close MultiView with Vibe saved for Dashboard) -->
 2. Activating the control enters selection mode, keeps the switcher open, and turns running or initializing session rows into toggleable choices. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (SessionDropdown) -->
 3. The control exits selection mode without launching when fewer than two sessions are selected. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: rejects selection beyond desktop capacity without changing selected sessions) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013 AC3: exits selection below two members without launching or navigating) -->
 4. The control launches MultiView when at least two sessions are selected. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionSwitcher.test.tsx (REQ-TERM-013: creates MultiView from selected session ids and delegates opening to Layout) -->
@@ -973,10 +975,12 @@ None.
 4. Visible Herdr panes forward accepted OSC 52 writes to the browser clipboard even when the separate desktop right-click paste setting is disabled, because Herdr copy is an explicit user action. A hidden retained pane consumes the output without writing or replaying it. <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (consumes Herdr clipboard output without writing while the retained pane is hidden) --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-032: writes Herdr OSC 52 copy output even when desktop paste access is disabled) -->
 5. Herdr clipboard-write handling does not apply to Classic sessions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send the same clipboard control sequence to classic and confirm no browser clipboard write occurs. -->
 6. `Ctrl+V` or `Cmd+V` pastes retained rejected clipboard text when available; otherwise it reads the browser clipboard during the key gesture and pastes the result into the active terminal. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (pastes browser clipboard text through xterm on Ctrl+V) -->
+7. When fullscreen mouse tracking owns selection, an ordinary desktop drag in the visible Classic Pi primary pane copies nonblank displayed text, preserving hard line breaks but not inserting breaks at soft wraps. <!-- @impl: web-ui/src/lib/terminal-drag-copy.ts::attachTerminalDragCopy --> <!-- @test: web-ui/src/__tests__/lib/terminal-drag-copy.test.ts (Classic fullscreen browser clipboard) --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-032 AC7: copies a tracked fullscreen drag only on a visible Classic Pi pane (visible=%s)) -->
 
 **Constraints:**
 
 - OSC 52 accepts only the standard `c` selector, valid base64, valid UTF-8 text, and at most 64 KiB decoded content.
+- Classic drag-to-copy does not consume Pi mouse input or authorize clipboard writes from terminal output.
 - Browser clipboard permission remains authoritative.
 - Clipboard read queries and clipboard content are never logged.
 - No second clipboard service is installed.
@@ -985,7 +989,7 @@ None.
 
 **Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards)
 
-**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [osc52.test.ts](../../web-ui/src/__tests__/lib/osc52.test.ts); Manual: [REQ-TERM-032 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-032-manual-qualification)
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [osc52.test.ts](../../web-ui/src/__tests__/lib/osc52.test.ts), [terminal-drag-copy.test.ts](../../web-ui/src/__tests__/lib/terminal-drag-copy.test.ts); Manual: [REQ-TERM-032 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-032-manual-qualification)
 
 **Status:** Implemented
 
@@ -1058,7 +1062,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A fresh Pi launched by a Herdr session starts in Pi fullscreen mode. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (waits for live Pi integration on a fresh start) -->
+1. Interactive Pi defaults to Regular when no renderer is saved. An explicit renderer choice remains effective in Herdr and Classic. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-TERM-040: defaults fresh and upgraded Pi profiles to Regular without replacing an explicit choice) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#req-term-040-manual-qualification -->
 2. Complete Herdr screen updates are presented on the standard output schedule and in arrival order. <!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-delivery.test.ts (delivers every complete frame on schedule and in order) -->
 3. While Pi output continues, Pi's application-owned fullscreen transcript preserves a user-selected historical viewport without mixed rows or a click-to-repair step. <!-- @manual: On Samsung Internet, scroll above bottom during Pi output and confirm the historical viewport remains stable until explicitly moved. -->
 
@@ -1072,7 +1076,7 @@ None.
 
 **Dependencies:** [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-021](#req-term-021-synchronized-output-frame-atomicity), [REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling)
 
-**Verification:** Automated: [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [herdr-output-delivery.test.ts](../../web-ui/src/__tests__/stores/herdr-output-delivery.test.ts); Manual: [REQ-TERM-040 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-040-manual-qualification)
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [herdr-output-delivery.test.ts](../../web-ui/src/__tests__/stores/herdr-output-delivery.test.ts); Manual: [REQ-TERM-040 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-040-manual-qualification)
 
 **Status:** Implemented
 
@@ -1119,14 +1123,15 @@ None.
 3. A stationary mobile tap on a Herdr link opens it once. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-042 AC3/AC4: opens a touched link without terminal touch side effects) -->
 4. Mobile link activation leaves terminal input, fullscreen history, and keyboard focus unchanged. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-042 AC3/AC4: opens a touched link without terminal touch side effects) -->
 5. A modified non-link hardware click continues to send its Herdr SGR press and release. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (REQ-TERM-042 AC5: keeps modified non-link clicks in Herdr) -->
-6. Unmatched trailing closing parentheses are excluded from detected URLs and their clickable ranges. <!-- @impl: web-ui/src/lib/terminal-url-delimiters.ts::trimTerminalUrlParentheses --> <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::getLastUrlFromBuffer --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: opens only the URL and excludes unmatched closing cells in %s) --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: excludes a wrapped closing parenthesis from controller activation) --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination) -->
+6. Unmatched closing parentheses and following sentence punctuation outside a prose wrapper are excluded from detected plain-text URLs and their clickable ranges. <!-- @impl: web-ui/src/lib/terminal-url-delimiters.ts::trimTerminalUrlParentheses --> <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::getLastUrlFromBuffer --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: opens only the URL and excludes unmatched closing cells in %s) --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: excludes a wrapped closing parenthesis from controller activation) --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination) -->
 7. HTTP(S) links hosted at auth.openai.com are offered through the existing auth-link controls regardless of path. <!-- @impl: web-ui/src/lib/constants.ts::ACTIONABLE_URL_PATTERNS --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination) -->
 
 **Notes:** Automated link, pointer and touch tests do not establish physical-browser acceptance; that observation remains separate under [terminal interaction methods](../../documentation/lanes/terminal-and-ide.md).
 
 **Constraints:**
 
-- URL reconstruction and opening remain owned by the existing terminal link provider.
+- The existing terminal link provider owns plain-text links.
+- Explicit links retain their exact HTTP(S) targets and require confirmation before opening. See [Classic qualification guidance](../../documentation/lanes/terminal-and-ide.md#explicit-terminal-link-qualification).
 - Balanced and percent-encoded parentheses remain URL content.
 - Existing auth-link classifications and user-gesture requirements remain unchanged; the new hostname match excludes lookalike hosts and userinfo substitutions.
 
