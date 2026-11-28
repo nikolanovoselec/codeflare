@@ -14,6 +14,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AccessUser, DeployKeys, Env } from '../../types';
 import { withMockStartClaim } from '../helpers/mock-session-stop';
 import { createMockKV } from '../helpers/mock-kv';
+import { withDeployKeyOwner } from '../helpers/deploy-key-owner';
+import { storeGithubConnection } from '../../lib/github-token';
 import { createTestApp } from '../helpers/test-app';
 
 const PROJECTION_ALL = 'v1:claude-code,codex,copilot,antigravity,opencode,pi';
@@ -171,6 +173,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
 
   function createApp(extraEnv: Partial<Env> = {}, user?: AccessUser) {
     const app = createTestApp({
+      deployKeyOwner: true,
       routes: [{ path: '/container', handler: lifecycleRoutes }, { path: '/seed', handler: seedRoutes }],
       mockKV,
       envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', ...extraEnv } as Partial<Env>,
@@ -232,7 +235,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       return await request!.clone().json() as Record<string, unknown>;
     }
 
-    it('keeps browser A and owner OAuth B separate without refreshing or serializing real tokens', async () => {
+    it('keeps browser A and owner OAuth B separate and reads the current deploy key instead of legacy KV', async () => {
       await configureBrowser();
       mockKV._set(getDeployKeysKey('test-bucket'), {
         ...ownerConnection, cloudflareTokenExpiresAt: Date.now() - 60_000,
@@ -240,6 +243,8 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       mockKV._set(getDeployKeysKey('another-owner'), {
         ...ownerConnection, cloudflareAccountId: otherOwnerAccount,
       });
+      await storeGithubConnection(withDeployKeyOwner({ KV: mockKV } as unknown as Env), 'test-bucket',
+        { accessToken: 'authoritative-github-replacement', source: 'pat' });
       const outgoing: string[] = [];
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
         outgoing.push(input instanceof Request ? input.url : String(input));
@@ -251,7 +256,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
           cloudflareAccountId: browserAccountA,
           cloudflareOauthAccountId: oauthAccountB,
           cloudflareApiToken: ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER,
-          githubToken: 'synthetic-github-token',
+          githubToken: 'authoritative-github-replacement',
           r2AccessKeyId: 'scoped-ak', r2SecretAccessKey: 'scoped-sk',
         });
         const serialized = JSON.stringify(body);
@@ -259,6 +264,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
           expect(serialized).not.toContain(secret);
         }
         expect(serialized).not.toContain(otherOwnerAccount);
+        expect(serialized).not.toContain('synthetic-github-token');
         expect(outgoing).toEqual([]);
       } finally { fetchSpy.mockRestore(); }
     });

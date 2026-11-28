@@ -10,7 +10,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 - **GitHub App (user-to-server)** -- An internal GitHub App, registered and installed on the customer's org, whose user-to-server tokens act **as the user** (commits attributed to them), expire (~8h), and are refreshable. The EMU-reliable path. Codeflare only configures it (Client ID + Secret); no app code and no private key are needed.
 - **OAuth App** -- The existing hosted OAuth App, used for non-EMU SaaS. Long-lived token.
 - **Provider seam** -- One `GithubOAuthProvider` interface with two implementations (App, OAuth) selected by deploy config; everything downstream is provider-agnostic.
-- **DeployKeys.githubToken** -- The existing per-user encrypted KV field (`deploy-keys:<bucket>`) that already flows to the container as `GH_TOKEN`. Connect GitHub populates the same field the manual PAT UI fills. No new KV key.
+- **DeployKeys.githubToken** -- The owner-scoped GitHub deploy credential. Connect GitHub populates the same field as manual PAT storage. Ordinary non-Enterprise container transport still uses `GH_TOKEN`.
 - **Egress injection** -- In enterprise mode the container holds a non-secret placeholder `GH_TOKEN`; the real per-user token is injected into outbound `github.com` / `api.github.com` requests by a Worker interceptor at the container egress boundary (reusing the AI-Gateway interception layer).
 
 ### Out of Scope
@@ -34,7 +34,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. `Connect GitHub` starts the selected provider's authorization flow in link mode. <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (redirects to the provider authorize URL with a signed state + connect callback) -->
-2. Token storage uses configured at-rest encryption or the accepted [AD32](../../documentation/decisions/README.md#ad32-encryption_key-is-optional) plaintext JSON fallback. <!-- @impl: src/lib/github-token.ts::storeGithubConnection --> <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/lib/github-token.test.ts (encrypts the token at rest when ENCRYPTION_KEY is set, and round-trips on read) -->
+2. Token storage uses configured at-rest encryption or the accepted [AD32](../../documentation/decisions/README.md#ad32-encryption_key-is-optional) plaintext JSON fallback. <!-- @impl: src/lib/github-token.ts::storeGithubConnection --> <!-- @impl: src/lib/deploy-key-state.ts::DeployKeyState --> <!-- @test: src/__tests__/lib/github-token.test.ts (encrypts the token at rest when ENCRYPTION_KEY is set, and round-trips on read) -->
 3. The stored token is never returned to the browser. <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports connected with login + source when a token exists) --> <!-- @impl: src/lib/github-token.ts::storeGithubConnection --> <!-- @test: src/__tests__/lib/github-token.test.ts (github-token storage & status) -->
 4. A GitHub App token with a recorded expiry needs refresh metadata only once renewal is due. Within the renewal window, the resolver renews the token or **fails closed** without returning the expiring or expired token. <!-- @impl: src/lib/github-token.ts::resolveGithubToken --> <!-- @impl: src/lib/github-token.ts::getValidGithubToken --> <!-- @test: src/__tests__/lib/github-token.test.ts (returns a fresh App token without refreshing) --> <!-- @test: src/__tests__/lib/github-token.test.ts (refreshes a near-expiry App token, persists the rotated token+expiry, preserves login) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails closed (null) when an expired App token has no refresh token) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails closed (null) when the refresh call fails — never returns the stale token) -->
 5. In every mode, prefer Setup KV's selected App or OAuth provider; only unavailable or incomplete Setup permits deploy-env fallback, preferring GitHub App over OAuth App. With neither source supplying a usable provider, the integration is unavailable. <!-- @impl: src/lib/github-token.ts::getGithubProvider --> <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/lib/github-token.test.ts (getGithubProvider) -->
@@ -191,7 +191,6 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 3. Reopening the picker for the same repository retains its pending Start or the failed session available for retry. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (focuses Close and preserves the pending launch across dismissal and reopen) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (keeps a failed Start that settles while closed, even across catalog omissions) -->
 4. Confirmed deletion clears saved recovery. A late Start result cannot restore it. <!-- @impl: web-ui/src/stores/session.ts::deleteSession --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (clears the saved pending clone when Delete settles before Start) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (offers new sessions on reopen after deletion despite a late Start result) -->
 5. An accepted Running state clears failed recovery. A catalog Running row superseded by newer Stopped status does not. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (retires recovery when the catalog alone confirms Running) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (preserves recovery when batch Stopped supersedes catalog Running (%s)) -->
-
 6. A Vibe clone does not replace saved Code recovery for the same repository. <!-- @impl: web-ui/src/stores/clone-attempts.ts::setCloneAttempt --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (preserves the saved Code retry after a successful Vibe clone of the same repository) -->
 7. A retry starts the saved session on its originally requested surface, even if the picker is reopened in another mode. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @impl: web-ui/src/stores/session.ts::retryCloneStart --> <!-- @test: web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx (retries a saved Vibe clone from Code on its original Chat surface) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (retries the original Chat surface from Code after a failed Vibe clone) -->
 
@@ -409,16 +408,19 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ### REQ-GITHUB-005: Disconnect and offboarding revocation
 
-**Intent:** Ordinary disconnect removes local GitHub credentials after best-effort provider revocation.
+**Intent:** Ordinary disconnect ends local GitHub access without depending on provider revocation.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. GitHub disconnect attempts App/OAuth revocation using the currently selected provider. The connection does not record its issuing client, so a provider or client change can prevent revocation. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/routes/github.test.ts (revokes + clears the token and returns success) --> <!-- @test: src/__tests__/lib/github-token.test.ts (revokes at GitHub and clears the field for an app/oauth token) -->
-2. Disconnect clears local GitHub fields even when provider configuration, network access, or revocation fails. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (REQ-GITHUB-005 AC2: provider failure clears GitHub fields while preserving unrelated deploy keys) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider revocation returns non-success) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider revocation rejects) -->
-3. Disconnect removes an otherwise empty deploy-keys entry. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider configuration is unavailable) -->
+2. Disconnect clears local GitHub fields before attempting provider revocation, even when the provider is unavailable or revocation fails. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (REQ-GITHUB-005 AC2: provider failure clears GitHub fields while preserving unrelated deploy keys) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider revocation returns non-success) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider revocation rejects) -->
+3. Disconnect leaves no readable deploy credentials when no unrelated fields remain. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider configuration is unavailable) -->
 4. A manually-pasted PAT is cleared but not sent to the GitHub revoke endpoint. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (does NOT call GitHub revoke for a manually-pasted PAT but still clears it) -->
+
+5. App renewal cannot restore a disconnected grant or overwrite a newer connection or credential reset. <!-- @impl: src/lib/github-token.ts::resolveGithubToken --> <!-- @impl: src/lib/deploy-keys.ts::changeDeployKeys --> <!-- @test: src/__tests__/lib/deploy-key-ownership.test.ts (a pending GitHub refresh cannot undo %s even when legacy KV still returns its original grant) -->
+6. A connection saved during ordinary revocation survives the earlier Disconnect. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/deploy-key-ownership.test.ts (an ordinary Disconnect cannot erase a PAT replacement saved during provider revocation) --> <!-- @test: src/__tests__/lib/deploy-key-ownership.test.ts (Disconnect fences a committing renewal before revocation and leaves a later PAT intact) -->
 
 **Constraints:** Administrator-requested offboarding uses the strict revocation contract in [REQ-AUTH-026](authentication.md#req-auth-026-admin-user-offboarding), not ordinary disconnect.
 
@@ -426,7 +428,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
-**Verification:** Automated: [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts), [github.test.ts](../../src/__tests__/routes/github.test.ts)
+**Verification:** Automated: [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts), [github.test.ts](../../src/__tests__/routes/github.test.ts), [Deploy credential races](../../src/__tests__/lib/deploy-key-ownership.test.ts)
 
 **Status:** Implemented
 
@@ -746,7 +748,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-323](#req-github-323-responsive-vibe-dashboard-layout)
 
-**Verification:** Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance).
+**Verification:** Manual: [Vibe drawer acceptance](../../documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance)
 
 **Status:** Planned
 
@@ -958,7 +960,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 1. Both Vibe clone entry points offer only compatible running Pi sessions. <!-- @manual: documentation/lanes/terminal-and-ide.md#vibe-drawer-acceptance --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (Vibe offers only Pi destinations and never retries a non-Pi Code clone) -->
 2. The Vibe picker offers exactly one new Pi destination only when the authenticated profile enables Pi. <!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx::ClonePickerNewSession --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (Vibe offers only Pi destinations and never retries a non-Pi Code clone) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (offers no new Vibe destination when the profile excludes Pi) -->
-3. Code retains the authenticated profile’s enabled-agent choices for a new clone. <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders only the wizard-activated agents delivered by /api/user in enterprise mode) -->
+3. Code retains the authenticated profile’s enabled-agent choices for a new clone. <!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx::agentOptions --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders only the wizard-activated agents delivered by /api/user in enterprise mode) -->
 4. A failed or cancelled Vibe clone that returns to Dashboard restores the Dashboard URL only if it still owns the current route. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (navigates to the new Vibe clone from the %s picker (%s)) -->
 5. Selecting the new Vibe destination starts the clone in Chat at its session URL. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (navigates to the new Vibe clone from the %s picker (%s)) --> <!-- @test: web-ui/src/__tests__/components/GitHubCloneFlow.test.tsx (Vibe creates and starts a Pi Chat clone without choosing an agent) -->
 

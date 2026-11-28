@@ -9,6 +9,7 @@ import { readBoundedResponse } from '../lib/bounded-stream';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { createLogger } from '../lib/logger';
 import { D1SessionRepository, type D1Session } from '../lib/session-repository';
+import { terminalFenced } from '../lib/session-shutdown';
 import { normalizeTrackedClones } from '../lib/clone-targets';
 import { isSaasModeActive } from '../lib/onboarding';
 import {
@@ -261,7 +262,7 @@ export interface FinalSyncLogContext {
  */
 export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
   context: FinalSyncLogContext = { sessionId: null, lifecycleGeneration: null, incidentId: null },
-  isCurrent: () => boolean = () => true): Promise<void> {
+  isCurrent: () => boolean = () => true, mayDispatch?: () => Promise<boolean>): Promise<void> {
   if (!ctx.container) return;
   if (!ctx.container.running) {
     // Same rationale as the delete path (#516): running can read transiently
@@ -275,13 +276,16 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
   const remaining = () => Math.max(0, deadline - Date.now());
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budgetMs);
-  const recordAudit = (event: Record<string, unknown>) => raceBudget(ctx.storage.transaction(async txn => {
-    if (typeof await txn.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
-    if ((context.sessionId !== null && await txn.get(SESSION_ID_KEY) !== context.sessionId)
-      || (context.lifecycleGeneration !== null && await txn.get('lifecycleGeneration') !== context.lifecycleGeneration)) return;
-    if (!isCurrent() || controller.signal.aborted || remaining() === 0) return;
-    await txn.put(FINAL_SYNC_AUDIT_KEY, { ...context, ...event });
-  }), remaining());
+  const recordAudit = async (event: Record<string, unknown>) => {
+    if (mayDispatch && !await mayDispatch()) return;
+    return raceBudget(ctx.storage.transaction(async txn => {
+      if (typeof await txn.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
+      if ((context.sessionId !== null && await txn.get(SESSION_ID_KEY) !== context.sessionId)
+        || (context.lifecycleGeneration !== null && await txn.get('lifecycleGeneration') !== context.lifecycleGeneration)) return;
+      if (!isCurrent() || controller.signal.aborted || remaining() === 0) return;
+      await txn.put(FINAL_SYNC_AUDIT_KEY, { ...context, ...event });
+    }), remaining());
+  };
   try {
     // Raw port.fetch bypasses the DO's public fetch override (the only place
     // the auth header is injected) and the in-container host 401s /internal/*
@@ -306,6 +310,7 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
       } catch { logger.warn('drainFinalSync: credential-refusal audit unavailable', { ...context, errorClass: 'audit_unavailable' }); }
       return;
     }
+    if (mayDispatch && (!await mayDispatch() || controller.signal.aborted)) return;
     const port = ctx.container.getTcpPort(8080);
     const res = await port.fetch('http://localhost/internal/final-sync', {
       method: 'POST',
@@ -1098,6 +1103,14 @@ export async function collectMetrics(
   };
   const sameGeneration = (session: D1Session | null): session is D1Session =>
     execution.isCurrent() && session?.lifecycleGeneration === generation;
+  const mayStopForIdle = async () => {
+    const current = await readCurrent().catch(() => null);
+    if (!sameGeneration(current) || current.terminationIntentId) return false;
+    const job = current.shutdown;
+    // A failed save no longer owns a live attempt. Preserve existing idle
+    // limits there, but never race an accepted shutdown waiting or in flight.
+    return !job || (job.phase !== 'queued' && (job.phase === 'save-failed' || !terminalFenced(job)));
+  };
   const schedule = async (delay: number) => {
     if (!execution.isCurrent()) return;
     try { await callbacks.schedule(delay, 'collectMetrics'); }
@@ -1341,15 +1354,17 @@ export async function collectMetrics(
           decision: !canEnforceIdle ? 'timing-unavailable' : idleMs > sleepMs ? 'stop' : 'continue',
         });
       }
-      if (canEnforceIdle && idleMs > sleepMs && execution.isCurrent()) {
+      if (canEnforceIdle && idleMs > sleepMs && execution.isCurrent() && await mayStopForIdle()) {
         logger.info('collectMetrics: idle exceeded threshold, stopping', { ...finalSyncLogContext(), reason: 'idle', idleMs, sleepMs, idleTimeoutPref, referenceTime });
         await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
         if (!execution.isCurrent()) return;
-        await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent);
+        await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent, mayStopForIdle);
         if (!execution.isCurrent()) return;
-        requiredStopInProgress = true;
-        await callbacks.stop('SIGTERM');
-        return;
+        if (await mayStopForIdle()) {
+          requiredStopInProgress = true;
+          await callbacks.stop('SIGTERM');
+          return;
+        }
       }
       if (snapshot.syncStatus === 'failed' || snapshot.syncStatus === 'timeout') {
         logger.warn('collectMetrics: container R2 sync unhealthy', { ...finalSyncLogContext(), syncStatus: snapshot.syncStatus });

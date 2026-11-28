@@ -85,7 +85,8 @@ When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi
 - On a phone with the keyboard closed, switch from a live Terminal to Chat. Verify the composer does not take focus and the keyboard stays closed until you tap the composer.
 - On desktop, activate startup **Open** and confirm it does not claim composer focus.
 - The [Layout suite](../../web-ui/src/__tests__/components/Layout.test.tsx) separately checks that keyboard activation and unknown or populated history do not trigger startup composer focus. It does not verify the phone’s OS keyboard.
-- On a phone, use the [native-question fixture](#check-stale-frames-and-native-questions) with a fresh empty Chat if applicable. Start with the OS keyboard closed. While **Open** is unavailable, verify the question is answerable, the composer does not take focus, and the keyboard stays closed. Mark unavailable fixtures unexercised.
+- On a phone, use the [native-question fixture](#check-stale-frames-and-native-questions) with a fresh empty Chat if applicable. Start with the OS keyboard closed.
+- While **Open** is unavailable, verify the question is answerable, the composer does not take focus, and the keyboard stays closed. Mark unavailable fixtures unexercised.
 - For each run below, configure an authorized synthetic repository as a restore target and ensure its checkout is absent locally.
 - Start Chat-first and choose **Open**. While **Restoring repositories…** is visible, verify the Chat composer works, then switch **Chat → Terminal** before waiting for the clone outcome.
 - In a separate Terminal-first run, choose **Open**. While **Restoring repositories…** is visible, verify native Pi accepts a harmless prompt, then switch **Terminal → Chat**.
@@ -164,7 +165,7 @@ For [REQ-AGENT-282](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigat
 
 #### Check desktop and mobile layout
 
-Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff).
+Use these checks for the handoff header in [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) and panel sizing in [REQ-AGENT-287](../../sdd/spec/agents.md#req-agent-287-empty-and-restored-vibe-layout).
 
 - Above the phone breakpoint, compare the outer iframe and the single Codeflare session header. Their left and right edges match, the header sits immediately above the frame, and the pair is centered in the workspace.
 - After subtracting the header height, allow 1440 × 900 CSS px and expect an 800 × 720 frame at rest. Repeat with 900 × 1600 CSS px and expect 720 × 1200. Together these exercise the percentage and both caps.
@@ -184,13 +185,15 @@ Use these checks for [REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-c
 - With Codeflare still active, verify user messages have a tint and stronger leading border without fading text ([REQ-AGENT-288 AC5](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).
 - On desktop and mobile, verify the stock Refresh and Actions controls are absent, including their keyboard focus stops. Confirm navigation is still usable ([REQ-AGENT-282 AC5](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
 - Check that the sidebar omits Projects, its divider, and the stock title and mark. On mobile, check that the context header omits project, workspace, and machine identity ([REQ-AGENT-289 AC1–2](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome), [REQ-AGENT-290](../../sdd/spec/agents.md#req-agent-290-embedded-mobile-workspace-context)).
-- Verify Chat, Files, Sessions, New session, and the sidebar toggle remain usable. On mobile, pin Chat and Files. Open the stock menu from Chat and unpin Files. Re-pin Files, switch to it, and open the menu to unpin Chat ([REQ-AGENT-289 AC3](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
+- Verify Chat, Files, Sessions, New session, and the sidebar toggle remain usable. On mobile, pin Chat and Files.
+- Open the stock menu from Chat and unpin Files. Re-pin Files, switch to it, and open the menu to unpin Chat ([REQ-AGENT-289 AC3](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
 - Pin both tabs again, leave Sessions unpinned, and open Sessions from the session picker. Verify the hamburger takes no space or focus, then return using the pinned Chat tab.
 - With Files unpinned, open Sessions from the picker, then open Files from stock Navigation. Repeat with Chat unpinned by opening pinned Files first, then returning to Chat through stock Navigation.
 - The [pinned browser fixture](../../scripts/ci/smoke-pi-web-system-rows.mjs) checks that the stale notice is hidden and an interrupted refresh is visible. It does not exercise live recovery ([REQ-AGENT-289 AC4](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
 - Live recovery is **unexercised**. Proceed only with a disposable Chat and an authorized browser control that can isolate its open session-scoped `/events` WebSocket and hold reconnects. No such control has been verified; blocking new requests alone is insufficient.
 - To count live recovery, require evidence that the original socket closed, reconnects stayed blocked until the same session independently recorded the reply as complete, and a post-reconnect `transcript-snapshot` restored that reply in the retained frame without a reload.
-- Check that Jump to top and Jump to end are absent from the composer and keyboard order. Compare the rendered button and icon bounds of Attach files with Send and Stop. Verify attachments still open the native picker ([REQ-AGENT-289 AC5–6](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
+- Check that Jump to top and Jump to end are absent from the composer and keyboard order.
+- Compare the rendered button and icon bounds of Attach files with Send and Stop. Verify attachments still open the native picker ([REQ-AGENT-289 AC5–6](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
 - Open empty Chat on mobile. Verify the header does not show **(no messages)** and that the Sessions picker remains labeled and keyboard-operable ([REQ-AGENT-289 AC7](../../sdd/spec/agents.md#req-agent-289-embedded-chat-chrome)).
 - Send a first message and verify the title appears when stock supplies it. An authored **(no messages)** title stays visible.
 - With Codeflare active, verify the session-start summary and count, composer and placeholder, model label, and footer token and context counters match the normal message font size ([REQ-AGENT-282 AC6](../../sdd/spec/agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults)).
@@ -233,7 +236,8 @@ For [REQ-AGENT-019 AC3](../../sdd/spec/agents.md#req-agent-019-branded-settings-
 - Use a disposable managed-adapter profile and fresh Pi Web runtime data. Before startup, append `/opt/codeflare/pi-web/node_modules/@jmfederico/pi-web/dist/pi-packages/workflows` to the restored profile’s `~/.pi/agent/settings.json` `packages` array, keeping existing entries. See the [stock service fixture](../../scripts/ci/smoke-pi-web-services.mjs).
 - Start Vibe and verify Chat opens with that restored profile ([REQ-AGENT-272 AC7](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff)).
 - From first visible Chat render and again after returning from Dashboard to the same session, check Git navigation and the composer’s command picker. Any appearance of Git navigation or `/worktree` fails ([REQ-AGENT-274](../../sdd/spec/agents.md#req-agent-274-stock-pi-chat-controls)).
-- Use the synthetic confirmation fixture below. During Chat opening, leave **Resume the Pi handoff smoke transcript?** unanswered for over 25 seconds. Verify it remains answerable and **Open** is absent. Choose **Yes** and verify `pi-fixture-opening-yes.txt` appears and the same frame reaches **Open**.
+- Use the synthetic confirmation fixture below. During Chat opening, leave **Resume the Pi handoff smoke transcript?** unanswered for over 25 seconds. Verify it remains answerable and **Open** is absent.
+- Choose **Yes** and verify `pi-fixture-opening-yes.txt` appears and the same frame reaches **Open**.
 - The [packaged Host smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) separately checks the timeout exception, original answer delivery, and writer fence. It does not exercise browser visibility.
 - Once Chat is ready, submit `pi-fixture-question`. Choose **Yes** on **Continue the ready Chat fixture?**. Verify `pi-fixture-ready-yes.txt` appears without a model turn. Then send a separate harmless prompt and verify the composer works.
 - In the ready Chat composer, use **Save to …** with synthetic attachments totaling 10 MB (10,000,000 bytes). Verify that the files land in the selected workspace folder.
@@ -273,7 +277,7 @@ export default function (pi: ExtensionAPI) {
 
 #### Future Herdr handoff qualification
 
-Herdr Chat is not part of the current delivery. The [launcher fixture](../../host/__tests__/herdr-launcher.test.js) supplies an available pane: bootstrap completes without a direct `pane run … pi` command. The fixture does not run the writer wrapper. Delayed-pane readiness and the absence of a native writer remain unverified; no verification method is available for these checks.
+Herdr Chat is not part of the current delivery. The [launcher fixture](../../host/__tests__/herdr-launcher.test.js) supplies an available pane: bootstrap completes without a direct `pane run … pi` command. That fixture does not run the writer wrapper. The [packaged launcher fixture](../../scripts/ci/smoke-pi-web-launchers.mjs) has a Herdr case that observes a live wrapper in the primary pane and checks that native Pi does not start without a ticket. This is not a current CI receipt and does not hold the primary pane back to test delayed readiness.
 
 The restore checks below apply only if Herdr handoff is enabled in a future release.
 
@@ -400,7 +404,9 @@ In the installed mobile app, pull up at the bottom to open and down at the top t
 
 ### Recent Sessions acceptance
 
-For [REQ-GITHUB-334](../../sdd/spec/github.md#req-github-334-recent-sessions-in-the-vibe-summary), check the closed Vibe summary on a tablet and in a short desktop viewport. With up to three sessions, verify that each card retains its full height and the column scrolls to GitHub and Storage below the cards. Try scrolling within Recent Sessions and verify the cards do not scroll independently, even if the browser hides idle scrollbars. With four or more, start at the top of Recent Sessions and confirm that three full cards plus the top 30% of the fourth are visible within the list. Scroll the list by touch and keyboard to reach the last card. Open the browser drawer and check that its layout is unchanged; confirm the Code Dashboard layout is unchanged too.
+For [REQ-GITHUB-334](../../sdd/spec/github.md#req-github-334-recent-sessions-in-the-vibe-summary), check the closed Vibe summary on a tablet and in a short desktop viewport. With up to three sessions, verify that each card retains its full height and the column scrolls to GitHub and Storage below the cards. Try scrolling within Recent Sessions and verify the cards do not scroll independently, even if the browser hides idle scrollbars.
+
+With four or more, start at the top of Recent Sessions and confirm that three full cards plus the top 30% of the fourth are visible within the list. Scroll the list by touch and keyboard to reach the last card. Open the browser drawer and check that its layout is unchanged; confirm the Code Dashboard layout is unchanged too.
 
 The Chromium fixture exercises the scroll layout with synthetic cards and a preset cap. The live check covers the Dashboard’s measurement of actual cards and touch and keyboard scrolling.
 

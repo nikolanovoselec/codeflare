@@ -8,8 +8,8 @@
  * NON-SECRET placeholder GH_TOKEN, so git / `gh` / Copilot's GitHub features run
  * in authed mode but never possess the real credential. Each intercepted request
  * is routed HERE at the platform level: the interceptor strips the placeholder
- * auth, looks up + decrypts the per-user GitHub token from the existing deploy-keys
- * KV entry, and stamps the real credential at the github.com boundary in the format
+ * auth, resolves the per-user GitHub token from the bucket owner's deploy-keys
+ * record, and stamps the real credential at the github.com boundary in the format
  * the target host expects (git Basic vs API Bearer).
  *
  * Security property (no cross-user spoofing): user-scoping comes SOLELY from

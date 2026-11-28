@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env, DeployKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { deployKeyCiphertext, withDeployKeyOwner } from '../helpers/deploy-key-owner';
+import { readDeployKeys } from '../../lib/deploy-keys';
 import {
   storeGithubConnection,
   clearGithubConnection,
@@ -28,7 +30,7 @@ const OAUTH_ENV = { OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-se
 let mockKV: ReturnType<typeof createMockKV>;
 
 function env(over: Partial<Env> = {}): Env {
-  return { KV: mockKV, ...over } as Env;
+  return withDeployKeyOwner({ KV: mockKV, ...over } as Env);
 }
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
@@ -68,7 +70,7 @@ describe('github-token storage & status / REQ-GITHUB-001', () => {
 
     await storeGithubConnection(env(), BUCKET, { accessToken: 'gho_b', source: 'oauth' });
 
-    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
+    const raw = (await readDeployKeys(env(), BUCKET)) as DeployKeys;
     expect(raw.githubToken).toBe('gho_b');
     expect(raw.githubTokenSource).toBe('oauth');
     expect(raw.cloudflareApiToken).toBe('cf');
@@ -85,7 +87,7 @@ describe('github-token storage & status / REQ-GITHUB-001', () => {
 
     await clearGithubConnection(env(), BUCKET);
 
-    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
+    const raw = (await readDeployKeys(env(), BUCKET)) as DeployKeys;
     expect(raw.githubToken).toBeUndefined();
     expect(raw.githubTokenSource).toBeUndefined();
     expect(raw.githubRefreshToken).toBeUndefined();
@@ -97,8 +99,7 @@ describe('github-token storage & status / REQ-GITHUB-001', () => {
 
     await clearGithubConnection(env(), BUCKET);
 
-    expect(mockKV.delete).toHaveBeenCalledWith(KEY);
-    expect(await mockKV.get(KEY)).toBeNull();
+    expect(await readDeployKeys(env(), BUCKET)).toBeNull();
   });
 
   it('encrypts the token at rest when ENCRYPTION_KEY is set, and round-trips on read', async () => {
@@ -110,10 +111,19 @@ describe('github-token storage & status / REQ-GITHUB-001', () => {
       source: 'oauth',
     });
 
-    const blob = mockKV._store.get(KEY)!;
+    const blob = deployKeyCiphertext(mockKV, BUCKET)!;
     expect(blob.startsWith('v1:')).toBe(true);
     expect(blob).not.toContain('gho_secret_xyz');
     expect(await getValidGithubToken(env({ ENCRYPTION_KEY }), BUCKET)).toBe('gho_secret_xyz');
+  });
+
+  it('encrypts a plaintext owner record when encryption is configured later', async () => {
+    await storeGithubConnection(env(), BUCKET, { accessToken: 'synthetic-pre-encryption-token', source: 'pat' });
+    const ENCRYPTION_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(17)));
+    expect(await getValidGithubToken(env({ ENCRYPTION_KEY }), BUCKET)).toBe('synthetic-pre-encryption-token');
+    const blob = deployKeyCiphertext(mockKV, BUCKET);
+    expect(blob).toMatch(/^v1:/);
+    expect(blob).not.toContain('synthetic-pre-encryption-token');
   });
 });
 
@@ -165,7 +175,7 @@ describe('getValidGithubToken', () => {
       grant_type: 'refresh_token',
       refresh_token: 'ghr_old',
     });
-    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
+    const raw = (await readDeployKeys(env(), BUCKET)) as DeployKeys;
     expect(raw.githubToken).toBe('gho_new');
     expect(raw.githubRefreshToken).toBe('ghr_new');
     expect(raw.githubTokenExpiresAt).toBe(now + 28_800 * 1000);
@@ -362,7 +372,7 @@ describe('connectGithub (code exchange)', () => {
       expiresAt: Date.now() + 28_800 * 1000,
       login: 'octo',
     });
-    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
+    const raw = (await readDeployKeys(env(), BUCKET)) as DeployKeys;
     expect(raw.githubToken).toBe('gho_app');
     expect(raw.githubTokenSource).toBe('app');
     expect(JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string)).toMatchObject({
@@ -382,7 +392,7 @@ describe('connectGithub (code exchange)', () => {
     expect(conn.source).toBe('oauth');
     expect(conn.refreshToken).toBeUndefined();
     expect(conn.expiresAt).toBeUndefined();
-    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
+    const raw = (await readDeployKeys(env(), BUCKET)) as DeployKeys;
     expect(raw.githubToken).toBe('gho_oauth_x');
     expect(raw.githubRefreshToken).toBeNull();
   });
@@ -405,7 +415,7 @@ describe('disconnectGithub', () => {
     const [url, opts] = mockFetch.mock.calls[0];
     expect(String(url)).toContain('/applications/app-cid/token');
     expect((opts as RequestInit).method).toBe('DELETE');
-    expect(await mockKV.get(KEY)).toBeNull();
+    expect(await readDeployKeys(env(), BUCKET)).toBeNull();
   });
 
   it('REQ-GITHUB-005 AC2: provider failure clears GitHub fields while preserving unrelated deploy keys', async () => {
@@ -418,7 +428,7 @@ describe('disconnectGithub', () => {
 
     await disconnectGithub(env(), BUCKET);
 
-    expect(await mockKV.get(KEY, 'json')).toEqual({ cloudflareApiToken: 'cf_token' });
+    expect(await readDeployKeys(env(), BUCKET)).toEqual({ cloudflareApiToken: 'cf_token' });
   });
 
   it('fails open and clears an OAuth token when provider configuration is unavailable', async () => {
@@ -426,7 +436,7 @@ describe('disconnectGithub', () => {
 
     await disconnectGithub(env(), BUCKET);
 
-    expect(await mockKV.get(KEY)).toBeNull();
+    expect(await readDeployKeys(env(), BUCKET)).toBeNull();
   });
 
   it('fails open and clears an OAuth token when provider revocation returns non-success', async () => {
@@ -435,7 +445,7 @@ describe('disconnectGithub', () => {
 
     await disconnectGithub(env(OAUTH_ENV), BUCKET);
 
-    expect(await mockKV.get(KEY)).toBeNull();
+    expect(await readDeployKeys(env(), BUCKET)).toBeNull();
   });
 
   it('fails open and clears an OAuth token when provider revocation rejects', async () => {
@@ -445,7 +455,7 @@ describe('disconnectGithub', () => {
     await disconnectGithub(env(OAUTH_ENV), BUCKET);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(await mockKV.get(KEY)).toBeNull();
+    expect(await readDeployKeys(env(), BUCKET)).toBeNull();
   });
 
   it.each(['unconfigured', 'HTTP503', 'transport'] as const)(
@@ -455,10 +465,10 @@ describe('disconnectGithub', () => {
       if (failure === 'HTTP503') mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
       if (failure === 'transport') mockFetch.mockRejectedValueOnce(new Error('uncertain revoke'));
       await expect(disconnectGithub(env(failure === 'unconfigured' ? {} : OAUTH_ENV), BUCKET, { strictOffboarding: true })).rejects.toThrow();
-      expect(await mockKV.get(KEY, 'json')).toEqual(original);
+      expect(await readDeployKeys(env(), BUCKET)).toEqual(original);
       mockFetch.mockResolvedValueOnce({ ok: true, status: 204 });
       await disconnectGithub(env(OAUTH_ENV), BUCKET, { strictOffboarding: true });
-      expect(await mockKV.get(KEY, 'json')).toEqual({ cloudflareApiToken: 'unrelated' });
+      expect(await readDeployKeys(env(), BUCKET)).toEqual({ cloudflareApiToken: 'unrelated' });
     });
 
   it('does NOT call GitHub revoke for a manually-pasted PAT but still clears it', async () => {
@@ -467,6 +477,6 @@ describe('disconnectGithub', () => {
     await disconnectGithub(env(APP_ENV), BUCKET);
 
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(await mockKV.get(KEY)).toBeNull();
+    expect(await readDeployKeys(env(), BUCKET)).toBeNull();
   });
 });

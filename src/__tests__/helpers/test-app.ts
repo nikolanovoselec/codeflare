@@ -19,6 +19,7 @@ import type { AccessUser } from '../../types';
 import { AppError } from '../../lib/error-types';
 import { createMockSessionD1 } from './mock-session-d1';
 import type { MockKV } from './mock-kv';
+import { withDeployKeyOwner } from './deploy-key-owner';
 
 interface RouteRegistration {
   path: string;
@@ -32,6 +33,7 @@ interface TestAppOptions {
   mockKV: unknown;
   /** Override env bindings */
   envOverrides?: Partial<Env>;
+  deployKeyOwner?: boolean;
   /** Override auth user */
   user?: AccessUser;
   /** Override bucket name */
@@ -43,6 +45,7 @@ export function createTestApp(options: TestAppOptions) {
     routes,
     mockKV,
     envOverrides = {},
+    deployKeyOwner = false,
     user = { email: 'test@example.com', authenticated: true },
     bucketName = 'test-bucket',
   } = options;
@@ -67,6 +70,7 @@ export function createTestApp(options: TestAppOptions) {
       CONTAINER: {} as DurableObjectNamespace,
       ...envOverrides,
     } as unknown as Env;
+    if (deployKeyOwner) c.env = withDeployKeyOwner(c.env);
     c.set('user', user);
     c.set('bucketName', bucketName);
     return next();

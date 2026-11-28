@@ -15,6 +15,13 @@ const PENDING = 'mcp:pending:';
 const MAX_PENDING_AUTHORIZATIONS = 128;
 const CLOSED = 'MCP offboarding in progress';
 
+/** Checked in the same owner transaction as deploy-key reads and commits. */
+export async function deployKeyOwnerEpoch(txn: DurableObjectTransaction, cleanupId?: string): Promise<string | null> {
+  const owner = await txn.get<OwnerState>(META);
+  if ((owner?.operationId ?? null) !== (cleanupId ?? null)) return null;
+  return owner?.legacyClosed ? owner.epoch : 'initial';
+}
+
 export function isMcpOffboardingError(error: unknown): boolean {
   return error instanceof Error && error.message.includes(CLOSED);
 }

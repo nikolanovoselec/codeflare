@@ -39,12 +39,14 @@ export function shutdownProjection(session: D1Session) {
   const shutdownPhase = job.phase === 'save-failed' ? undefined
     : job.phase === 'retry-save' ? 'saving' : job.phase === 'uncertain' || mergeNeedsRetry(job) ? 'memory-not-merged'
     : job.phase.startsWith('finishing') || job.phase.startsWith('killing') ? 'finishing' : job.phase;
+  const snapshotUnavailable = job.snapshotUnavailable || (session.lifecycleState === 'stopped'
+    && mergeNeedsRetry(job) && !snapshotPattern.test(job.snapshotId ?? ''));
   const retryingMemory = job.sourceGeneration !== undefined && !mergeNeedsRetry(job) && job.phase !== 'uncertain';
   return {
     status: session.lifecycleState !== 'stopped' && terminalFenced(job) ? 'stopping' as const : session.lifecycleState,
     shutdownPhase,
     pendingDelete: job.delete,
-    ...(job.snapshotUnavailable ? { snapshotUnavailable: true as const } : {}),
+    ...(snapshotUnavailable ? { snapshotUnavailable: true as const } : {}),
     ...(retryingMemory ? { retryingMemory: true as const } : {}),
   };
 }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { isDeepStrictEqual } from 'node:util';
 import { runHermesShutdownMerge } from '../src/hermes-shutdown-merge.ts';
+import { runHermesShutdownInference } from '../src/hermes-shutdown-inference.ts';
 
 const files = ['global/USER.md', 'global/MEMORY.md', 'global/failures.md', 'Projects/workspace/MEMORY.md'];
 const [user, memory, failures, project] = files;
@@ -106,6 +107,23 @@ describe('REQ-MEM-044 AC1: whole-entry deltas', () => {
     assert.equal(result.status, 'skipped');
     assert.equal(inferred, false);
     assertUnpublished(f, result, original);
+  });
+
+  test('REQ-MEM-044: no authorized model permits a verified no-op but not publication of additions', async () => {
+    const f = fixture({ initial: original });
+    let dispatched = false;
+    const infer = ({ signal }) => runHermesShutdownInference({
+      agentDir: '/unused', input: 'synthetic memory delta', allowPersonalPiProviders: false, signal,
+      send: async () => { dispatched = true; return new Response(null, { status: 500 }); },
+    });
+    const unchanged = source(1), changed = source(2);
+    f.saved(unchanged, original, original);
+    f.saved(changed, original, all({ ...original, [failures]: 'A new fact.' }));
+    assert.equal((await f.run(unchanged, infer)).status, 'skipped');
+    const pending = await f.run(changed, infer);
+    assert.equal(pending.status, 'pending');
+    assertUnpublished(f, pending, original);
+    assert.equal(dispatched, false);
   });
 
   test('REQ-MEM-044: an old store without a trustworthy baseline is preserved, not marked merged', async () => {

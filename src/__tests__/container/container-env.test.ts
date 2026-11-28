@@ -11,7 +11,8 @@ import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER, ENTERPRISE_BROWSER_TOKEN_PLACEHOLDE
   ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER } from '../../lib/constants';
 import { setBucketName, type ContainerHost } from '../../container/container-config';
 import { createMockKV } from '../helpers/mock-kv';
-import { SETUP_KEYS, getDeployKeysKey } from '../../lib/kv-keys';
+import { deployKeyCiphertext, withDeployKeyOwner } from '../helpers/deploy-key-owner';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 import { applyEnterpriseBrowserToken } from '../../lib/browser-render-token';
 import { applyCloudflareOAuthToken, storeCloudflareConnection } from '../../lib/cloudflare-token';
 import { createLogger } from '../../lib/logger';
@@ -798,7 +799,7 @@ describe('REQ-BROWSER-008/REQ-AGENT-078: Enterprise startup with a connected own
     { configuredBrowser: false, expired: true },
   ])('keeps Browser env and owner grant separate: %j', async ({ configuredBrowser, expired }) => {
     const kv = createMockKV();
-    const env = { KV: kv, ENTERPRISE_MODE: 'active' } as unknown as Env;
+    const env = withDeployKeyOwner({ KV: kv, ENTERPRISE_MODE: 'active' } as unknown as Env);
     if (configuredBrowser) {
       kv._set(SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: 'admin-browser-secret' });
       kv._store.set(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, 'admin-browser-account');
@@ -811,7 +812,7 @@ describe('REQ-BROWSER-008/REQ-AGENT-078: Enterprise startup with a connected own
       accessToken: 'worker-held-owner-token', source: 'oauth', refreshToken: 'worker-held-refresh-token',
       expiresAt: Date.now() + (expired ? -60_000 : 3_600_000), accountId: 'owner-account',
     });
-    const stored = kv._store.get(getDeployKeysKey('codeflare-test'))!;
+    const stored = deployKeyCiphertext(kv, 'codeflare-test')!;
     const outgoing: string[] = [];
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
       outgoing.push(input instanceof Request ? input.url : String(input));
@@ -832,7 +833,7 @@ describe('REQ-BROWSER-008/REQ-AGENT-078: Enterprise startup with a connected own
       expect(Object.values(vars)).not.toContain('admin-browser-secret');
       expect(Object.values(vars)).not.toContain('refreshed-owner-secret');
       expect(outgoing).toEqual([]);
-      expect(kv._store.get(getDeployKeysKey('codeflare-test'))).toBe(stored);
+      expect(deployKeyCiphertext(kv, 'codeflare-test')).toBe(stored);
       expect(ownerKeys.cloudflareApiToken).toBe('worker-held-owner-token');
       expect(ownerKeys.cloudflareAccountId).toBe('owner-account');
     } finally { fetchSpy.mockRestore(); }

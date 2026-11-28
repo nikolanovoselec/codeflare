@@ -163,6 +163,8 @@ Strict mode includes Browser REST/CDP, not just direct-internet calls. Authorize
 
 **Prerequisites:** Obtain explicit incident authorization. Run from the repository root with the production `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` exported, then confirm `npx wrangler whoami` names the production account. Record the failed user-flow step and expected result. Worker rollback does not roll back resources, bindings, or additive D1 migrations.
 
+**Deploy-credential compatibility:** After activation of bucket-owner credential state, older KV-only Workers may see stale grants, including detached GitHub credentials. Do not split traffic with those versions or use them for rollback. Use a forward correction that retains the owner record. The legacy KV record is an import source only; it is not a recoverable backup of later writes. <!-- @impl: src/lib/deploy-key-state.ts::DeployKeyState -->
+
 **Command:** Record the version currently serving traffic first — it is both the version the incident is about and the baseline the post-rollback check compares against. Resolve `WORKER_NAME` from the successful Deploy run or production configuration (`CLOUDFLARE_WORKER_NAME`, default `codeflare`). Then list successful production workflow runs and that Worker's deployments, choose the newest deployment created before the faulty release whose account, Worker, release identity and deployment timing correlate with a successful production-target `Deploy` run, inspect that candidate, and pass it to rollback using the [Wrangler Worker commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/). `rollback` takes the **version** ID that `versions view` confirms, not a deployment ID:
 
 ```sh

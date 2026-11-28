@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-28: Graceful shutdown authority and credential recovery
+
+- [GitHub Disconnect](github.md#req-github-005-disconnect-and-offboarding-revocation) detaches the local grant before provider revocation. Pending renewals cannot restore it or replace a newer connection.
+- [Graceful shutdown](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) retains ownership through idle ticks. A [verified no-op](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) does not need a model; a missing snapshot disables Retry without disabling Resume.
+
 ## 2026-11-27: Chat chrome and Dashboard recovery
 
 - [Recent Sessions](github.md#req-github-334-recent-sessions-in-the-vibe-summary) gets up to three full cards and a partial fourth in the scrolling Vibe summary.

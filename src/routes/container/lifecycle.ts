@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { readSyncPolicyMode } from '../../lib/sync-policy';
 import { getContainer } from '@cloudflare/containers';
 import { z } from 'zod';
-import type { Env, Session, UserPreferences, LlmKeys, DeployKeys, ManagedResourcePolicy } from '../../types';
+import type { Env, Session, UserPreferences, LlmKeys, ManagedResourcePolicy } from '../../types';
 import { PiSurfaceSchema, resolveSessionWorkspace, resolveTerminalMode } from '../../types';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
@@ -16,7 +16,8 @@ import { AppError, ContainerError, BucketMigratingError, ManagedEnvironmentUpdat
 import { isBucketMigrating } from '../../lib/r2-migration';
 import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
-import { getPreferencesKey, getLlmKeysKey, getDeployKeysKey } from '../../lib/kv-keys';
+import { getPreferencesKey, getLlmKeysKey } from '../../lib/kv-keys';
+import { readDeployKeys } from '../../lib/deploy-keys';
 import { maybeQueueShutdown } from '../session/shutdown';
 import { D1SessionRepository } from '../../lib/session-repository';
 import type { SessionStopRequest } from '../../container/container-lifecycle';
@@ -276,7 +277,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const cryptoKey = await runStartStage(reqLogger, 'credential_key', () => getOrImportKey(c.env));
     const [llmKeys, deployKeys] = await runStartStage(reqLogger, 'credentials', () => Promise.all([
       getAndDecrypt<LlmKeys>(c.env.KV, getLlmKeysKey(bucketName), cryptoKey),
-      getAndDecrypt<DeployKeys>(c.env.KV, getDeployKeysKey(bucketName), cryptoKey),
+      readDeployKeys(c.env, bucketName),
     ]));
 
     // REQ-AGENT-240 AC1: capture only the original owner's selected OAuth account,

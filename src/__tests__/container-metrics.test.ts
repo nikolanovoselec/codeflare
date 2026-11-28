@@ -47,6 +47,7 @@ const testState = vi.hoisted(() => ({
   finalSyncCalls: 0,
   finalSyncStatus: 200,
   finalSyncError: null as Error | null,
+  beforeFinalSyncResponse: undefined as (() => void) | undefined,
   agentDrainCalls: 0,
   agentFinalDrainCalls: 0,
   agentDrainStatus: 200,
@@ -115,6 +116,7 @@ vi.mock('@cloudflare/containers', () => {
                 // can be exercised independently of the /activity+/health probes.
                 testState.finalSyncCalls += 1;
                 testState.callOrder.push('finalsync');
+                testState.beforeFinalSyncResponse?.();
                 if (testState.finalSyncError) throw testState.finalSyncError;
                 if (testState.tcpFetchShouldFail) {
                   throw new Error('Connection refused');
@@ -358,6 +360,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.finalSyncCalls = 0;
     testState.finalSyncStatus = 200;
     testState.finalSyncError = null;
+    testState.beforeFinalSyncResponse = undefined;
     testState.agentDrainCalls = 0;
     testState.agentFinalDrainCalls = 0;
     testState.agentDrainStatus = 200;
@@ -674,6 +677,35 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
         expect(testState.platformStopSignals).toEqual([]);
       });
+    });
+
+    it('REQ-SESSION-043: an idle tick observes metrics without interrupting an accepted consolidation', async () => {
+      const key = 'session:test-bucket:testsession123456';
+      mockKV._set(key, { id: 'testsession123456', status: 'running', lifecycleGeneration: 0,
+        workspace: 'terminal', shutdown: { intent: 'accepted-delete', phase: 'consolidating', delete: true } });
+      testState.storedSleepAfter = '15m';
+      testState.activityResult.lastInputAt = Date.now() - 30 * 60_000;
+      await containerInstance.collectMetrics();
+      expect(testState.callOrder).not.toContain('finalsync');
+      expect(testState.stopCalls).toBe(0);
+      expect(testState.platformStopSignals).toEqual([]);
+      expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'running', metrics: { cpu: '45%' } });
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+    });
+
+    it('REQ-SESSION-043: an accepted shutdown during idle final sync prevents the subsequent idle stop', async () => {
+      runningSession();
+      testState.storedSleepAfter = '15m';
+      testState.activityResult.lastInputAt = Date.now() - 30 * 60_000;
+      const key = 'session:test-bucket:testsession123456';
+      const running = await mockKV.get(key, 'json') as Session;
+      testState.beforeFinalSyncResponse = () => mockKV._set(key, {
+        ...running, shutdown: { intent: 'accepted-delete', phase: 'queued', delete: true },
+      });
+      await containerInstance.collectMetrics();
+      expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync']);
+      expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'running', shutdown: { phase: 'queued' } });
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
     it('AC1/2/4: idle final-sync failure stays correlated and private-safe while best-effort stop still completes', async () => {

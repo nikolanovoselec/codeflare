@@ -55,7 +55,7 @@ Ordinary responses receive HSTS, CSP, X-Content-Type-Options, X-Frame-Options, R
 
 <a id="con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser"></a>
 ### CON-GH-001: GitHub token encrypted at rest when configured and never returned to the browser
-The per-user GitHub token is stored in the existing `deploy-keys:<bucket>` KV entry (`DeployKeys.githubToken`), encrypted with AES-256-GCM (AAD bound to the KV key) when `ENCRYPTION_KEY` is configured, with the accepted plaintext JSON fallback when absent, per CON-SEC-003 (unchanged key identity; no key-rotation migration), and is never serialized into any client response (status/list endpoints return only non-secret metadata such as the login handle).
+The per-user GitHub token is stored in the authoritative owner’s deploy credential record, encrypted with AES-256-GCM (AAD bound to the bucket’s credential key identity) when `ENCRYPTION_KEY` is configured, with the accepted plaintext JSON fallback when absent, per CON-SEC-003 (unchanged key identity; no key-rotation migration), and is never serialized into any client response (status/list endpoints return only non-secret metadata such as the login handle).
 **Applies To:** System (GitHub integration)
 
 ### CON-GH-002: The real GitHub token never enters the enterprise container

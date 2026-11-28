@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, DeployKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { withDeployKeyOwner } from '../helpers/deploy-key-owner';
+import { readDeployKeys } from '../../lib/deploy-keys';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { AppError, AuthError } from '../../lib/error-types';
 import { authenticateRequest } from '../../lib/access';
@@ -11,7 +13,8 @@ vi.mock('../../lib/logger', () => ({
 }));
 
 // authMiddleware authenticates via this; pin a stable identity + bucket.
-vi.mock('../../lib/access', () => ({
+vi.mock('../../lib/access', async importOriginal => ({
+  ...await importOriginal<typeof import('../../lib/access')>(),
   authenticateRequest: vi.fn(async () => ({
     user: { email: 'u@example.com', authenticated: true, role: 'user' },
     bucketName: 'test-bucket',
@@ -46,6 +49,7 @@ const ENT: Partial<Env> = {
 };
 
 let mockKV: ReturnType<typeof createMockKV>;
+const readOwnerGrant = () => readDeployKeys(withDeployKeyOwner({ KV: mockKV } as unknown as Env), 'test-bucket');
 let mockD1: D1Database;
 
 function createTestApp(env: Partial<Env>) {
@@ -55,7 +59,7 @@ function createTestApp(env: Partial<Env>) {
     return c.json({ error: 'Unexpected error' }, 500);
   });
   app.use('*', async (c, next) => {
-    (c.env as unknown) = { KV: mockKV, USAGE_DB: mockD1, ...env };
+    (c.env as unknown) = withDeployKeyOwner({ KV: mockKV, USAGE_DB: mockD1, ...env } as unknown as Env);
     return next();
   });
   app.route('/api/github', githubRoutes);
@@ -163,7 +167,7 @@ describe('GitHub Details owned repository counts', () => {
     const app = createTestApp(ENT);
     const counts = initiator === 'counts'
       ? app.request('/api/github/owned-repo-counts', { signal: client.signal }, undefined, context)
-      : getValidGithubToken({ KV: mockKV, ...ENT } as Env, 'test-bucket', work => context.waitUntil(work));
+      : getValidGithubToken(withDeployKeyOwner({ KV: mockKV, ...ENT } as Env), 'test-bucket', work => context.waitUntil(work));
     await exchangeStarted;
     const repositories = app.request('/api/github/repos', undefined, undefined, context);
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -288,7 +292,7 @@ describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
     await Promise.all(retained);
     expect(repos.status).toBe(409);
     expect(await repos.json()).toMatchObject({ code: 'NOT_CONNECTED' });
-    expect(mockKV._store.get(KEY)).toBe(JSON.stringify(saved));
+    expect(await readOwnerGrant()).toEqual(saved);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -395,7 +399,7 @@ describe('POST /api/github/disconnect', () => {
     const res = await createTestApp(ENT).request('/api/github/disconnect', { method: 'POST' });
     expect(res.status).toBe(200);
     expect((await res.json() as Record<string, unknown>).success).toBe(true);
-    expect(await mockKV.get(KEY)).toBeNull();
+    expect(await readOwnerGrant()).toBeNull();
   });
 });
 
@@ -708,12 +712,12 @@ it.each([['default', {}], ['saas', { SAAS_MODE: 'active' }], ['enterprise', ENT]
     expect(connected.status).toBe(302);
     expect(connected.headers.get('location')).toContain('github=connected');
     expect(connected.headers.get('set-cookie')).toBeNull();
-    expect(await getValidGithubToken({ KV: mockKV, ...env } as Env, 'test-bucket')).toBe('gho_added_grant');
-    expect(await mockKV.get(KEY, 'json')).toMatchObject({ cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account',
+    expect(await getValidGithubToken(withDeployKeyOwner({ KV: mockKV, ...env } as Env), 'test-bucket')).toBe('gho_added_grant');
+    expect(await readOwnerGrant()).toMatchObject({ cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account',
       githubToken: 'gho_added_grant', githubLogin: 'octo' });
     mockFetch.mockResolvedValueOnce(ok({}));
     const disconnected = await app.request('/api/github/disconnect', { method: 'POST' });
     expect(disconnected.status).toBe(200);
     expect(await disconnected.json()).toEqual({ success: true });
-    expect(await mockKV.get(KEY, 'json')).toEqual({ cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account' });
+    expect(await readOwnerGrant()).toEqual({ cloudflareApiToken: 'prior-cloudflare-grant', cloudflareAccountId: 'account' });
   });

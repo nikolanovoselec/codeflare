@@ -809,7 +809,7 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
       expect(head.body).toBeNull();
       expect(head.headers.get('content-length')).toBe('0');
       expect(seen.at(-1)?.headers.has('x-amz-server-side-encryption-customer-key')).toBe(false);
-      for (const key of ['Vault/Notes/not-hermes.md', `${markdown}?x-id=GetObject&versionId=unverified`]) {
+      for (const key of ['Vault/Notes/not-hermes.md', 'Vault/Memory/Masters/retired-revision/global/USER.md', `${markdown}?x-id=GetObject&versionId=unverified`]) {
         expect((await request(key)).status).toBe(400);
         expect(seen.at(-1)?.headers.has('x-amz-server-side-encryption-customer-key')).toBe(true);
       }

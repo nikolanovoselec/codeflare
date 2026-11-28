@@ -262,7 +262,7 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 
 **Dependencies:** [REQ-AGENT-217](#req-agent-217-lossless-pi-mcp-adapter-migration)
 
-**Verification:** Automated: [Restored package inventory](../../host/__tests__/pi-settings-packages.test.js), [Bundled-file preservation smoke](../../scripts/ci/smoke-pi-web-services.mjs).
+**Verification:** Automated: [Restored package inventory](../../host/__tests__/pi-settings-packages.test.js), [Bundled-file preservation smoke](../../scripts/ci/smoke-pi-web-services.mjs)
 
 **Status:** Implemented
 

@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { Env, Session } from '../../../types';
 import type { AuthVariables } from '../../../middleware/auth';
 import { createMockKV } from '../../helpers/mock-kv';
+import { withDeployKeyOwner } from '../../helpers/deploy-key-owner';
 import { withMockStartClaim } from '../../helpers/mock-session-stop';
 import { D1SessionRepository } from '../../../lib/session-repository';
 import { createMockSessionD1 } from '../../helpers/mock-session-d1';
@@ -176,7 +177,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
     app.use('*', async (c, next) => {
-      c.env = {
+      c.env = withDeployKeyOwner({
         KV: mockKV as unknown as KVNamespace,
       USAGE_DB: createMockSessionD1(mockKV),
         CLOUDFLARE_API_TOKEN: 'test-api-token',
@@ -184,7 +185,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
         R2_SECRET_ACCESS_KEY: 'account-level-sk',
         CONTAINER: {} as any,
         ...envOverrides,
-      } as unknown as Env;
+      } as unknown as Env);
       c.set('user' as any, { email: 'test@example.com', authenticated: true, role: 'admin' });
       c.set('bucketName' as any, 'codeflare-test-example-com');
       c.set('requestId' as any, 'test-req-id');
@@ -429,7 +430,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     // Build test app with optional env overrides
     const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
     app.use('*', async (c, next) => {
-      c.env = {
+      c.env = withDeployKeyOwner({
         KV: mockKV as unknown as KVNamespace,
       USAGE_DB: createMockSessionD1(mockKV),
         CLOUDFLARE_API_TOKEN: 'test-api-token',
@@ -437,7 +438,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
         R2_SECRET_ACCESS_KEY: 'account-level-sk',
         CONTAINER: {} as any,
         ...envOverrides,
-      } as unknown as Env;
+      } as unknown as Env);
       c.set('user' as any, { email: 'test@example.com', authenticated: true, role: 'admin' });
       c.set('bucketName' as any, 'codeflare-test-example-com');
       c.set('requestId' as any, 'test-req-id');

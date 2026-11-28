@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, DeployKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { withDeployKeyOwner } from '../helpers/deploy-key-owner';
+import { readDeployKeys } from '../../lib/deploy-keys';
 import { AppError } from '../../lib/error-types';
 
 vi.mock('../../lib/logger', () => ({
@@ -9,7 +11,8 @@ vi.mock('../../lib/logger', () => ({
 }));
 
 // authMiddleware (api routes) + the callback both re-derive identity via this.
-vi.mock('../../lib/access', () => ({
+vi.mock('../../lib/access', async importOriginal => ({
+  ...await importOriginal<typeof import('../../lib/access')>(),
   authenticateRequest: vi.fn(async () => ({
     user: { email: 'u@example.com', authenticated: true, role: 'user' },
     bucketName: 'test-bucket',
@@ -31,6 +34,7 @@ const STATE_SECRET = 'state-secret';
 const DEFAULT_ENV: Partial<Env> = { OAUTH_JWT_SECRET: STATE_SECRET };
 
 let mockKV: ReturnType<typeof createMockKV>;
+const readOwnerGrant = () => readDeployKeys(withDeployKeyOwner({ KV: mockKV } as unknown as Env), 'test-bucket');
 
 function createTestApp(env: Partial<Env>) {
   const app = new Hono<{ Bindings: Env }>();
@@ -39,7 +43,7 @@ function createTestApp(env: Partial<Env>) {
     return c.json({ error: 'Unexpected error' }, 500);
   });
   app.use('*', async (c, next) => {
-    (c.env as unknown) = { KV: mockKV, ...env };
+    (c.env as unknown) = withDeployKeyOwner({ KV: mockKV, ...env } as unknown as Env);
     return next();
   });
   app.route('/api/cloudflare', cloudflareRoutes);
@@ -157,7 +161,7 @@ describe('POST /api/cloudflare/account', () => {
       body: JSON.stringify({ accountId: 'a' }),
     });
     expect(res.status).toBe(200);
-    expect(((await mockKV.get(KEY, 'json')) as DeployKeys).cloudflareAccountId).toBe('a');
+    expect(((await readOwnerGrant()) as DeployKeys).cloudflareAccountId).toBe('a');
   });
 
   it('400s for an account the token cannot access', async () => {
@@ -181,7 +185,7 @@ describe('POST /api/cloudflare/disconnect', () => {
     mockFetch.mockResolvedValueOnce(ok({}));
     const res = await createTestApp(BASE_ENV).request('/api/cloudflare/disconnect', { method: 'POST' });
     expect(res.status).toBe(200);
-    expect(await mockKV.get(KEY)).toBeNull();
+    expect(await readOwnerGrant()).toBeNull();
   });
 });
 
@@ -207,7 +211,7 @@ describe('GET /auth/cloudflare/connect/callback', () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toContain('cloudflare=connected');
-    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
+    const raw = (await readOwnerGrant()) as DeployKeys;
     expect(raw.cloudflareApiToken).toBe('cf_t');
     expect(raw.cloudflareTokenSource).toBe('oauth');
     expect(raw.cloudflareAccountId).toBe('only');
@@ -362,12 +366,13 @@ describe('GET /auth/cloudflare/connect/callback', () => {
     const first = await app.request(`/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`);
     expect(first.headers.get('location')).toContain('cloudflare=connected');
 
-    const grant = await mockKV.get(KEY);
+    const grant = await readOwnerGrant();
+    expect(grant).toMatchObject({ cloudflareApiToken: 'cf_t' });
     mockFetch.mockClear();
     const second = await app.request(`/auth/cloudflare/connect/callback?code=abc&state=${encodeURIComponent(state)}`);
     expect(second.headers.get('location')).toContain('cloudflare=expired');
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(await mockKV.get(KEY)).toBe(grant);
+    expect(await readOwnerGrant()).toEqual(grant);
   });
 });
 
@@ -388,15 +393,15 @@ describe('GET /auth/cloudflare/connect/callback', () => {
     const select = (accountId: string) => app.request('/api/cloudflare/account', { method: 'POST',
       headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId }) });
     expect((await select('foreign-account')).status).toBe(400);
-    expect(((await mockKV.get(KEY, 'json')) as DeployKeys).cloudflareAccountId).toBeUndefined();
+    expect(((await readOwnerGrant()) as DeployKeys).cloudflareAccountId).toBeUndefined();
     expect((await select('owner-account')).status).toBe(200);
-    expect(((await mockKV.get(KEY, 'json')) as DeployKeys).cloudflareAccountId).toBe('owner-account');
+    expect(((await readOwnerGrant()) as DeployKeys).cloudflareAccountId).toBe('owner-account');
     expect((mockFetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({ Authorization: 'Bearer owner-token' });
     mockFetch.mockResolvedValueOnce(ok({}));
     expect((await app.request('/api/cloudflare/disconnect', { method: 'POST' })).status).toBe(200);
     const revoke = mockFetch.mock.calls.find(([url]) => String(url).endsWith('/oauth2/revoke'))!;
     expect(new URLSearchParams((revoke[1] as RequestInit).body as string).get('token')).toBe('owner-refresh');
-    expect(await mockKV.get(KEY)).toBeNull();
+    expect(await readOwnerGrant()).toBeNull();
     expect(await mockKV.get('deploy-keys:foreign-bucket')).toBe(foreign);
     expect(await mockKV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN)).toBe(browser);
   });

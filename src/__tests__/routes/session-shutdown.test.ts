@@ -315,14 +315,14 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const app = (bucketName = owner) => createTestApp({ bucketName, mockKV: envOverrides.KV,
     envOverrides, routes: [{ path: '/api/sessions', handler: lifecycle }, { path: '/api/sessions', handler: crud }] });
   const path = (id: string) => `/api/sessions/${id}`;
-  async function create(id: string, { bucket = owner, running = true, holdMerge = false, hasSnapshot = true, directGeneration = true }: {
-    bucket?: string; running?: boolean; holdMerge?: boolean; hasSnapshot?: boolean; directGeneration?: boolean;
+  async function create(id: string, { bucket = owner, running = true, holdMerge = false, hasSnapshot = true, directGeneration = true, personalProviders = true }: {
+    bucket?: string; running?: boolean; holdMerge?: boolean; hasSnapshot?: boolean; directGeneration?: boolean; personalProviders?: boolean;
   } = {}) {
     await envOverrides.KV!.put(getRegimeStateKey(bucket), JSON.stringify({ status: 'ready', regime: 'plain', generation: 1 }));
     await envOverrides.KV!.put('r2token:test@example.com', JSON.stringify({ bucketName: bucket, accessKeyId: 'fixture-key', secretAccessKey: 'fixture-secret' }));
     await envOverrides.KV!.put(SETUP_KEYS.REASONING_CONFIGURATION, JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} }));
     await envOverrides.KV!.put(SETUP_KEYS.GROUP_ROUTING, JSON.stringify({ 'shutdown-fixture': {
-      routes: [], defaultRoute: '', reasoning: 'off', allowPersonalPiProviders: true, piDefaultSource: 'pi-native',
+      routes: [], defaultRoute: '', reasoning: 'off', allowPersonalPiProviders: personalProviders, piDefaultSource: 'pi-native',
     } }));
     await repository.create({ ownerKey: bucket, sessionId: id, name: id, agentType: 'bash',
       createdAt: stamp, lastAccessedAt: stamp, workspace: 'terminal', terminalMode: 'classic' });
@@ -1006,13 +1006,28 @@ it('REQ-SESSION-043: Kill during inference retains the session, rejects a late r
 });
 
 
+it.each(['skipped', 'pending'] as const)('REQ-SESSION-043: Delete uses the Host %s outcome when no model is allowed', async outcome => {
+  const f = rig();
+  const A = await f.create(a, { holdMerge: true, personalProviders: false });
+  await expectAccepted(f.remove(a));
+  A.save.release('saved');
+  await vi.waitFor(() => expect(A.mergeRequest).toMatchObject({ snapshotId, allowPersonalPiProviders: false }));
+  expect(A.mergeRequest).not.toHaveProperty('gateway');
+  A.merge.release(outcome);
+  A.exit.release();
+  if (outcome === 'skipped') await vi.waitFor(async () => expect((await f.app().request(f.path(a))).status).toBe(404));
+  else await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({
+    status: 'stopped', shutdownPhase: 'memory-not-merged', pendingDelete: true,
+  }));
+});
+
 it('REQ-SESSION-043: stops a confirmed save without a trustworthy baseline but never infers a merge or deletes it', async () => {
   const f = rig();
   const A = await f.create(a, { hasSnapshot: false });
   await expectAccepted(f.remove(a));
   A.save.release('saved'); A.exit.release();
   await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({
-    status: 'stopped', shutdownPhase: 'memory-not-merged', pendingDelete: true,
+    status: 'stopped', shutdownPhase: 'memory-not-merged', pendingDelete: true, snapshotUnavailable: true,
   }));
   expect(f.trace).not.toContain(`${a}:merge`);
   expect((await f.app().request(f.path(a))).status).toBe(200);

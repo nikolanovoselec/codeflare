@@ -951,10 +951,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Constraints:**
 
-- On desktop, the open Chat panel uses 80% of available width and the frame uses 80% of height left after the header, capped at 800px wide and 1200px tall. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-- Outside phones, views up to 760px wide or 480px tall use 12px plus safe-area gutters instead of proportional sizing, retaining the same caps. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-- On phones, the single header spans the screen at the top, respecting the safe area. Full-size Chat fills the remaining area without a border or rounding. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-- The composer stays operable, including with the mobile keyboard or browser zoom. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- [REQ-AGENT-287](#req-agent-287-empty-and-restored-vibe-layout) owns responsive panel sizing.
 - Pi Chat handoff is available only in Classic Terminal workspaces. <!-- @impl: src/container/pi-web.ts::isPiWebEligible --> <!-- @test: src/__tests__/container/session-stop.test.ts (REQ-AGENT-272 AC1: the DO refuses a handoff Start with $stored stored and $requested requested) --> <!-- @test: host/__tests__/repository-restore-order.test.js (REQ-TERM-033 AC2: real host prewarm waits for restored snapshot bytes and the init flag) -->
 - Malformed nonempty JSON is rejected before Start claims the session. <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (rejects malformed nonempty Start JSON before claiming the session) -->
 - Use unmodified pi-web and the installed Pi runtime.
@@ -969,7 +966,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-211](#req-agent-211-classic-agent-transcript-resume), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace), [REQ-IDE-048](browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SEC-012](security.md#req-sec-012-container-auth-token-per-do-lifecycle)
 
-**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Workspace layout](../../web-ui/src/__tests__/components/Layout.test.tsx), [Chat panel](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Classic startup](../../host/__tests__/entrypoint-tab-autostart.test.js), [Host switch coordinator](../../host/__tests__/pi-web-handoff.test.js), [Native abort](../../host/__tests__/pi-web-native-stop.test.js), [Primary readiness](../../host/__tests__/prewarm-orphan-expiry.test.js), [Worker creation](../../src/__tests__/routes/session-workspace.test.ts), [Worker Start](../../src/__tests__/routes/container-lifecycle.test.ts), [Classic eligibility at DO Start](../../src/__tests__/container/session-stop.test.ts), [Classic eligibility at Host startup](../../host/__tests__/repository-restore-order.test.js), [Worker ingress](../../src/__tests__/routes/pi-web-auth-chain.test.ts), [native DO relay](../../src/__tests__/container/terminal-ws-relay.test.ts), [Stock service smoke](../../scripts/ci/smoke-pi-web-services.mjs); Manual: [Packaged Chat handoff acceptance](../../documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance).
+**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Workspace layout](../../web-ui/src/__tests__/components/Layout.test.tsx), [Chat panel](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Classic startup](../../host/__tests__/entrypoint-tab-autostart.test.js), [Host switch coordinator](../../host/__tests__/pi-web-handoff.test.js), [Native abort](../../host/__tests__/pi-web-native-stop.test.js), [Primary readiness](../../host/__tests__/prewarm-orphan-expiry.test.js), [Worker creation](../../src/__tests__/routes/session-workspace.test.ts), [Worker Start](../../src/__tests__/routes/container-lifecycle.test.ts), [Classic eligibility at DO Start](../../src/__tests__/container/session-stop.test.ts), [Classic eligibility at Host startup](../../host/__tests__/repository-restore-order.test.js), [Worker ingress](../../src/__tests__/routes/pi-web-auth-chain.test.ts), [native DO relay](../../src/__tests__/container/terminal-ws-relay.test.ts), [Stock service smoke](../../scripts/ci/smoke-pi-web-services.mjs); Manual: [Packaged Chat handoff acceptance](../../documentation/lanes/terminal-and-ide.md#pi-chat-handoff-acceptance)
 
 **Status:** Planned
 
@@ -998,7 +995,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [Mode dropdown](../../web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx), [Workspace panes](../../web-ui/src/__tests__/components/Layout.test.tsx), [Chat panel](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Host handoff coordinator](../../host/__tests__/pi-web-handoff.test.js), [DO relay](../../src/__tests__/container/terminal-ws-relay.test.ts); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time), [Quit and reopen native Pi](../../documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi).
+**Verification:** Automated: [Mode dropdown](../../web-ui/src/__tests__/components/PiWorkspaceMode.test.tsx), [Workspace panes](../../web-ui/src/__tests__/components/Layout.test.tsx), [Chat panel](../../web-ui/src/__tests__/components/PiWebChat.test.tsx), [Host handoff coordinator](../../host/__tests__/pi-web-handoff.test.js), [DO relay](../../src/__tests__/container/terminal-ws-relay.test.ts); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time), [Quit and reopen native Pi](../../documentation/lanes/terminal-and-ide.md#quit-and-reopen-native-pi)
 
 **Status:** Planned
 
@@ -1018,10 +1015,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 4. Returning to the same session generation during an unfinished Terminal-to-Chat handoff keeps Code visible until Chat attaches, without requesting another writer. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (restores the matching Chat attachment gate or saved preference after a %s handoff) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 5. On return to the same session generation before the Host reports the interrupted Terminal-to-Chat handoff, the workspace mode control stays disabled while the original switch request is still outstanding. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (restores the matching Chat attachment gate or saved preference after a %s handoff) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time -->
 
-**Constraints:**
-
-- [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) limits hidden terminal attachment.
-- [REQ-AGENT-287](#req-agent-287-empty-and-restored-vibe-layout) owns Chat panel sizing.
+**Constraints:** Hidden terminal attachment follows [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections); Chat sizing follows [REQ-AGENT-287](#req-agent-287-empty-and-restored-vibe-layout).
 
 **Priority:** P1
 
@@ -1049,7 +1043,12 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 6. Returning to a live Chat after screen lock refits the existing frame to the visible viewport without reopening the conversation. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (refits the existing Chat frame on %s without a viewport resize event) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 7. If an empty Chat measurement would clip the composer or status controls, Chat uses its normal size rather than collapsing or reloading. <!-- @impl: web-ui/src/components/PiWebChat.tsx::watchCompactHistory --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (compacts only ready empty history and expands in place on the first message) -->
 
-**Constraints:** Preserve the responsive panel limits in [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff).
+**Constraints:**
+
+- On desktop, the open Chat panel uses 80% of available width and the frame uses 80% of height left after the header, capped at 800px wide and 1200px tall. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- Outside phones, views up to 760px wide or 480px tall use 12px plus safe-area gutters instead of proportional sizing, retaining the same caps. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- On phones, the single header spans the screen at the top, respecting the safe area; full-size Chat fills the remaining area without a border or rounding. <!-- @impl: web-ui/src/styles/pi-web-chat.css::.layout-workspace--chat --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
+- The composer stays operable, including with the mobile keyboard or browser zoom. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
 **Priority:** P1
 
@@ -1178,7 +1177,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx), [Preferences API](../../src/__tests__/routes/preferences.test.ts), [API client](../../web-ui/src/__tests__/api/client.test.ts).
+**Verification:** Automated: [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout](../../web-ui/src/__tests__/components/Layout.test.tsx), [Preferences API](../../src/__tests__/routes/preferences.test.ts), [API client](../../web-ui/src/__tests__/api/client.test.ts)
 
 **Status:** Planned
 
@@ -1276,10 +1275,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 2. Reopening Chat preserves previously saved browser navigation choices. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions --> <!-- @impl: web-ui/src/components/PiWebChat.tsx::StockChatFrame --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (seeds stock navigation only when no browser preference exists (%s)) -->
 3. The stock Chat footer shows token and context usage without the USD display. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 4. Chat hides SYSTEM transcript rows from both live and saved history without changing the saved transcript. <!-- @manual: documentation/lanes/terminal-and-ide.md#verify-system-rows-are-hidden-in-chat -->
-
 5. Embedded Chat hides the stock Refresh and Actions controls on desktop and mobile without hiding navigation or failure-only Reload Chat. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 6. In the Codeflare theme, the session-start summary, composer, model label, and footer token and context counters match the regular message body font size. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
-
 7. In the Codeflare theme, the beginning-of-session summary has space above it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 
 **Constraints:** No stock Pi Web patch or change to the required Terminal plugin.
@@ -1503,7 +1500,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [Stock browser controls](../../scripts/ci/smoke-pi-web-system-rows.mjs), [Packaged handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs), [Host coordinator](../../host/__tests__/pi-web-handoff.test.js); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time).
+**Verification:** Automated: [Stock browser controls](../../scripts/ci/smoke-pi-web-system-rows.mjs), [Packaged handoff](../../scripts/ci/smoke-pi-web-host-handoff.mjs), [Host coordinator](../../host/__tests__/pi-web-handoff.test.js); Manual: [Switch one writer at a time](../../documentation/lanes/terminal-and-ide.md#switch-one-writer-at-a-time)
 
 **Status:** Planned
 
@@ -1811,7 +1808,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. Tokens are validated against the provider's own API before being stored, so an invalid or expired token is rejected up front rather than discovered at use time. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
 2. Read responses return masked tokens; the full value is never returned to the client. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
 3. Users can clear all stored deploy credentials in a single action. <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) --> <!-- @manual -->
-4. Deploy credentials are persisted in durable storage scoped to the user's bucket and are encrypted at rest when platform-level credential encryption is configured. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
+4. Deploy credentials are persisted in durable storage scoped to the user's bucket and are encrypted at rest when platform-level credential encryption is configured. <!-- @impl: src/lib/deploy-key-state.ts::DeployKeyState --> <!-- @test: src/__tests__/lib/github-token.test.ts (encrypts the token at rest when ENCRYPTION_KEY is set, and round-trips on read) -->
 5. Non-Enterprise direct credential management discovers Cloudflare accounts from the stored token without manual ID entry, automatically selecting a sole account and returning choices when multiple accounts are accessible. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (stores Cloudflare token and auto-selects single account) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (returns account list when multiple Cloudflare accounts) -->
 6. Non-Enterprise direct credential management persists an explicit Cloudflare account choice only after validating it against that token. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (sets cloudflareAccountId after validating it against the stored token) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (rejects a cloudflareAccountId not accessible with the stored token) -->
 
@@ -1824,7 +1821,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated: [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
+**Verification:** Automated: [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts), [Deploy credential encryption](../../src/__tests__/lib/github-token.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -4086,13 +4083,13 @@ None.
 
 ### REQ-AGENT-235: Cloudflare OAuth storage and exchange compatibility
 
-**Intent:** Cloudflare OAuth retains existing encrypted deploy-key storage and its token-exchange authentication and failure diagnostics.
+**Intent:** Cloudflare OAuth preserves shared owner-scoped deploy credentials and its exchange authentication and failure diagnostics.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Encrypted OAuth credentials reuse the bucket deploy-key fields without a new key. <!-- @impl: src/lib/cloudflare-token.ts::storeCloudflareConnection --> <!-- @impl: src/lib/cloudflare-token.ts::writeDeployKeys --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (connects, refreshes, selects and revokes only the owner grant without touching Browser Run or legacy credentials) --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (preserves the GitHub deploy fields when storing a cloudflare connection) -->
+1. Store OAuth credentials in the existing deploy-key fields without overwriting the owner’s GitHub connection. <!-- @impl: src/lib/cloudflare-token.ts::storeCloudflareConnection --> <!-- @impl: src/lib/deploy-key-state.ts::DeployKeyState --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (connects, refreshes, selects and revokes only the owner grant without touching Browser Run or legacy credentials) --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (preserves the GitHub deploy fields when storing a cloudflare connection) -->
 2. Exchanges use `client_secret_post`. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 3. Exchanges surface Cloudflare `error_description` on failure. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 
@@ -6548,7 +6545,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Startup removes explicitly retired package identities, including the retired response and Usage, from persisted Pi settings. The known superseded `./local-packages/pi-todo-loop` registration (or its absolute agent-directory equivalent) converges to the single managed npm registration without deleting package files. <!-- @impl: entrypoint.sh::identity --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-111 / REQ-AGENT-272: loads stock Todo Loop and managed Goal once in both Pi modes) --> <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
+1. Startup removes explicitly retired package identities, including the retired response and Usage, from persisted Pi settings. The known superseded `./local-packages/pi-todo-loop` registration (or its absolute agent-directory equivalent) converges to the single managed npm registration without deleting package files. <!-- @impl: entrypoint.sh::identity --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-111 / REQ-AGENT-293: loads stock Todo Loop and managed Goal once in both Pi modes) --> <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
 2. Startup preserves unrelated user-added packages, credentials and history during retirement migration. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001 AC5 / REQ-AGENT-209: real restored boot migrates packages while preserving user npm metadata and credential/history bytes) -->
 
 **Constraints:** The retirement pass changes only known managed package registrations. It does not read, rewrite, or remove `pi-goal.json`; [Goal startup normalization](#req-agent-293-managed-goal-alongside-todo-loop) is separate.

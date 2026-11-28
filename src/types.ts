@@ -396,7 +396,7 @@ export interface LlmKeys {
 }
 
 /**
- * User-scoped deploy credentials stored in KV
+ * User-scoped deploy credentials stored by the bucket owner
  */
 export interface DeployKeys {
   /**

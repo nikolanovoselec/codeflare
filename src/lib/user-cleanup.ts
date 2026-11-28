@@ -6,7 +6,8 @@
  */
 import type { Env } from '../types';
 import { getBucketOwnerStub, resolveBucketName } from './access';
-import { getPushSubPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, getRegimeStateKey, SETUP_KEYS } from './kv-keys';
+import { getPushSubPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getTimekeeperKey, getRegimeStateKey, SETUP_KEYS } from './kv-keys';
+import type { DeployKeyStore } from './deploy-keys';
 import { D1SessionRepository } from './session-repository';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
@@ -66,7 +67,6 @@ async function deleteUserKvEntries(normalizedEmail: string, bucketName: string, 
     env.KV.delete(`presets:${bucketName}`),
     env.KV.delete(getPreferencesKey(bucketName)),
     env.KV.delete(getLlmKeysKey(bucketName)),
-    env.KV.delete(getDeployKeysKey(bucketName)),
     env.KV.delete(getTimekeeperKey(bucketName)),
     env.KV.delete(getRegimeStateKey(bucketName)),
     ...pushSubscriptionKeys.map(({ name }) => env.KV.delete(name)),
@@ -205,7 +205,7 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
 
 /** Internal runner: the verified owner closes admission after preflight, before destruction. */
 export async function runOwnedUserCleanup(normalizedEmail: string, bucketName: string, env: Env,
-  beginOffboarding: () => Promise<void>): Promise<CleanupResult> {
+  beginOffboarding: () => Promise<DeployKeyStore>): Promise<CleanupResult> {
   try {
     await tombstoneUsageUser(env.USAGE_DB, normalizedEmail, new Date().toISOString());
   } catch {
@@ -225,12 +225,12 @@ export async function runOwnedUserCleanup(normalizedEmail: string, bucketName: s
   const cryptoKey = await getOrImportKey(env);
   const r2TokenData = await getAndDecrypt<{ tokenId?: string; accessKeyId?: string; secretAccessKey?: string }>(env.KV, `r2token:${normalizedEmail}`, cryptoKey);
 
-  await beginOffboarding();
+  const deployKeys = await beginOffboarding();
   const deletedSessions = await deleteSessionsAndContainers(bucketName, env);
   // Confirm provider revocation before destroying storage or its scoped access.
   // A provider failure must retain credentials and data for an authorized retry.
-  await disconnectGithub(env, bucketName, { strictOffboarding: true });
-  await disconnectCloudflare(env, bucketName);
+  await disconnectGithub(env, bucketName, { strictOffboarding: true, store: deployKeys });
+  await disconnectCloudflare(env, bucketName, deployKeys);
   const tokenDeleted = await deleteR2Token(accountId, r2TokenData, env);
   const bucketDeleted = await deleteR2Bucket(bucketName, accountId, normalizedEmail, env);
   if (!bucketDeleted) {
@@ -238,6 +238,7 @@ export async function runOwnedUserCleanup(normalizedEmail: string, bucketName: s
   }
 
   await env.KV.delete(`r2token:${normalizedEmail}`);
+  await deployKeys.reset();
   await deleteUserKvEntries(normalizedEmail, bucketName, env);
 
   return { deletedSessions, bucketDeleted, tokenDeleted };

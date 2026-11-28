@@ -1,8 +1,8 @@
 /**
  * GitHub token store + OAuth/App token providers.
  *
- * The per-user GitHub token lives in the EXISTING deploy-keys KV entry
- * (`DeployKeys.githubToken`, `getDeployKeysKey(bucketName)`) — no new KV key — so it
+ * The per-user GitHub token lives in the owner's deploy-keys record
+ * (`DeployKeys.githubToken`), so it
  * already flows to the container as `GH_TOKEN` for non-enterprise modes and is read
  * by the enterprise egress interceptor. "Connect GitHub" populates the same field the
  * manual PAT UI fills (which marks source `'pat'`).
@@ -15,8 +15,10 @@
  * it at the github.com boundary); this module is the single server-side source of truth.
  */
 import type { DeployKeys, Env } from '../types';
-import { getDeployKeysKey, SETUP_KEYS } from './kv-keys';
-import { getAndDecrypt, encryptAndStore, getOrImportKey } from './kv-crypto';
+import { SETUP_KEYS } from './kv-keys';
+import { getAndDecrypt, getOrImportKey } from './kv-crypto';
+import { changeDeployKeys, ownedDeployKeys, readDeployKeys, type DeployKeyStore } from './deploy-keys';
+import type { DeployKeySnapshot } from './deploy-key-state';
 import { createLogger } from './logger';
 import { githubScopeForTier } from './oauth-scopes';
 
@@ -59,18 +61,6 @@ function apiHost(env: Env): string {
   return env.GITHUB_API_HOST?.trim() || 'api.github.com';
 }
 
-// --- storage (the one existing deploy-keys entry) --------------------------
-
-async function readDeployKeys(env: Env, bucketName: string): Promise<DeployKeys | null> {
-  const cryptoKey = await getOrImportKey(env);
-  return getAndDecrypt<DeployKeys>(env.KV, getDeployKeysKey(bucketName), cryptoKey);
-}
-
-async function writeDeployKeys(env: Env, bucketName: string, value: DeployKeys): Promise<void> {
-  const cryptoKey = await getOrImportKey(env);
-  await encryptAndStore(env.KV, getDeployKeysKey(bucketName), value, cryptoKey);
-}
-
 function readConnection(dk: DeployKeys | null): GithubConnection | null {
   if (!dk?.githubToken) return null;
   return {
@@ -82,43 +72,40 @@ function readConnection(dk: DeployKeys | null): GithubConnection | null {
   };
 }
 
-/**
- * Persist a GitHub connection into the deploy-keys entry, preserving the Cloudflare
- * deploy fields. Shared write path for the App + OAuth providers (manual PAT writes
- * go through the deploy-keys route, which sets source `'pat'`).
- */
-export async function storeGithubConnection(
-  env: Env,
-  bucketName: string,
-  conn: GithubConnection,
-): Promise<void> {
-  const existing = (await readDeployKeys(env, bucketName)) ?? {};
-  const updated: DeployKeys = {
+function withGithubConnection(existing: DeployKeys | null, conn: GithubConnection): DeployKeys {
+  return {
     ...existing,
     githubToken: conn.accessToken,
     githubTokenSource: conn.source,
     githubRefreshToken: conn.refreshToken ?? null,
     githubTokenExpiresAt: conn.expiresAt ?? null,
-    githubLogin: conn.login ?? existing.githubLogin ?? null,
+    githubLogin: conn.login ?? existing?.githubLogin ?? null,
   };
-  await writeDeployKeys(env, bucketName, updated);
 }
 
-/** Remove all GitHub fields; delete the entry entirely if nothing else remains. */
-export async function clearGithubConnection(env: Env, bucketName: string): Promise<void> {
-  const existing = await readDeployKeys(env, bucketName);
-  if (!existing) return;
-  const remaining: DeployKeys = { ...existing };
+/** Persist a GitHub connection without changing unrelated deploy fields. */
+export async function storeGithubConnection(env: Env, bucketName: string, conn: GithubConnection,
+  snapshot?: DeployKeySnapshot): Promise<void> {
+  if (!await changeDeployKeys(ownedDeployKeys(env, bucketName), 'github', keys => withGithubConnection(keys, conn),
+    snapshot && { snapshot })) {
+    throw new Error('Deploy credentials were reset');
+  }
+}
+
+export function withoutGithubConnection(existing: DeployKeys | null): DeployKeys | null {
+  if (!existing) return null;
+  const remaining = { ...existing };
   delete remaining.githubToken;
   delete remaining.githubTokenSource;
   delete remaining.githubRefreshToken;
   delete remaining.githubTokenExpiresAt;
   delete remaining.githubLogin;
-  if (!remaining.cloudflareApiToken && !remaining.cloudflareAccountId) {
-    await env.KV.delete(getDeployKeysKey(bucketName));
-    return;
-  }
-  await writeDeployKeys(env, bucketName, remaining);
+  return Object.keys(remaining).length ? remaining : null;
+}
+
+/** Remove all GitHub fields; delete the entry entirely if nothing else remains. */
+export async function clearGithubConnection(env: Env, bucketName: string): Promise<void> {
+  await changeDeployKeys(ownedDeployKeys(env, bucketName), 'github', withoutGithubConnection);
 }
 
 /** Non-secret connection status for the panel. */
@@ -381,7 +368,9 @@ export async function getValidGithubToken(
 export async function resolveGithubToken(
   env: Env, bucketName: string, retainRefresh?: (work: Promise<unknown>) => void,
 ): Promise<GithubTokenResolution> {
-  const conn = readConnection(await readDeployKeys(env, bucketName));
+  const store = ownedDeployKeys(env, bucketName);
+  const snapshot = await store.read();
+  const conn = readConnection(snapshot.keys);
   if (!conn) return null;
 
   // Manual PAT and long-lived OAuth tokens have no expiry.
@@ -394,7 +383,7 @@ export async function resolveGithubToken(
   if (!refreshToken) return null;
   let flights = appRefreshes.get(env.KV);
   if (!flights) appRefreshes.set(env.KV, flights = new Map());
-  const key = JSON.stringify([bucketName, refreshToken]);
+  const key = JSON.stringify([bucketName, snapshot.epoch, snapshot.github]);
   const pending = flights.get(key);
   if (pending) {
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -410,11 +399,9 @@ export async function resolveGithubToken(
       const provider = await getGithubProvider(env);
       if (!provider || provider.source !== 'app') return null;
       const refreshed = await provider.refresh(refreshToken);
-      const current = readConnection(await readDeployKeys(env, bucketName));
-      if (current?.source !== 'app' || current.refreshToken !== refreshToken) return null;
-      refreshed.login ??= conn.login;
-      await storeGithubConnection(env, bucketName, refreshed);
-      return refreshed.accessToken;
+      const committed = await changeDeployKeys(store, 'github', keys => withGithubConnection(keys, refreshed),
+        { snapshot, provider: 'github' });
+      return committed ? refreshed.accessToken : null;
     } catch (err) {
       logger.warn('GitHub App token refresh failed; failing closed', { err: String(err) });
       return err instanceof GithubTokenEndpointUnavailable ? GITHUB_REFRESH_UNAVAILABLE : null;
@@ -435,16 +422,26 @@ export async function connectGithub(
   code: string,
   redirectUri: string,
 ): Promise<GithubConnection> {
+  const store = ownedDeployKeys(env, bucketName);
+  const snapshot = await store.read();
   const provider = await getGithubProvider(env);
   if (!provider) throw new Error('GitHub integration not configured');
   const conn = await provider.exchangeCode(code, redirectUri);
-  await storeGithubConnection(env, bucketName, conn);
+  await storeGithubConnection(env, bucketName, conn, snapshot);
   return conn;
 }
 
 /** Ordinary disconnect clears locally on provider failure; strict offboarding retains retry authority. */
-export async function disconnectGithub(env: Env, bucketName: string, options: { strictOffboarding?: boolean } = {}): Promise<void> {
-  const conn = readConnection(await readDeployKeys(env, bucketName));
+export async function disconnectGithub(env: Env, bucketName: string,
+  options: { strictOffboarding?: boolean; store?: DeployKeyStore } = {},
+): Promise<void> {
+  const store = options.store ?? ownedDeployKeys(env, bucketName);
+  const snapshot = await store.read();
+  // Ordinary Disconnect first retires the connection atomically. Revoke only
+  // the grant removed by this commit, never a concurrent replacement.
+  const previous = options.strictOffboarding ? snapshot.keys
+    : (await changeDeployKeys(store, 'github', withoutGithubConnection, { snapshot }))?.previous ?? null;
+  const conn = readConnection(previous);
   if (conn && conn.source !== 'pat') {
     try {
       const provider = await getGithubProvider(env);
@@ -452,8 +449,9 @@ export async function disconnectGithub(env: Env, bucketName: string, options: { 
       await provider.revoke(conn.accessToken);
     } catch (err) {
       if (options.strictOffboarding) throw err;
-      logger.warn('GitHub token revocation failed; clearing local credentials', { err: String(err) });
+      logger.warn('GitHub token revocation failed; local credentials were cleared', { err: String(err) });
     }
   }
-  await clearGithubConnection(env, bucketName);
+  if (options.strictOffboarding && !await changeDeployKeys(store, 'github', withoutGithubConnection,
+    { snapshot, provider: 'github' })) throw new Error('GitHub connection changed during offboarding');
 }

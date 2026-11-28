@@ -1,9 +1,8 @@
 /**
  * Cloudflare OAuth token store + provider ("Connect to Cloudflare").
  *
- * Mirrors github-token.ts. The per-user Cloudflare token lives in the EXISTING
- * deploy-keys KV entry (`DeployKeys.cloudflareApiToken` + `cloudflareAccountId`,
- * `getDeployKeysKey(bucketName)`) — no new KV key. "Connect to Cloudflare"
+ * The per-user Cloudflare token lives in the owner's deploy-keys record
+ * (`DeployKeys.cloudflareApiToken` + `cloudflareAccountId`). "Connect to Cloudflare"
  * populates the same fields the (legacy) manual paste UI filled; OAuth access
  * tokens remain Worker-held, with placeholders used for container credentials.
  *
@@ -18,8 +17,10 @@
  */
 import { z } from 'zod';
 import type { DeployKeys, Env } from '../types';
-import { getDeployKeysKey, SETUP_KEYS } from './kv-keys';
-import { getAndDecrypt, encryptAndStore, getOrImportKey } from './kv-crypto';
+import { SETUP_KEYS } from './kv-keys';
+import { getAndDecrypt, getOrImportKey } from './kv-crypto';
+import { changeDeployKeys, ownedDeployKeys, readDeployKeys, type DeployKeyStore } from './deploy-keys';
+import type { DeployKeySnapshot } from './deploy-key-state';
 import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from './constants';
 import { isEnterpriseMode } from './subscription';
 import { createLogger } from './logger';
@@ -57,18 +58,6 @@ export interface CloudflareAccount {
 /** Stable callback path for the Connect-Cloudflare flow (registered on the OAuth client). */
 export const CONNECT_CALLBACK_PATH = '/auth/cloudflare/connect/callback';
 
-// --- storage (the one existing deploy-keys entry) --------------------------
-
-async function readDeployKeys(env: Env, bucketName: string): Promise<DeployKeys | null> {
-  const cryptoKey = await getOrImportKey(env);
-  return getAndDecrypt<DeployKeys>(env.KV, getDeployKeysKey(bucketName), cryptoKey);
-}
-
-async function writeDeployKeys(env: Env, bucketName: string, value: DeployKeys): Promise<void> {
-  const cryptoKey = await getOrImportKey(env);
-  await encryptAndStore(env.KV, getDeployKeysKey(bucketName), value, cryptoKey);
-}
-
 function readConnection(dk: DeployKeys | null): CloudflareConnection | null {
   if (!dk?.cloudflareApiToken) return null;
   return {
@@ -80,25 +69,13 @@ function readConnection(dk: DeployKeys | null): CloudflareConnection | null {
   };
 }
 
-/**
- * Persist a Cloudflare connection into the deploy-keys entry, preserving the
- * GitHub fields. On a new grant, only select an account proven accessible by it.
- */
-export async function storeCloudflareConnection(
-  env: Env,
-  bucketName: string,
-  conn: CloudflareConnection,
-  accessibleAccounts?: readonly CloudflareAccount[],
-): Promise<string | undefined> {
-  const existing = (await readDeployKeys(env, bucketName)) ?? {};
-  const previousAccountId = existing.cloudflareAccountId ?? undefined;
-  let accountId = conn.accountId ?? previousAccountId;
-  if (accessibleAccounts) {
-    accountId = accessibleAccounts.length === 1
-      ? accessibleAccounts[0].id
-      : accessibleAccounts.find(account => account.id === previousAccountId)?.id;
-  }
-  const updated: DeployKeys = {
+function withCloudflareConnection(existing: DeployKeys | null, conn: CloudflareConnection,
+  accessibleAccounts?: readonly CloudflareAccount[]): DeployKeys {
+  const previousAccountId = existing?.cloudflareAccountId ?? undefined;
+  const accountId = accessibleAccounts
+    ? accessibleAccounts.length === 1 ? accessibleAccounts[0].id : accessibleAccounts.find(account => account.id === previousAccountId)?.id
+    : conn.accountId ?? previousAccountId;
+  return {
     ...existing,
     cloudflareApiToken: conn.accessToken,
     cloudflareTokenSource: conn.source,
@@ -106,25 +83,31 @@ export async function storeCloudflareConnection(
     cloudflareTokenExpiresAt: conn.expiresAt ?? null,
     cloudflareAccountId: accountId ?? null,
   };
-  await writeDeployKeys(env, bucketName, updated);
-  return accountId;
 }
 
-/** Remove all Cloudflare fields; delete the entry entirely if nothing else remains. */
-export async function clearCloudflareConnection(env: Env, bucketName: string): Promise<void> {
-  const existing = await readDeployKeys(env, bucketName);
-  if (!existing) return;
-  const remaining: DeployKeys = { ...existing };
+/** Persist a Cloudflare connection, preserving the GitHub fields. */
+export async function storeCloudflareConnection(env: Env, bucketName: string, conn: CloudflareConnection,
+  accessibleAccounts?: readonly CloudflareAccount[], snapshot?: DeployKeySnapshot): Promise<string | undefined> {
+  const saved = await changeDeployKeys(ownedDeployKeys(env, bucketName), 'cloudflare',
+    keys => withCloudflareConnection(keys, conn, accessibleAccounts), snapshot && { snapshot });
+  if (!saved) throw new Error('Deploy credentials were reset');
+  return saved.keys?.cloudflareAccountId ?? undefined;
+}
+
+export function withoutCloudflareConnection(existing: DeployKeys | null): DeployKeys | null {
+  if (!existing) return null;
+  const remaining = { ...existing };
   delete remaining.cloudflareApiToken;
   delete remaining.cloudflareTokenSource;
   delete remaining.cloudflareRefreshToken;
   delete remaining.cloudflareTokenExpiresAt;
   delete remaining.cloudflareAccountId;
-  if (!remaining.githubToken) {
-    await env.KV.delete(getDeployKeysKey(bucketName));
-    return;
-  }
-  await writeDeployKeys(env, bucketName, remaining);
+  return Object.keys(remaining).length ? remaining : null;
+}
+
+/** Remove all Cloudflare fields; delete the entry entirely if nothing else remains. */
+export async function clearCloudflareConnection(env: Env, bucketName: string): Promise<void> {
+  await changeDeployKeys(ownedDeployKeys(env, bucketName), 'cloudflare', withoutCloudflareConnection);
 }
 
 /** Non-secret connection status for the panel/settings. */
@@ -343,7 +326,9 @@ export { connectStateSecret } from './github-token';
  * token cannot be refreshed — fail closed: never returns a stale token.
  */
 export async function getValidCloudflareToken(env: Env, bucketName: string): Promise<string | null> {
-  const conn = readConnection(await readDeployKeys(env, bucketName));
+  const store = ownedDeployKeys(env, bucketName);
+  const snapshot = await store.read();
+  const conn = readConnection(snapshot.keys);
   if (!conn) return null;
 
   // Manual PAT and OAuth tokens without an expiry have nothing to refresh.
@@ -356,10 +341,9 @@ export async function getValidCloudflareToken(env: Env, bucketName: string): Pro
   if (!provider) return null;
   try {
     const refreshed = await provider.refresh(conn.refreshToken);
-    // Preserve the selected account across a refresh.
-    refreshed.accountId = conn.accountId;
-    await storeCloudflareConnection(env, bucketName, refreshed);
-    return refreshed.accessToken;
+    const saved = await changeDeployKeys(store, 'cloudflare', keys => withCloudflareConnection(keys, refreshed),
+      { snapshot, provider: 'cloudflare' });
+    return saved ? refreshed.accessToken : null;
   } catch (err) {
     logger.warn('Cloudflare token refresh failed; failing closed', { err: String(err) });
     return null;
@@ -404,6 +388,8 @@ export async function connectCloudflare(
   code: string,
   redirectUri: string,
 ): Promise<{ accounts: CloudflareAccount[]; accountId?: string }> {
+  const store = ownedDeployKeys(env, bucketName);
+  const snapshot = await store.read();
   const provider = await getCloudflareProvider(env);
   if (!provider) throw new Error('Cloudflare integration not configured');
   const conn = await provider.exchangeCode(code, redirectUri);
@@ -411,7 +397,7 @@ export async function connectCloudflare(
   // Do not replace a saved grant unless the new grant exposes an account.
   const accounts = await fetchCloudflareAccounts(conn.accessToken);
   if (accounts.length === 0) throw new CloudflareNoAccountsError('Cloudflare authorization returned no accessible accounts');
-  const accountId = await storeCloudflareConnection(env, bucketName, conn, accounts);
+  const accountId = await storeCloudflareConnection(env, bucketName, conn, accounts, snapshot);
   return { accounts, accountId };
 }
 
@@ -430,18 +416,19 @@ export async function setCloudflareAccount(
   // expired-but-refreshable token can still select an account instead of 500ing.
   const token = await getValidCloudflareToken(env, bucketName);
   if (!token) return false;
+  const store = ownedDeployKeys(env, bucketName);
+  const snapshot = await store.read();
+  if (snapshot.keys?.cloudflareApiToken !== token) return false;
   const accounts = await fetchCloudflareAccounts(token).catch(() => null);
   if (!accounts || !accounts.some((a) => a.id === accountId)) return false;
-  // Re-read AFTER the refresh so a rotated token is not clobbered by a stale copy.
-  const conn = readConnection(await readDeployKeys(env, bucketName));
-  if (!conn) return false;
-  await storeCloudflareConnection(env, bucketName, { ...conn, accountId });
-  return true;
+  return !!await changeDeployKeys(store, 'cloudflare-account', keys => ({ ...keys, cloudflareAccountId: accountId }),
+    { snapshot, provider: 'cloudflare' });
 }
 
 /** Disconnect: revoke at Cloudflare (oauth only) and clear the stored fields. */
-export async function disconnectCloudflare(env: Env, bucketName: string): Promise<void> {
-  const conn = readConnection(await readDeployKeys(env, bucketName));
+export async function disconnectCloudflare(env: Env, bucketName: string, store: DeployKeyStore = ownedDeployKeys(env, bucketName)): Promise<void> {
+  const snapshot = await store.read();
+  const conn = readConnection(snapshot.keys);
   if (conn && conn.source === 'oauth') {
     const provider = await getCloudflareProvider(env);
     // Revoke the refresh token when present — per RFC 7009 that invalidates the whole
@@ -449,5 +436,7 @@ export async function disconnectCloudflare(env: Env, bucketName: string): Promis
     if (!provider) throw new Error('Cloudflare provider unavailable; retaining local retry state');
     await provider.revoke(conn.refreshToken ?? conn.accessToken);
   }
-  await clearCloudflareConnection(env, bucketName);
+  if (!await changeDeployKeys(store, 'cloudflare', withoutCloudflareConnection, { snapshot, provider: 'cloudflare' })) {
+    throw new Error('Cloudflare connection changed during disconnect');
+  }
 }

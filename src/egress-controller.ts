@@ -68,12 +68,12 @@ import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPo
 const logger = createLogger('egress-controller');
 const OPERATOR_SYNC_OPERATION_HEADER = 'x-codeflare-operator-sync-operation';
 const HERMES_EMPTY_READ_HEADER = 'x-codeflare-hermes-empty-read';
-const HERMES_REVISION_PREFIX = /^(?:Sessions\/[a-z0-9]{8,24}|Masters\/[a-zA-Z0-9_-]{1,180})\//;
+const HERMES_SESSION_PREFIX = /^Sessions\/[a-z0-9]{8,24}\//;
 function isHermesMarkdown(key: string | null): boolean {
   const root = 'Vault/Memory/';
   if (!key?.startsWith(root)) return false;
   const relative = key.slice(root.length);
-  const scoped = relative.replace(HERMES_REVISION_PREFIX, '');
+  const scoped = relative.replace(HERMES_SESSION_PREFIX, '');
   return HERMES_MARKDOWN.some(file => scoped !== relative ? file === scoped : file.replace(/^global\//, '') === relative);
 }
 

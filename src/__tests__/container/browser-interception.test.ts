@@ -7,6 +7,7 @@ import { EgressController } from '../../egress-controller';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { clearCloudflareConnection, storeCloudflareConnection } from '../../lib/cloudflare-token';
 import { createMockKV } from '../helpers/mock-kv';
+import { withDeployKeyOwner } from '../helpers/deploy-key-owner';
 import type { Env } from '../../types';
 import type { OperatorPolicy } from '../../operators/policy';
 import { executeBrowserAction } from '../../../preseed/agents/pi/extensions/browser-run-helpers';
@@ -29,12 +30,12 @@ async function registered({ enterprise = true, strict = false, token = 'admin-br
   }
   const direct: Request[] = [];
   const inspected: Request[] = [];
-  const env = { KV: kv, ENTERPRISE_MODE: enterprise ? 'active' : undefined,
+  const env = withDeployKeyOwner({ KV: kv, ENTERPRISE_MODE: enterprise ? 'active' : undefined,
     EGRESS: gatewayBound ? { fetch: async (request: Request) => {
       inspected.push(request);
       if (gatewayThrows) throw new Error('Gateway unavailable');
       return inspectedUpstream ?? new Response('gateway-response');
-    } } : undefined } as unknown as Env;
+    } } : undefined } as unknown as Env);
   vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
     direct.push(input as Request);
     return upstream ?? new Response('browser-response');
