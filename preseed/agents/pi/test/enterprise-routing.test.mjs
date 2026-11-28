@@ -266,9 +266,11 @@ it('REQ-ENTERPRISE-088 AC4: pinned Pi retains native authenticated providers alo
   assert.deepEqual(available.filter(model => model.provider === 'codeflare-gateway').map(model => model.id).sort(), [...authorizedRoutes].sort());
   assert.ok(runtime.getProvider('anthropic').auth.apiKey);
   assert.ok(runtime.getProvider('openai-codex').auth.oauth);
-  assert.equal(isPersonalPiDestination(new URL('https://token-plan.maas.qwencloudapi.com/compatible-mode/v1/chat/completions')), true);
-  assert.equal(isPersonalPiDestination(new URL('https://token-plan.maas.qwencloudapi.com/other')), false);
-  assert.equal(isPersonalPiDestination(new URL('https://token-plan.maas.qwencloudapi.com.example.invalid/compatible-mode/v1')), false);
+  for (const host of ['token-plan.maas.qwencloudapi.com', 'token-plan.maas.qianwenaiapi.com']) {
+    assert.equal(isPersonalPiDestination(new URL(`https://${host}/compatible-mode/v1/chat/completions`)), true);
+    assert.equal(isPersonalPiDestination(new URL(`https://${host}/other`)), false);
+    assert.equal(isPersonalPiDestination(new URL(`https://${host}.example.invalid/compatible-mode/v1`)), false);
+  }
   // Security allowlist contract: bundled native HTTPS model destinations must
   // reach the policy boundary after SDK/catalog upgrades too.
   for (const model of runtime.getModels()) {

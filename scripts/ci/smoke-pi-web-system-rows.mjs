@@ -3,13 +3,23 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const client = new URL('../../image/pi-web/node_modules/@jmfederico/pi-web/dist/client/', import.meta.url);
 const chromePlugin = new URL('../../image/pi-web/codeflare-chrome/browser/', import.meta.url);
-const appHtml = await readFile(new URL('index.html', client));
+const appHtml = await readFile(new URL('index.html', client), 'utf8');
+const importMap = appHtml.match(/<script type="importmap">[\s\S]*?<\/script>/)?.[0];
+assert.ok(importMap, 'the pinned stock client declares its ICU import map');
+const moduleManifest = new URL('../server/installedBrowserModules.js', client);
+const { installedBrowserModules } = await import(moduleManifest.href);
+const stockRequire = createRequire(moduleManifest);
+const { resolve: resolveImport } = stockRequire('import-meta-resolve');
+const browserModules = new Map(installedBrowserModules.map(({ path, entry, parent }) => [
+  path, new URL(resolveImport(entry, parent ? resolveImport(parent, moduleManifest.href) : moduleManifest.href)),
+]));
 const css = await readFile(new URL('footer.css', chromePlugin), 'utf8');
 const palette = await readFile(new URL('graphite.css', chromePlugin), 'utf8');
 const workspaceCss = await Promise.all(['layout', 'header', 'pi-web-chat', 'dashboard', 'dashboard-card'].map(file =>
@@ -18,7 +28,7 @@ const assets = await readdir(new URL('assets/', client));
 const mains = assets.filter(name => /^main-[\w-]+\.js$/.test(name));
 assert.equal(mains.length, 1, 'expected one pinned stock client entry');
 
-const fixture = `<!doctype html><title>Pi Web SYSTEM rows</title><body>
+const fixture = `<!doctype html><title>Pi Web SYSTEM rows</title>${importMap}<body>
 <script type="module">
 let result;
 try {
@@ -444,12 +454,15 @@ const server = createServer(async (req, res) => {
     return;
   }
   const pluginAsset = /^pi-web-plugins\/codeflare-chrome\/(index\.js|transcript-intent\.js|footer\.css)$/.exec(scoped)?.[1];
-  const name = /^assets\/([\w.-]+)$/.exec(scoped ?? pathname.slice(1))?.[1];
-  if (pluginAsset || name && assets.includes(name)) {
+  const assetPath = scoped ?? pathname.slice(1);
+  const name = /^assets\/([\w.-]+)$/.exec(assetPath)?.[1];
+  const file = pluginAsset ? new URL(pluginAsset, chromePlugin)
+    : name && assets.includes(name) ? new URL(assetPath, client) : browserModules.get(assetPath);
+  if (req.method === 'GET' && file) {
     try {
-      const bytes = await readFile(pluginAsset ? new URL(pluginAsset, chromePlugin) : new URL(`assets/${name}`, client));
+      const bytes = await readFile(file);
       servedModules++;
-      res.writeHead(200, { 'content-type': mime[extname(pluginAsset ?? name)] ?? 'application/octet-stream' }).end(bytes);
+      res.writeHead(200, { 'content-type': mime[extname(file.pathname)] ?? 'application/octet-stream' }).end(bytes);
       return;
     } catch { res.writeHead(500).end(); return; }
   }

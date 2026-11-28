@@ -1315,29 +1315,54 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     const chatUrl = `${prefix}g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
     mockSessions = [createMockSession({ id, workspace: 'terminal', agentType: 'pi', generation: 7 })];
     window.history.replaceState(null, '', `/app/session/${id}`);
-    let fail = false;
+    let failure: 'network' | 'server' | undefined;
+    let finishSwitch: (() => void) | undefined;
     vi.useFakeTimers();
-    vi.stubGlobal('fetch', async (url: string) => url !== `${prefix}_switch?generation=7` ? Response.json({})
-      : fail ? Response.json({ error: 'fixture unavailable' }, { status: 503 })
-        : Response.json({ phase: 'active', surface: 'chat', chatUrl }));
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (url === `${prefix}_switch` && init?.method === 'POST') {
+        return new Promise<Response>(resolve => {
+          finishSwitch = () => resolve(Response.json({ phase: 'active', surface: 'chat', chatUrl }));
+        });
+      }
+      if (url !== `${prefix}_switch?generation=7`) return Response.json({});
+      if (failure === 'network') throw new TypeError('fixture network failure');
+      if (failure === 'server') return Response.json({ error: 'fixture unavailable' }, { status: 503 });
+      return Response.json({ phase: 'active', surface: 'chat', chatUrl });
+    });
     try {
       render(() => <Layout />);
       await vi.advanceTimersByTimeAsync(0);
       const frame = screen.getByTitle('Pi Chat');
       const problem = 'Could not read the current Pi surface.';
-      fail = true;
-      await vi.advanceTimersByTimeAsync(5000);
-      expect(screen.getByTitle('Pi Chat')).toBe(frame);
-      expect(screen.queryByText(problem)).not.toBeInTheDocument();
-      fail = false;
-      await vi.advanceTimersByTimeAsync(5000);
-      expect(screen.getByTitle('Pi Chat')).toBe(frame);
-      expect(screen.queryByText(problem)).not.toBeInTheDocument();
-      fail = true;
+      for (const transient of ['network', 'server'] as const) {
+        failure = transient;
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(screen.getByTitle('Pi Chat')).toBe(frame);
+        expect(screen.queryByText(problem)).not.toBeInTheDocument();
+        failure = undefined;
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(screen.queryByText(problem)).not.toBeInTheDocument();
+      }
+      failure = 'server';
       await vi.advanceTimersByTimeAsync(10_000);
       expect(screen.getByText(problem)).toBeInTheDocument();
       expect(screen.getByTitle('Pi Chat')).toBe(frame);
-    } finally { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); }
+      failure = undefined;
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(screen.queryByText(problem)).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Workspace mode: Vibe Mode' }));
+      failure = 'network';
+      fireEvent.click(screen.getByRole('button', { name: 'Code Mode' }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByText(problem)).toBeInTheDocument();
+      expect(screen.getByTitle('Pi Chat')).toBe(frame);
+    } finally {
+      cleanup();
+      finishSwitch?.();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 
   it('keeps the source Chat during a waiting switch without a cancel button', async () => {

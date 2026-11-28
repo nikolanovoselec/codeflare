@@ -130,7 +130,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Constraints:**
 
-- Use the upstream provider without a Codeflare prompt-cache backport. Pi 1.7.0 owns [full request construction](https://github.com/earendil-works/pi/blob/fb0fe823539f6d04850f6e34748c01f01f212e1f/packages/ai/src/api/openai-codex-responses.ts#L562) and [WebSocket continuation](https://github.com/earendil-works/pi/blob/fb0fe823539f6d04850f6e34748c01f01f212e1f/packages/ai/src/api/openai-codex-responses.ts#L1538). The packed CLI uses the same upstream provider.
+- Use the upstream provider without a Codeflare prompt-cache backport. See [upstream source provenance](../../documentation/references/pi-packages.md#native-codex-prompt-caching).
 - Other providers, request options, streaming and cancellation semantics remain unchanged.
 - Cacheable wire placement is not proof of a live cache hit, reduced cost or successful deployed adoption.
 

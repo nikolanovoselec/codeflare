@@ -45,6 +45,8 @@ Interactive/prewarm Pi and Worker dependencies have independent ownership. The W
 
 Pi 1.7.0 retains the upstream GPT-6.2 fix introduced in 1.6.0. Under [REQ-AGENT-238](../../sdd/spec/agents.md#req-agent-238-native-codex-prompt-prefix-compatibility), the system prompt travels in a leading developer input item rather than top-level instructions. CI verifies the pristine library and bundled CLI, including WebSocket continuation and reconnect. Cacheable placement does not establish a live cache hit or cost reduction.
 
+Pi’s pinned provider owns [full request construction](https://github.com/earendil-works/pi/blob/fb0fe823539f6d04850f6e34748c01f01f212e1f/packages/ai/src/api/openai-codex-responses.ts#L562) and [WebSocket continuation](https://github.com/earendil-works/pi/blob/fb0fe823539f6d04850f6e34748c01f01f212e1f/packages/ai/src/api/openai-codex-responses.ts#L1538), including in the bundled CLI. These external sources have no repository-local implementation anchors.
+
 ### Native terminal UI
 
 [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) owns the native UI and session-status contract. Open TUI is exact-pinned and integrity-locked in the image's Pi extension inventory. Startup selects the exact `pi-open-tui` pin owned by the [Pi manifest](../../preseed/agents/pi/package.json), with `extensions: []`: package auto-discovery is suppressed because managed `startup-header.ts` delegates the installed native entrypoint once. Open TUI owns header, footer and editor in both modes; the adapter gates terminal handlers and `/open-tui` to TUI contexts and bounds header/footer lines by real terminal column width. RPC, print and background execution do not acquire its settings overlay or project probes.
