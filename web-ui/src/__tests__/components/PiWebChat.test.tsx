@@ -146,13 +146,14 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     const stockDocument = (frame: HTMLIFrameElement, loading: boolean) => {
       const doc = document.implementation.createHTMLDocument();
       Object.defineProperty(doc, 'URL', { value: frame.src });
-      doc.body.appendChild(doc.createElement('pi-web-app'));
+      doc.body.appendChild(doc.createElement('pi-web-app')).attachShadow({ mode: 'open' });
       doc.documentElement.toggleAttribute('data-pi-web-loading', loading);
       Object.defineProperty(frame, 'contentDocument', { value: doc });
       fireEvent.load(frame);
     };
     const ready = vi.fn();
-    const view = render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active}
+    const [question, setQuestion] = createSignal(false);
+    const view = render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={{ ...active, startupQuestion: question() }}
       onCancel={() => {}} onStartupReady={ready} />);
     try {
       const first = chatFrame();
@@ -162,14 +163,21 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       await vi.advanceTimersByTimeAsync(60_000);
       expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
       setHidden(false);
-      await vi.advanceTimersByTimeAsync(20_000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      setQuestion(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      setQuestion(false);
+      await vi.advanceTimersByTimeAsync(9999);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(1);
       fireEvent.click(screen.getByRole('button', { name: 'Reload Chat' }));
       const replacement = chatFrame();
       expect(replacement).not.toBe(first);
       expect(replacement.src).toBe(first.src);
       stockDocument(replacement, false);
       await vi.advanceTimersByTimeAsync(5000);
-      expect(ready).toHaveBeenLastCalledWith(true);
+      expect(ready).toHaveBeenLastCalledWith(true, expect.any(Function));
       expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
     } finally {
       view.unmount();

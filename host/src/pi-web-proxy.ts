@@ -227,7 +227,7 @@ export function createPiWebProxy(options: { sessionId: string; runtime: PiWebRun
       startup?.throwIfAborted();
       // Shell preload is passive. Track possible writer creation before the
       // scoped request reaches stock, even if the browser later disconnects.
-      if (opening && endpoint && (read ? writerReads.has(endpoint) : settlers.has(endpoint))) {
+      if (opening && endpoint && (read ? writerReads.has(endpoint) : endpoint !== 'abort' && settlers.has(endpoint))) {
         runtime.beginChatAttachment();
       }
       dispatched = true;

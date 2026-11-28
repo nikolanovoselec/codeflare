@@ -66,7 +66,7 @@ function focusStockStartupPrompt(frame: HTMLIFrameElement, doc: Document, src: s
   } catch { /* The normal Open already revealed Chat. Never retry focus. */ }
 }
 
-function StockChatFrame(props: { src: string; keyboardInset: number; onStartupReady?: PiWebChatProps['onStartupReady']; onStartupFailure?: (failed: boolean) => void; onPanelSize?: PiWebChatProps['onPanelSize'] }) {
+function StockChatFrame(props: { src: string; keyboardInset: number; startupQuestion?: boolean; onStartupReady?: PiWebChatProps['onStartupReady']; onStartupFailure?: (failed: boolean) => void; onPanelSize?: PiWebChatProps['onPanelSize'] }) {
   // Pi Web 1.202611.5 prefers a saved browser theme to the gateway default.
   // Return to the Codeflare default once per origin, before the stock frame reads storage.
   try {
@@ -92,6 +92,8 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
   createEffect(on(() => props.keyboardInset, () => sampleCompactHistory?.()));
   let accentObserver: MutationObserver | undefined;
   let stopBootstrapWatch: (() => void) | undefined;
+  let updateBootstrapWatch: (() => void) | undefined;
+  createEffect(on(() => props.startupQuestion, () => updateBootstrapWatch?.()));
   const cancel = () => {
     observer?.disconnect(); accentObserver?.disconnect(); clearTimeout(timer);
     stopBootstrapWatch?.(); stopBootstrapWatch = undefined;
@@ -199,9 +201,9 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
     // Publish a handle to this document; only the startup Open gesture calls it.
     const focusPrompt = () => focusStockStartupPrompt(frame, doc, props.src);
     const root = doc.documentElement;
-    if (root.hasAttribute('data-pi-web-loading') && !app.shadowRoot) {
-      // Bare stock HTML is not a booted client. Only charge foreground time;
-      // native questions and writer confirmation are handled after app mount.
+    if (root.hasAttribute('data-pi-web-loading')) {
+      // Stock can mount before it is usable. Charge only foreground time
+      // outside a Host-confirmed native startup question.
       let remaining = 30_000;
       let started: number | undefined;
       let bootstrapTimer: ReturnType<typeof setTimeout> | undefined;
@@ -210,18 +212,23 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
         const now = Date.now();
         if (started !== undefined) remaining -= now - started;
         started = undefined;
-        if (document.hidden) return;
+        if (document.hidden || props.startupQuestion) return;
         started = now;
         bootstrapTimer = setTimeout(() => {
           started = undefined;
-          if (!document.hidden && frame.isConnected && frame.contentDocument === doc
-            && root.hasAttribute('data-pi-web-loading') && !app.shadowRoot) props.onStartupFailure?.(true);
+          if (!document.hidden && !props.startupQuestion && frame.isConnected && frame.contentDocument === doc
+            && root.hasAttribute('data-pi-web-loading')) {
+            remaining = 0;
+            props.onStartupFailure?.(true);
+          }
         }, Math.max(0, remaining));
       };
       stopBootstrapWatch = () => {
         clearTimeout(bootstrapTimer);
         document.removeEventListener('visibilitychange', update);
+        updateBootstrapWatch = undefined;
       };
+      updateBootstrapWatch = update;
       document.addEventListener('visibilitychange', update);
       update();
     }
@@ -322,7 +329,7 @@ export default function PiWebChat(props: PiWebChatProps) {
       <div class="pi-web-chat__space">
         <Show when={frame()} keyed
           fallback={<p role="status">{props.status.chatUrl ? 'Chat could not be opened.' : 'Preparing Chat…'}</p>}>
-          {source => <StockChatFrame src={source.src} keyboardInset={innerKeyboardInset()} onPanelSize={props.onPanelSize} onStartupReady={props.onStartupReady} onStartupFailure={failed => {
+          {source => <StockChatFrame src={source.src} keyboardInset={innerKeyboardInset()} startupQuestion={props.status.startupQuestion} onPanelSize={props.onPanelSize} onStartupReady={props.onStartupReady} onStartupFailure={failed => {
             setFrameFailed(failed);
             props.onStartupFailure?.(failed);
           }} />}

@@ -393,6 +393,8 @@ export default function (pi) {
     };
     if (exerciseStartupWaits) {
       // HTML and assets may load before a hidden browser runs its Chat bootstrap.
+      assert.equal((await api(`${ref}/abort`, 200, { cwd })).aborted, true);
+      // A cold Abort is a no-op, not a writer-opening request.
       await delay(26_000);
       const waitingForBrowser = await readSwitch();
       assert.equal(waitingForBrowser.phase, 'opening');
