@@ -127,7 +127,7 @@ For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-
 
 - During Code-to-Vibe handoff, fail the first destination frame navigation. Keep Code visible during recovery. Clear the failure and verify Vibe reveals the same conversation only when ready, without another handoff.
 - For [REQ-AGENT-286 AC7](../../sdd/spec/agents.md#req-agent-286-classic-chat-conversation-selection), the [Host coordinator test](../../host/__tests__/pi-web-handoff.test.js#L280-L295) injects a preparation failure after release and verifies that no replacement writer opens.
-- The [Layout test](../../web-ui/src/__tests__/components/Layout.test.tsx#L1357-L1373) supplies that failure status and verifies **Stop and reopen** guidance with no **Retry switch** button. It does not observe native writer ownership.
+- The [Stop and reopen guidance test](../../web-ui/src/__tests__/components/Layout.test.tsx#L1597-L1613) supplies that failure status and verifies **Stop and reopen** guidance with no **Retry switch** button. It does not observe native writer ownership.
 - The manual post-release failure case remains unexercised until a reproducible fixture can trigger the failure and observe writer ownership. Failing frame navigation does not exercise this case.
 - The workspace mode menu does not offer browser cancellation.
 - The [Host test](../../host/__tests__/pi-web-handoff.test.js) holds the request before Abort and verifies whether the turn survives ([REQ-AGENT-272](../../sdd/spec/agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) AC6).

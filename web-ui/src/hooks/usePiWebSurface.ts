@@ -15,7 +15,7 @@ export function createPiWebSurface(sessionId: string, generation: number, onDefi
   const [mutation, setMutation] = createSignal<'switch' | 'cancel'>();
   const [mutationError, setMutationError] = createSignal<string>();
   const [attempt, setAttempt] = createSignal<{ requestId: string; target: PiSurface }>();
-  const [rejectedSwitch, setRejectedSwitch] = createSignal<{ id: string; status: number; observation: number }>();
+  const [switchFailure, setSwitchFailure] = createSignal<{ id: string; rejection?: number; observation: number }>();
   const lifetime = new AbortController();
   let read: AbortController | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -87,13 +87,11 @@ export function createPiWebSurface(sessionId: string, generation: number, onDefi
     } catch (error) {
       if (stillCurrent()) {
         const rejected = error instanceof ApiError && error.status >= 400 && error.status < 500;
-        if (rejected && kind === 'switch') {
-          if (requestId) {
-            if (error.status !== 409) onDefinitiveRejection?.(requestId);
-            setRejectedSwitch({ id: requestId, status: error.status, observation });
-          }
-          setAttempt(undefined);
+        if (kind === 'switch' && requestId) {
+          if (rejected && error.status !== 409) onDefinitiveRejection?.(requestId);
+          setSwitchFailure({ id: requestId, rejection: rejected ? error.status : undefined, observation });
         }
+        if (rejected && kind === 'switch') setAttempt(undefined);
         setMutationError(kind === 'cancel'
           ? 'Could not cancel the switch.'
           : rejected ? 'The Pi switch was not accepted.' : 'Could not confirm the switch.');
@@ -139,12 +137,16 @@ export function createPiWebSurface(sessionId: string, generation: number, onDefi
     showUnavailable,
     mutation,
     submittedSwitch: attempt,
-    rejectedSwitchId: () => rejectedSwitch()?.id,
+    rejectedSwitchId: () => {
+      const failure = switchFailure();
+      return failure?.rejection === undefined ? undefined : failure.id;
+    },
     canRetryFailedStartup: (requestId: string) => {
       const current = status();
-      const rejection = rejectedSwitch();
+      const failure = switchFailure();
       return !unavailable() && !mutation() && current?.phase === 'failed' && current.requestId === requestId
-        && (rejection?.id !== requestId || (rejection.status === 409 && observation > rejection.observation));
+        && (failure?.id !== requestId || ((failure.rejection === undefined || failure.rejection === 409)
+          && observation > failure.observation));
     },
     switchingTarget: () => !mutationError() ? attempt()?.target : undefined,
     mutationError,

@@ -778,7 +778,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   describe('REQ-AGENT-275: startup Open and the phone prompt', () => {
     const scenarios = ['fresh empty', 'Resume', 'desktop', 'mouse on phone', 'keyboard activation', 'nonempty', 'unknown history',
       'native question', 'transcript question', 'stock modal', 'activity notice', 'replaced document', 'different conversation',
-      'switched attachment', 'background until ready', 'startup attachment retry', 'conflicted startup retry', 'denied startup retry',
+      'switched attachment', 'background until ready', 'startup attachment retry', 'conflicted startup retry', 'unconfirmed startup retry', 'denied startup retry',
       'persistent startup failure', 'frame-only startup retry'] as const;
     it.each(scenarios)('opens the retained Chat in place: %s', runStartup);
     it('does not reset an exhausted Chat frame on Dashboard return', () => runStartup('exhausted frame after Dashboard'));
@@ -809,15 +809,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         bumpSessionStoreVersion();
       });
       let attachment = 1;
-      const retrying = ['startup attachment retry', 'conflicted startup retry', 'denied startup retry', 'persistent startup failure'].includes(scenario);
+      const retrying = ['startup attachment retry', 'conflicted startup retry', 'unconfirmed startup retry', 'denied startup retry', 'persistent startup failure'].includes(scenario);
+      const waitsForStatus = scenario === 'conflicted startup retry' || scenario === 'unconfirmed startup retry';
       const rejected = scenario === 'denied startup retry';
       const persistent = scenario === 'persistent startup failure';
       let finishRetry!: () => void;
       const pendingRetry = new Promise<void>(resolve => { finishRetry = resolve; });
       const requestId = () => `00000000-0000-4000-8000-00000000000${retrying ? 3 : attachment + 2}`;
       let retryCount = 0;
-      let conflict = false;
-      let postConflictReads = 0;
+      let confirmationPending = false;
+      let postFailureReads = 0;
       let releaseStatus!: () => void;
       const delayedStatus = new Promise<void>(resolve => { releaseStatus = resolve; });
       const failed = () => ({ phase: 'failed', surface: null, target: 'chat', requestId: requestId() });
@@ -830,15 +831,15 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
           await pendingRetry;
           if (rejected) return Response.json({}, { status: 403 });
           if (persistent) return Response.json(failed());
-          if (scenario === 'conflicted startup retry' && retryCount === 1) {
-            conflict = true;
-            return Response.json({}, { status: 409 });
+          if (waitsForStatus && retryCount === 1) {
+            confirmationPending = true;
+            return Response.json({}, { status: scenario === 'conflicted startup retry' ? 409 : 503 });
           }
           attachment = 2;
           return Response.json(readyStatus());
         }
-        if (conflict && url.endsWith(`/_switch?generation=${generation}`)) {
-          postConflictReads++;
+        if (confirmationPending && url.endsWith(`/_switch?generation=${generation}`)) {
+          postFailureReads++;
           await delayedStatus;
         }
         return Response.json(url.endsWith(`/_switch?generation=${generation}`)
@@ -871,9 +872,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
             expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeVisible();
           }
           finishRetry();
-          if (scenario === 'conflicted startup retry') {
+          if (waitsForStatus) {
             await vi.advanceTimersByTimeAsync(3000);
-            expect(postConflictReads).toBeGreaterThan(0);
+            expect(postFailureReads).toBeGreaterThan(0);
             expect(retryCount).toBe(1);
             releaseStatus();
           }
@@ -892,7 +893,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
             expect(screen.getAllByText('Loading Chat', { exact: true })[0]).toBeInTheDocument();
             return;
           }
-          expect(retryCount).toBe(scenario === 'conflicted startup retry' ? 2 : 1);
+          expect(retryCount).toBe(waitsForStatus ? 2 : 1);
         }
         await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).toBeInTheDocument());
         if (scenario === 'switched attachment') {
@@ -1465,12 +1466,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     }
   });
 
-  it('keeps the repository restore notice visible across Classic Chat and Terminal switches', async () => {
+  it('keeps the repository restore notice visible across Classic Chat and Terminal switches', () => verifyChatHandoff(false));
+  it('reveals the confirmed Vibe destination after exhausting frame retries without reopening a writer', () => verifyChatHandoff(true));
+
+  async function verifyChatHandoff(exhaust: boolean) {
     navigationRendering.realTerminalArea = true;
     const sessionId = 'abcdef0123456789';
     const prefix = `/api/pi-web/${sessionId}/`;
     const chatUrl = `${prefix}g/7/a/00000000-0000-4000-8000-000000000001/?session=saved-pi&view=chat`;
     let surface = 'chat';
+    const switchedTo: string[] = [];
     let requestId: string | undefined;
     const { terminalStore } = await import('../../stores/terminal');
     vi.mocked(terminalStore.getConnectionState).mockReturnValue('connected');
@@ -1480,7 +1485,10 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     window.history.replaceState(null, '', `/app/session/${sessionId}`);
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
       if (url !== `${prefix}_switch?generation=7` && url !== `${prefix}_switch`) return Response.json({});
-      if (init?.method === 'POST') ({ target: surface, requestId } = JSON.parse(String(init.body)));
+      if (init?.method === 'POST') {
+        ({ target: surface, requestId } = JSON.parse(String(init.body)));
+        switchedTo.push(surface);
+      }
       return Response.json({ phase: requestId ? 'complete' : 'active', surface,
         ...(requestId && { requestId, target: surface }), ...(surface === 'chat' && { chatUrl }) });
     });
@@ -1512,6 +1520,33 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         Object.defineProperty(frame, 'contentDocument', { value: doc });
         return doc;
       };
+      if (exhaust) {
+        const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+        try {
+          document.dispatchEvent(new Event('visibilitychange'));
+          let frame = waiting;
+          for (let retry = 0; retry < 2; retry++) {
+            fireEvent.load(frame);
+            expect(frame).not.toBeVisible();
+            await vi.advanceTimersByTimeAsync(1000);
+            const replacement = screen.getByTitle('Pi Chat');
+            if (!(replacement instanceof HTMLIFrameElement)) throw new Error('Expected the retried Chat frame');
+            expect(replacement).not.toBe(frame);
+            expect(replacement.src).toBe(waiting.src);
+            frame = replacement;
+          }
+          fireEvent.load(frame);
+          await vi.advanceTimersByTimeAsync(2000);
+          expect(screen.getByTitle('Pi Chat')).toBe(frame);
+          expect(frame).toBeVisible();
+          expect(screen.queryByTestId('workspace-content')).not.toBeInTheDocument();
+          expect(screen.getByRole('button', { name: 'Workspace mode: Vibe Mode' })).toBeEnabled();
+          expect(screen.queryByRole('button', { name: /reload chat|retry switch/i })).not.toBeInTheDocument();
+          expect(screen.queryByText('Chat could not be opened.')).not.toBeInTheDocument();
+          expect(switchedTo).toEqual(['terminal', 'chat']);
+          return;
+        } finally { hidden.mockRestore(); }
+      }
       const doc = attachDocument(waiting);
       doc.documentElement.setAttribute('data-pi-web-loading', '');
       fireEvent.load(waiting);
@@ -1532,7 +1567,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       cleanup(); vi.useRealTimers(); vi.unstubAllGlobals();
       vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
     }
-  });
+  }
 
   it.each([{ herdrEnabled: true }, { defaultWorkspace: 'vscode' }])('withdraws switch retry without replacing the running Chat when settings change to %j', async preferences => {
     navigationRendering.realTerminalArea = true;

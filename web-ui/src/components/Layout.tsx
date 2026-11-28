@@ -335,6 +335,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const [chatLoad, setChatLoad] = createSignal<{ frame: ChatFrame; focusPrompt?: () => void }>();
+  const [exhaustedChatFrame, setExhaustedChatFrame] = createSignal<ChatFrame>();
   const chatLoadFor = (requestId?: string) => {
     const load = chatLoad();
     return !!load && load.frame.scope === piWeb()
@@ -385,10 +386,12 @@ const Layout: Component<LayoutProps> = (props) => {
     if (!scope || !status) return { scope, surface: last };
     if (isPiWebSwitchPending(status) && last) return { scope, surface: last };
     if (status.phase === 'complete' && status.requestId && last && status.surface && last !== status.surface) {
-      const ready = status.surface === 'chat'
-        ? chatLoadFor(status.requestId)
+      const exhausted = exhaustedChatFrame();
+      const canReveal = status.surface === 'chat'
+        ? chatLoadFor(status.requestId) || (exhausted?.scope === scope && exhausted.requestId === status.requestId
+          && exhausted.url === status.chatUrl)
         : attachedCode() !== undefined && attachedCode() === codeAttachment();
-      if (!ready) return { scope, surface: last };
+      if (!canReveal) return { scope, surface: last };
     }
     return { scope, surface: status.surface ?? undefined };
   });
@@ -428,7 +431,10 @@ const Layout: Component<LayoutProps> = (props) => {
   });
   const reportChatLoad = (frame: ChatFrame, ready: boolean, focusPrompt?: () => void) => {
     if (shownChatStatus().frame !== frame) return;
-    if (ready && interruptedChat.get(frame.id)?.requestId === frame.requestId) interruptedChat.delete(frame.id);
+    if (ready) {
+      if (interruptedChat.get(frame.id)?.requestId === frame.requestId) interruptedChat.delete(frame.id);
+      setExhaustedChatFrame(previous => previous === frame ? undefined : previous);
+    }
     setChatLoad(previous => ready ? { frame, focusPrompt } : previous?.frame === frame ? undefined : previous);
   };
   const chatStartupReady = () => !!chatLoad() && chatLoad()?.frame === shownChatStatus().frame;
@@ -1560,6 +1566,7 @@ const Layout: Component<LayoutProps> = (props) => {
                     onKeyboardInset={inset => { if (selected()) setChatKeyboardFit(inset > 0 ? { frame, inset } : undefined); }}
                     recoveryEnabled={selected() && showTerminal()} retryBudget={retryBudget}
                     onStartupReady={(ready, focus) => reportChatLoad(frame, ready, focus)}
+                    onFrameExhausted={() => { if (selected()) setExhaustedChatFrame(frame); }}
                     problem={selected() ? piWebProblem() : undefined} canCancel={selected() && canCancelPiWeb()}
                     switchingTarget={selected() ? piWebSwitchingTarget() : undefined} />
                 </div>;

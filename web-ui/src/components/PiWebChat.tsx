@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
+import { Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from 'solid-js';
 import { piWebPrefix, type PiWebStatus } from '../api/pi-web';
 import { disableVirtualKeyboardOverlay } from '../lib/mobile';
 import PiWebSwitchControls from './PiWebSwitchControls';
@@ -16,6 +16,7 @@ interface PiWebChatProps {
   progressInMenu?: boolean;
   switchingTarget?: PiWebStatus['target'];
   onStartupReady?: (ready: boolean, focusPrompt?: () => void) => void;
+  onFrameExhausted?: () => void;
   recoveryEnabled?: boolean;
   retryBudget?: { attempts: number };
   onPanelSize?: (size?: ChatPanelSize) => void;
@@ -330,8 +331,11 @@ export default function PiWebChat(props: PiWebChatProps) {
 
   createEffect(() => {
     const source = frame();
-    // Observe later failures even at the cap: readiness resets the budget in place.
-    if (!source || !frameFailed() || source.budget.attempts >= 2 || !foreground() || props.recoveryEnabled === false || props.status.startupQuestion) return;
+    if (!source || !frameFailed() || !foreground() || props.recoveryEnabled === false || props.status.startupQuestion) return;
+    if (source.budget.attempts >= 2) {
+      untrack(() => props.onFrameExhausted?.());
+      return;
+    }
     const retry = setTimeout(() => {
       if (frame() !== source || document.hidden || !frameFailed()) return;
       source.budget.attempts++;
