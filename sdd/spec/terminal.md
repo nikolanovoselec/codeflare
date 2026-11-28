@@ -1131,7 +1131,7 @@ None.
 **Constraints:**
 
 - The existing terminal link provider owns plain-text links.
-- Explicit links retain their original destinations and xterm confirmation.
+- Explicit links retain their exact HTTP(S) targets and require confirmation before opening. <!-- @manual: documentation/lanes/terminal-and-ide.md#explicit-terminal-link-qualification -->
 - Balanced and percent-encoded parentheses remain URL content.
 - Existing auth-link classifications and user-gesture requirements remain unchanged; the new hostname match excludes lookalike hosts and userinfo substitutions.
 
@@ -1139,7 +1139,7 @@ None.
 
 **Dependencies:** [REQ-TERM-036](#req-term-036-browser-pointer-interaction-with-herdr), [REQ-AGENT-013](agents.md#req-agent-013-browser-shim-for-oauth-flows)
 
-**Verification:** Automated: [herdr-mouse.test.ts](../../web-ui/src/__tests__/lib/herdr-mouse.test.ts), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [terminal-link-provider.test.ts](../../web-ui/src/__tests__/lib/terminal-link-provider.test.ts), [terminal-url-detection.test.ts](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts)
+**Verification:** Automated: [herdr-mouse.test.ts](../../web-ui/src/__tests__/lib/herdr-mouse.test.ts), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [terminal-link-provider.test.ts](../../web-ui/src/__tests__/lib/terminal-link-provider.test.ts), [terminal-url-detection.test.ts](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts); Manual: [Explicit terminal link qualification](../../documentation/lanes/terminal-and-ide.md#explicit-terminal-link-qualification)
 
 **Status:** Implemented
 

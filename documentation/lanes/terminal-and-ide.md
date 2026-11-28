@@ -299,7 +299,22 @@ The restore checks below apply only if Herdr handoff is enabled in a future rele
 
 OAuth shims print URLs rather than opening container browsers. The shared xterm link provider owns detection, reconstruction and browser opening. Classic retains activation; Herdr Ctrl-/Cmd-click and stationary mobile link taps open once without SGR input. Same-cell pointer jitter is allowed; moving cells cancels modified activation. Mobile link taps do not focus input or reset fullscreen history. Modified non-links still reach Herdr. Focused connected pane owns URL detection; cleanup is scoped to that session/terminal, never unscoped on ordinary unmount. <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> [REQ-TERM-015](../../sdd/spec/terminal.md#req-term-015-focused-pane-owns-url-detection), [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
 
-Detected plain-text links exclude unmatched closing parentheses and sentence punctuation after a prose wrapper from the destination and clickable range. Balanced and percent-encoded parentheses are preserved. Explicit OSC 8 links keep their original target and xterm confirmation. The existing desktop and touch auth-link controls also recognize `auth.openai.com` regardless of path. <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
+Detected plain-text links exclude unmatched trailing closing parentheses and sentence punctuation after a prose wrapper from the destination and clickable range. Internal, balanced, and percent-encoded parentheses are preserved. <!-- @impl: web-ui/src/lib/terminal-url-delimiters.ts::trimTerminalUrlParentheses --> <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider -->
+
+The existing desktop and touch auth-link controls also recognize `auth.openai.com` regardless of path. <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
+
+<a id="explicit-terminal-link-qualification"></a>
+#### Explicit terminal link qualification
+
+Use a disposable Classic terminal to print labeled OSC 8 links. The label is not a plain-text URL, so this exercises xterm’s explicit-link path.
+
+```sh
+printf '\033]8;;https://example.com/report)\007Explicit web link\033]8;;\007\n'
+printf '\033]8;;mailto:fixture@example.com\007Unsupported link\033]8;;\007\n'
+```
+
+- Click **Explicit web link** and decline. No tab opens. Click it again and approve. The initial navigation target must be exactly `https://example.com/report)`, before any redirect.
+- Click **Unsupported link**. It must not offer navigation confirmation or open a destination. Only HTTP(S) explicit links are eligible.
 
 ### Terminal evidence boundaries
 
@@ -841,7 +856,10 @@ AC6: On a tablet/desktop with two authorized running sessions, open the session 
 
 AC5: In disposable Classic and Herdr Bash sessions with only harmless clipboard fixtures, set the clipboard to `clipboard-before`, then emit `printf '\033]52;c;Y2xpcGJvYXJkLWFmdGVy\007'`. Inspect using the browser's ordinary clipboard paste into a disposable field. Classic must leave `clipboard-before` unchanged and request no Herdr write; Herdr may write `clipboard-after` only as browser permission allows. Repeat with clipboard permission denied: denial must remain authoritative. Never log clipboard content or send a read/query sequence; personal clipboard data is excluded. Restore only the disposable fixture, not private clipboard history.
 
-AC7: In a disposable desktop Classic Pi session, select Fullscreen and drag across known fixture text. Paste in another window and compare the exact displayed cells. Verify an ordinary click and wheel still reach Pi, and unselected Ctrl+C still interrupts.
+AC7: In a disposable desktop Classic Pi primary pane, select Fullscreen. Verify mouse tracking is active: an ordinary drag selects within Pi rather than showing xterm’s native selection. Start with a harmless clipboard sentinel such as `clipboard-before`.
+
+- Display a fixture with a long line that soft-wraps and a second line separated by a hard break. Drag across both boundaries. Without pressing Copy, paste in another window: the selection replaces the sentinel, with a newline only at the hard break.
+- Verify an ordinary click and wheel still reach Pi, and unselected Ctrl+C still interrupts. If the fixture or tracking state cannot be confirmed, leave this check unverified.
 
 <a id="req-term-036-manual-qualification"></a>
 ### Samsung single activation (REQ-TERM-036)
