@@ -330,7 +330,8 @@ export default function PiWebChat(props: PiWebChatProps) {
 
   createEffect(() => {
     const source = frame();
-    if (!source || source.budget.attempts >= 2 || !frameFailed() || !foreground() || props.recoveryEnabled === false || props.status.startupQuestion) return;
+    // Observe later failures even at the cap: readiness resets the budget in place.
+    if (!source || !frameFailed() || source.budget.attempts >= 2 || !foreground() || props.recoveryEnabled === false || props.status.startupQuestion) return;
     const retry = setTimeout(() => {
       if (frame() !== source || document.hidden || !frameFailed()) return;
       source.budget.attempts++;

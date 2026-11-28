@@ -7,7 +7,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 ## 2026-11-28: Vibe navigation and startup
 
 - Vibe always exposes [Chat and Files](agents.md#req-agent-289-embedded-chat-chrome) without the stock menu. [MultiView](terminal.md#req-term-012-multiview-virtual-session-workspace) remains available in Code only.
-- The [Vibe startup screen](agents.md#req-agent-275-classic-pi-chat-startup) waits for Open, even when document preload finishes while the browser is away; recoverable failures retry automatically in the same conversation, at most twice. During a switch, [Code stays visible until Vibe is ready](agents.md#req-agent-280-attachment-gated-workspace-reveal), except for a native startup question.
+- The [Vibe startup screen](agents.md#req-agent-275-classic-pi-chat-startup) waits for Open, even when document preload finishes while the browser is away; recovery stays in the same conversation, with up to two retries for a failed writer start and up to two for each separate frame outage. During a switch, [Code stays visible until Vibe is ready](agents.md#req-agent-280-attachment-gated-workspace-reveal), except for a native startup question.
 
 ## 2026-11-28: Graceful shutdown and repository recovery
 
