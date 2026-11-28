@@ -136,7 +136,7 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it('offers Reload Chat for a stalled client only after the foreground bootstrap budget', async () => {
+  it('recovers a stalled Chat client after its foreground bootstrap budget', async () => {
     vi.useFakeTimers();
     const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
     const setHidden = (value: boolean) => {
@@ -170,14 +170,16 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       setQuestion(false);
       await vi.advanceTimersByTimeAsync(9999);
       expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      expect(chatFrame()).toBe(first);
       await vi.advanceTimersByTimeAsync(1);
-      fireEvent.click(screen.getByRole('button', { name: 'Reload Chat' }));
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(1000);
       const replacement = chatFrame();
       expect(replacement).not.toBe(first);
       expect(replacement.src).toBe(first.src);
       stockDocument(replacement, false);
       await vi.advanceTimersByTimeAsync(5000);
-      expect(ready).toHaveBeenLastCalledWith(true, expect.any(Function));
+      expect(ready).toHaveBeenLastCalledWith(true);
       expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
     } finally {
       view.unmount();
@@ -365,24 +367,28 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it('reloads the same Chat frame only after a failed navigation, without switching writers', async () => {
-    const onRetry = () => { throw new Error('Reload must not dispatch a handoff'); };
-    const [status, setStatus] = createSignal<typeof active | (typeof opening & { target: 'chat'; chatUrl: string })>(
-      { ...opening, target: 'chat', chatUrl: CHAT_URL });
-    render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}
-      onCancel={() => {}} onRetry={onRetry} />);
-    const failedFrame = chatFrame();
-    expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
-    const errorDocument = document.implementation.createHTMLDocument();
-    Object.defineProperty(errorDocument, 'URL', { value: failedFrame.src });
-    Object.defineProperty(failedFrame, 'contentDocument', { value: errorDocument });
-    fireEvent.load(failedFrame);
-    await fireEvent.click(screen.getByRole('button', { name: 'Reload Chat' }));
-    expect(failedFrame).not.toBeInTheDocument();
-    expect(chatFrame().src).toBe(failedFrame.src);
-    expect(chatFrame()).toBeVisible();
-    setStatus(active);
-    expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+  it('recovers failed navigation at the same Chat URL without switching writers', async () => {
+    vi.useFakeTimers();
+    try {
+      const onRetry = () => { throw new Error('Reload must not dispatch a handoff'); };
+      const [status, setStatus] = createSignal<typeof active | (typeof opening & { target: 'chat'; chatUrl: string })>(
+        { ...opening, target: 'chat', chatUrl: CHAT_URL });
+      render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}
+        onCancel={() => {}} onRetry={onRetry} />);
+      const failedFrame = chatFrame();
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      const errorDocument = document.implementation.createHTMLDocument();
+      Object.defineProperty(errorDocument, 'URL', { value: failedFrame.src });
+      Object.defineProperty(failedFrame, 'contentDocument', { value: errorDocument });
+      fireEvent.load(failedFrame);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(failedFrame).not.toBeInTheDocument();
+      expect(chatFrame().src).toBe(failedFrame.src);
+      expect(chatFrame()).toBeVisible();
+      setStatus(active);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+    } finally { vi.useRealTimers(); }
   });
 
   it('REQ-AGENT-273 AC1: announces the destination without replacing the source frame', async () => {

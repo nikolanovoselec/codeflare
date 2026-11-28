@@ -16,7 +16,7 @@ interface PiWebChatProps {
   progressInMenu?: boolean;
   switchingTarget?: PiWebStatus['target'];
   onStartupReady?: (ready: boolean, focusPrompt?: () => void) => void;
-  onStartupFailure?: (failed: boolean) => void;
+  recoveryEnabled?: boolean;
   onPanelSize?: (size?: ChatPanelSize) => void;
   onKeyboardInset?: (inset: number) => void;
   fitTabletKeyboard?: boolean;
@@ -265,6 +265,12 @@ export default function PiWebChat(props: PiWebChatProps) {
   createEffect(() => props.onKeyboardInset?.(fitWorkspace() ? keyboardInset() : 0));
   const [frameRevision, setFrameRevision] = createSignal(0);
   const [frameFailed, setFrameFailed] = createSignal(false);
+  const [foreground, setForeground] = createSignal(!document.hidden);
+  const syncVisibility = () => setForeground(!document.hidden);
+  onMount(() => {
+    document.addEventListener('visibilitychange', syncVisibility);
+    onCleanup(() => document.removeEventListener('visibilitychange', syncVisibility));
+  });
   onMount(() => {
     disableVirtualKeyboardOverlay();
     const media = window.matchMedia?.('(width > 640px) and (pointer: coarse)');
@@ -316,23 +322,24 @@ export default function PiWebChat(props: PiWebChatProps) {
     return src ? { src, generation: props.generation, revision: frameRevision() } : undefined;
   });
 
+  createEffect(() => {
+    const source = frame();
+    if (!source || !frameFailed() || !foreground() || props.recoveryEnabled === false || props.status.startupQuestion) return;
+    const retry = setTimeout(() => {
+      if (frame() === source && !document.hidden) setFrameRevision(value => value + 1);
+    }, 1000);
+    onCleanup(() => clearTimeout(retry));
+  });
+
   return (
     <section class="pi-web-chat" aria-label="Pi Chat" style={{ 'margin-block-end': `${innerKeyboardInset()}px` }}>
-      <Show when={frameUrl() && frameFailed()}>
-        <div class="pi-web-controls">
-          <button type="button" class="pi-web-action" onClick={() => setFrameRevision(value => value + 1)}>Reload Chat</button>
-        </div>
-      </Show>
       <PiWebSwitchControls progressInMenu={props.progressInMenu} phase={props.status.phase} target={props.switchingTarget ?? props.status.target}
         switching={!!props.switchingTarget} problem={props.problem}
         canCancel={props.canCancel} onCancel={props.onCancel} onRetry={props.onRetry} />
       <div class="pi-web-chat__space">
         <Show when={frame()} keyed
           fallback={<p role="status">{props.status.chatUrl ? 'Chat could not be opened.' : 'Preparing Chat…'}</p>}>
-          {source => <StockChatFrame src={source.src} keyboardInset={innerKeyboardInset()} startupQuestion={props.status.startupQuestion} onPanelSize={props.onPanelSize} onStartupReady={props.onStartupReady} onStartupFailure={failed => {
-            setFrameFailed(failed);
-            props.onStartupFailure?.(failed);
-          }} />}
+          {source => <StockChatFrame src={source.src} keyboardInset={innerKeyboardInset()} startupQuestion={props.status.startupQuestion} onPanelSize={props.onPanelSize} onStartupReady={source.revision === 0 ? props.onStartupReady : props.onStartupReady && (ready => props.onStartupReady?.(ready))} onStartupFailure={setFrameFailed} />}
         </Show>
       </div>
     </section>

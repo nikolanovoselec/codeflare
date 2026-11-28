@@ -778,7 +778,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   describe('REQ-AGENT-275: startup Open and the phone prompt', () => {
     it.each(['fresh empty', 'Resume', 'desktop', 'mouse on phone', 'keyboard activation', 'nonempty', 'unknown history',
       'native question', 'transcript question', 'stock modal', 'activity notice', 'replaced document', 'different conversation',
-      'switched attachment', 'background until ready'] as const)(
+      'switched attachment', 'background until ready', 'startup attachment retry'] as const)(
       'opens the retained Chat in place: %s', async scenario => {
         navigationRendering.realTerminalArea = true;
         const id = 'abcdef0123456789';
@@ -805,15 +805,41 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
           bumpSessionStoreVersion();
         });
         let attachment = 1;
-        vi.stubGlobal('fetch', async (url: string) => Response.json(url.endsWith(`/_switch?generation=${generation}`)
-          ? { phase: 'complete', surface: 'chat', target: 'chat', requestId: `00000000-0000-4000-8000-00000000000${attachment + 2}`,
-            chatUrl: `/api/pi-web/${id}/g/${generation}/a/00000000-0000-4000-8000-00000000000${attachment}/?project=p&workspace=w&session=native&view=chat` } : {}));
+        const retrying = scenario === 'startup attachment retry';
+        const requestId = () => `00000000-0000-4000-8000-00000000000${retrying ? 3 : attachment + 2}`;
+        let retryCount = 0;
+        const readyStatus = () => ({ phase: 'complete', surface: 'chat', target: 'chat', requestId: requestId(),
+          chatUrl: `/api/pi-web/${id}/g/${generation}/a/00000000-0000-4000-8000-00000000000${attachment}/?project=p&workspace=w&session=native&view=chat` });
+        vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+          if (retrying && url.endsWith('/_switch') && init?.method === 'POST') {
+            expect(JSON.parse(String(init.body))).toEqual({ generation, target: 'chat', requestId: requestId() });
+            retryCount++;
+            attachment = 2;
+            return Response.json(readyStatus());
+          }
+          return Response.json(url.endsWith(`/_switch?generation=${generation}`)
+            ? retrying && !retryCount ? { phase: 'failed', surface: null, target: 'chat', requestId: requestId() } : readyStatus()
+            : {});
+        });
         vi.useFakeTimers();
         const visibility = scenario === 'background until ready' ? vi.spyOn(document, 'visibilityState', 'get') : undefined;
-        const hidden = visibility ? vi.spyOn(document, 'hidden', 'get') : undefined;
+        const hidden = visibility || retrying ? vi.spyOn(document, 'hidden', 'get').mockReturnValue(false) : undefined;
         try {
           render(() => <Layout />);
           fireEvent.click(screen.getByRole('button', { name: creating ? 'Start fresh Vibe' : 'Start session' }));
+          if (retrying) {
+            await vi.waitFor(() => expect(screen.getAllByText('Loading Chat', { exact: true })[0]).toBeInTheDocument());
+            expect(screen.queryByText('Could not switch Pi surfaces.')).not.toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: /reload chat|retry switch/i })).not.toBeInTheDocument();
+            hidden?.mockReturnValue(true);
+            document.dispatchEvent(new Event('visibilitychange'));
+            await vi.advanceTimersByTimeAsync(6000);
+            expect(retryCount).toBe(0);
+            hidden?.mockReturnValue(false);
+            document.dispatchEvent(new Event('visibilitychange'));
+            await vi.advanceTimersByTimeAsync(1500);
+            expect(retryCount).toBe(1);
+          }
           await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).toBeInTheDocument());
           if (scenario === 'switched attachment') {
             const first = screen.getByTitle('Pi Chat');

@@ -7,7 +7,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 ## 2026-11-28: Vibe navigation and startup
 
 - Vibe always exposes [Chat and Files](agents.md#req-agent-289-embedded-chat-chrome) without the stock menu. [MultiView](terminal.md#req-term-012-multiview-virtual-session-workspace) remains available in Code only.
-- The [Vibe startup screen](agents.md#req-agent-275-classic-pi-chat-startup) waits for Open, even when document preload finishes while the browser is away; if Chat stalls in the foreground, **Reload Chat** retries the same attachment.
+- The [Vibe startup screen](agents.md#req-agent-275-classic-pi-chat-startup) waits for Open, even when document preload finishes while the browser is away; recoverable Chat startup failures are retried automatically in the same conversation.
 
 ## 2026-11-28: Graceful shutdown and repository recovery
 
