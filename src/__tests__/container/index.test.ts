@@ -1599,6 +1599,27 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       } finally { capture.restore(); }
     });
 
+    it('REQ-SESSION-247 AC2: monitor exit preserves its reason without attributing a mismatched queued Stop', async () => {
+      const capture = await captureLifecycleSerialization();
+      try {
+        const f = await attachedMonitor(17);
+        f.kv._set(f.key, {
+          ...await f.kv.get(f.key, 'json') as Record<string, unknown>,
+          status: 'stopping', terminationGeneration: 17, terminationIntentId: 'current-intent',
+          shutdown: { intent: 'other-intent', phase: 'finishing', delete: false, idle: true },
+        });
+        f.rejectExit(new Error('Runtime signalled the container to exit due to a new version rollout: 143'));
+        await vi.waitFor(async () => expect(await f.kv.get(f.key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 17 }));
+        await vi.waitFor(() => {
+          const exits = capture.entries().filter(entry => entry.message === 'process_exit_confirmed');
+          expect(exits).toEqual([expect.objectContaining({ data: expect.objectContaining({
+            sessionId, lifecycleGeneration: 17, terminationIntentId: 'current-intent', reason: 'platform',
+          }) })]);
+          expect(exits[0]?.data).not.toHaveProperty('stopTrigger');
+        });
+      } finally { capture.restore(); }
+    });
+
     it('REQ-SESSION-025 AC1: stale monitored-exit authority cannot emit confirmation for a replacement', async () => {
       const capture = await captureLifecycleSerialization();
       try {

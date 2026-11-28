@@ -800,6 +800,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     };
     vi.spyOn(console, 'log').mockImplementation(capture);
     vi.spyOn(console, 'warn').mockImplementation(capture);
+    vi.spyOn(console, 'error').mockImplementation(capture);
     setLogLevel('info');
     return entries;
   }

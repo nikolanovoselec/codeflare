@@ -1449,7 +1449,7 @@ Runtime readiness remains governed by [REQ-SESSION-015](#req-session-015-contain
 **Acceptance Criteria:**
 
 1. A monitor-confirmed exit retains the observed reason when confirmation is retried. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-025 AC2: a rollout monitor exit retains its reason when D1 confirmation is retried) -->
-2. A monitor-confirmed exit reports the trigger of an accepted queued Stop with matching generation and termination intent separately from the observed exit reason. <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-025 AC2: monitor exit after the Stop intent is claimed preserves its trigger before teardown) --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-025 AC2: monitor exit before SIGTERM records %s Stop separately from the exit reason) -->
+2. A monitor-confirmed exit reports the trigger of an accepted queued Stop with matching generation and termination intent separately from the observed exit reason. <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-025 AC2: monitor exit after the Stop intent is claimed preserves its trigger before teardown) --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-025 AC2: monitor exit before SIGTERM records %s Stop separately from the exit reason) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-247 AC2: monitor exit preserves its reason without attributing a mismatched queued Stop) -->
 
 **Constraints:** The matching trigger is diagnostic, not exit-cause evidence or teardown authority.
 
@@ -1457,7 +1457,7 @@ Runtime readiness remains governed by [REQ-SESSION-015](#req-session-015-contain
 
 **Dependencies:** [REQ-SESSION-025](#req-session-025-lifecycle-recovery-is-observably-correlated)
 
-**Verification:** Automated: [session-shutdown.test.ts](../../src/__tests__/routes/session-shutdown.test.ts)
+**Verification:** Automated: [session-shutdown.test.ts](../../src/__tests__/routes/session-shutdown.test.ts), [container/index.test.ts](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
 
