@@ -1181,7 +1181,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const vibeMode = () => (showDashboard() ? dashboardWorkspaceMode()?.value
-    : sessionWorkspaceMode()?.value ?? dashboardWorkspaceMode()?.value) === 'chat';
+    : sessionWorkspaceMode()?.value) === 'chat';
   const handleOpenMultiView = () => {
     if (vibeMode()) return;
     if (!terminalWorkspaceStore.openMultiView(

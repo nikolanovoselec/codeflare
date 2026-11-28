@@ -136,6 +136,48 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it('offers Reload Chat for a stalled client only after the foreground bootstrap budget', async () => {
+    vi.useFakeTimers();
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    const setHidden = (value: boolean) => {
+      hidden.mockReturnValue(value);
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    const stockDocument = (frame: HTMLIFrameElement, loading: boolean) => {
+      const doc = document.implementation.createHTMLDocument();
+      Object.defineProperty(doc, 'URL', { value: frame.src });
+      doc.body.appendChild(doc.createElement('pi-web-app'));
+      doc.documentElement.toggleAttribute('data-pi-web-loading', loading);
+      Object.defineProperty(frame, 'contentDocument', { value: doc });
+      fireEvent.load(frame);
+    };
+    const ready = vi.fn();
+    const view = render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={active}
+      onCancel={() => {}} onStartupReady={ready} />);
+    try {
+      const first = chatFrame();
+      stockDocument(first, true);
+      await vi.advanceTimersByTimeAsync(10_000);
+      setHidden(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+      setHidden(false);
+      await vi.advanceTimersByTimeAsync(20_000);
+      fireEvent.click(screen.getByRole('button', { name: 'Reload Chat' }));
+      const replacement = chatFrame();
+      expect(replacement).not.toBe(first);
+      expect(replacement.src).toBe(first.src);
+      stockDocument(replacement, false);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(ready).toHaveBeenLastCalledWith(true);
+      expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
+    } finally {
+      view.unmount();
+      hidden.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('compacts only ready empty history and expands in place on the first message', async () => {
     vi.useFakeTimers();
     try {

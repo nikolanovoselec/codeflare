@@ -136,7 +136,11 @@ try {
     if (!targets.every(visible)) throw Error(tag + ': stock controls missing');
     scope.adoptedStyleSheets = [...scope.adoptedStyleSheets, sheet];
     if (targets.some(visible)) throw Error(tag + ': Actions and Refresh must be completely hidden');
-    if (!visible(scope.querySelector(navigation))) throw Error(tag + ': navigation must remain available');
+    const trigger = scope.querySelector(navigation);
+    if (tag === 'app-context-bar') {
+      trigger?.focus();
+      if (!trigger || visible(trigger) || scope.activeElement === trigger) throw Error(tag + ': stock menu must not render or take focus');
+    } else if (!visible(trigger)) throw Error(tag + ': sidebar toggle must remain available');
     const hidden = tag === 'app-navigation-panel'
       ? [...scope.querySelectorAll('header machine-switcher, project-list, navigation-section-resize-handle')]
       : [...scope.querySelectorAll('.context-item')].slice(0, -1);

@@ -1069,16 +1069,17 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 **Acceptance Criteria:**
 
 1. Chat Start and Resume preload the stock frame behind the standard startup screen. Once the Host confirms Chat and five seconds have elapsed since the stock loading screen disappeared, Open reveals the same frame. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (waits five seconds after the stock loader disappears, not after iframe load) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
-2. Waiting to click Open, including while the browser is in the background, does not expire Chat startup. Preloading the document alone does not start the writer timeout. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (waitingForBrowser) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens the retained Chat in place: %s) --> <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
+2. Waiting to click Open, including while the browser is in the background, does not expire Chat startup. <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (opens the retained Chat in place: %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
 3. Once the Pi profile and transcript are restored, either Classic surface can open while repositories still clone. <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
 4. Classic Chat and Terminal can switch in either direction while repositories clone. <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
 5. Switching between Classic Chat and Terminal does not dismiss the active repository restore notice. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the repository restore notice visible across Classic Chat and Terminal switches) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#choose-the-starting-writer -->
-6. Reload Chat is offered only when the scoped frame fails to load the stock document. It retries the same frame URL without starting another handoff. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (reloads the same Chat frame only after a failed navigation, without switching writers) -->
+6. Reload Chat is offered only when the scoped frame fails to load or bootstrap the stock client in the foreground. It retries the same frame URL without starting another handoff. <!-- @impl: web-ui/src/components/PiWebChat.tsx::PiWebChat --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (reloads the same Chat frame only after a failed navigation, without switching writers) --> <!-- @test: web-ui/src/__tests__/components/PiWebChat.test.tsx (offers Reload Chat for a stalled client only after the foreground bootstrap budget) -->
 7. Verified native question evidence for the same opening attempt pauses attachment timeout within the stock question-time allowance. Writer confirmation and the single-writer fence still apply. <!-- @impl: image/pi-web/handoff-extension.ts::publishStartupQuestion --> <!-- @impl: host/src/pi-web-runtime.ts::createPiWebRuntime --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 
 **Constraints:**
 
 - Chat-first service preparation follows profile restore and never opens a writer.
+- Passive document preload does not start the writer deadline; the first scoped writer-opening request does. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
 - Only revealed Vibe Chat uses the grouped panel; Open retains the existing header and frame. Dashboard, startup, Code, and Terminal retain their own layouts. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (groups the existing header with the same Chat frame only after Open) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps Vibe visible after Host confirms Code until its terminal attaches) -->
 - The stock-loader gate is best effort, not proof of live synchronization.
 - [REQ-TERM-049](terminal.md#req-term-049-shared-workspace-startup-progress) owns startup status copy.
@@ -1313,7 +1314,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-274](#req-agent-274-stock-pi-chat-controls)
 
-**Verification:** Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+**Verification:** Automated: [Stock browser navigation](../../scripts/ci/smoke-pi-web-system-rows.mjs); Manual: [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
 
 **Status:** Planned
 

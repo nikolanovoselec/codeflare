@@ -91,7 +91,12 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
   let sampleCompactHistory: (() => void) | undefined;
   createEffect(on(() => props.keyboardInset, () => sampleCompactHistory?.()));
   let accentObserver: MutationObserver | undefined;
-  const cancel = () => { observer?.disconnect(); accentObserver?.disconnect(); clearTimeout(timer); stopCompactWatch?.(); };
+  let stopBootstrapWatch: (() => void) | undefined;
+  const cancel = () => {
+    observer?.disconnect(); accentObserver?.disconnect(); clearTimeout(timer);
+    stopBootstrapWatch?.(); stopBootstrapWatch = undefined;
+    stopCompactWatch?.();
+  };
   const [compactHeight, setCompactHeight] = createSignal<number>();
   let expansionTimer: ReturnType<typeof setTimeout> | undefined;
   const compact = (height?: number, animate = false) => {
@@ -194,11 +199,40 @@ function StockChatFrame(props: { src: string; keyboardInset: number; onStartupRe
     // Publish a handle to this document; only the startup Open gesture calls it.
     const focusPrompt = () => focusStockStartupPrompt(frame, doc, props.src);
     const root = doc.documentElement;
+    if (root.hasAttribute('data-pi-web-loading') && !app.shadowRoot) {
+      // Bare stock HTML is not a booted client. Only charge foreground time;
+      // native questions and writer confirmation are handled after app mount.
+      let remaining = 30_000;
+      let started: number | undefined;
+      let bootstrapTimer: ReturnType<typeof setTimeout> | undefined;
+      const update = () => {
+        clearTimeout(bootstrapTimer);
+        const now = Date.now();
+        if (started !== undefined) remaining -= now - started;
+        started = undefined;
+        if (document.hidden) return;
+        started = now;
+        bootstrapTimer = setTimeout(() => {
+          started = undefined;
+          if (!document.hidden && frame.isConnected && frame.contentDocument === doc
+            && root.hasAttribute('data-pi-web-loading') && !app.shadowRoot) props.onStartupFailure?.(true);
+        }, Math.max(0, remaining));
+      };
+      stopBootstrapWatch = () => {
+        clearTimeout(bootstrapTimer);
+        document.removeEventListener('visibilitychange', update);
+      };
+      document.addEventListener('visibilitychange', update);
+      update();
+    }
     const check = () => {
       clearTimeout(timer);
       if (root.hasAttribute('data-pi-web-loading')) {
         props.onStartupReady?.(false);
       } else {
+        stopBootstrapWatch?.();
+        stopBootstrapWatch = undefined;
+        props.onStartupFailure?.(false);
         timer = setTimeout(() => {
           if (frame.isConnected && frame.contentDocument === doc && !root.hasAttribute('data-pi-web-loading')) {
             if (doc === firstDocument && app.shadowRoot) {

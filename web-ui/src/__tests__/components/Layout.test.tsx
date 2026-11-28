@@ -269,8 +269,8 @@ vi.mock('../../stores/terminal', () => ({
 vi.mock('../../stores/terminal-workspace', () => ({
   terminalWorkspaceStore: {
     reconcileMultiView: vi.fn(() => null),
-    getMultiViewCapacity: () => 0,
-    getActiveWorkspace: vi.fn(() => mockActiveWorkspace),
+    getMultiViewCapacity: vi.fn(() => 0),
+    getActiveWorkspace: vi.fn(() => { readSessionStoreVersion(); return mockActiveWorkspace; }),
     getVisiblePanes: vi.fn(() => {
       readSessionStoreVersion();
       return navigationRendering.realTerminalArea
@@ -1628,6 +1628,31 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       finishReload();
       vi.mocked(sessionStore.loadSessions).mockReset();
       Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    }
+  });
+
+  it('REQ-TERM-012: Code can open and close MultiView with Vibe saved for Dashboard', async () => {
+    navigationRendering.realHeader = true;
+    const id = 'abcdef0123456789';
+    const second = 'abcdef0123456780';
+    mockPreferences = { defaultPiSurface: 'chat' };
+    mockSessions = [id, second].map(id => createMockSession({ id, agentType: 'claude-code', status: 'running' }));
+    vi.mocked(terminalWorkspaceStore.getMultiViewCapacity).mockReturnValue(4);
+    vi.mocked(terminalWorkspaceStore.reconcileMultiView).mockReturnValue({ id: 'multiview:1', name: 'MultiView #1',
+      memberSessionIds: [id, second], focusedSessionId: id, layout: '2-split' });
+    window.history.replaceState(null, '', `/app/session/${id}`);
+    try {
+      render(() => <Layout />);
+      const switcher = await screen.findByTestId('session-switcher');
+      fireEvent.click(switcher);
+      fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
+      expect(screen.getByTestId('session-switcher-name')).toHaveTextContent('MultiView #1');
+      if (!screen.queryByRole('button', { name: 'Close MultiView' })) fireEvent.click(switcher);
+      fireEvent.click(screen.getByRole('button', { name: 'Close MultiView' }));
+      await waitFor(() => expect(screen.queryByTestId('session-switcher')).not.toBeInTheDocument());
+    } finally {
+      vi.mocked(terminalWorkspaceStore.getMultiViewCapacity).mockReturnValue(0);
+      vi.mocked(terminalWorkspaceStore.reconcileMultiView).mockReturnValue(null);
     }
   });
 

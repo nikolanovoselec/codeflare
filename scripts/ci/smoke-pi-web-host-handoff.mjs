@@ -120,6 +120,8 @@ async function qualify(ambiguous) {
   const resume = join(home, 'resume');
   const nativeParked = join(home, 'native-parked');
   const nativeResume = join(home, 'native-resume');
+  const holdWriterStartup = join(home, 'hold-writer-startup');
+  const heldWriterStartup = join(home, 'held-writer-startup');
   const startupQuestionSeen = join(home, 'startup-question');
   const startupAnswer = join(home, 'startup-answer');
   const startupQuestion = 'Continue the original startup?';
@@ -231,6 +233,10 @@ export default function (pi) {
     },
   });
   pi.on('session_start', async (_event, ctx) => {
+    if (ctx.mode === 'rpc' && existsSync(${JSON.stringify(holdWriterStartup)})) {
+      writeFileSync(${JSON.stringify(heldWriterStartup)}, 'held');
+      while (existsSync(${JSON.stringify(holdWriterStartup)})) await delay(25);
+    }
     if (${!exerciseStartupWaits} || ctx.mode !== 'rpc' || existsSync(${JSON.stringify(startupQuestionSeen)})) return;
     writeFileSync(${JSON.stringify(startupQuestionSeen)}, 'waiting');
     const answer = await ctx.ui.confirm(${JSON.stringify(startupQuestion)}, 'Packaged startup fixture');
@@ -912,17 +918,23 @@ export default function (pi) {
         writeFileSync(nativeResume, '');
         await until('handled input allows the original switch to open Chat', async () => (await readSwitch()).chatUrl);
       });
-      // Load the frame document but not its client: attachment starts the
-      // deadline, yet no transcript request produces a writer receipt.
+      // Exercise a writer-opening read without a preceding transcript snapshot.
       const retryFrame = await nativeFetch(new URL((await readSwitch()).chatUrl, origin), { headers: browserHeaders });
       assert.equal(retryFrame.status, 200);
       await retryFrame.arrayBuffer();
+      writeFileSync(holdWriterStartup, 'hold');
+      const firstWriterRead = nativeFetch(`${origin}${activeApp}${ref}/messages?${query}`, {
+        headers: browserHeaders, signal: AbortSignal.timeout(45_000),
+      }).then(response => response.arrayBuffer()).catch(() => undefined);
+      await until('messages request reached the held writer', () => existsSync(heldWriterStartup));
       await until('missing startup receipt reaches a retry-safe outcome', async () => {
         const state = await readSwitch();
         return state.phase === 'failed' && state.requestId === retryId && state.surface === null;
       }, 40_000);
       await assert.rejects(() => nativeFetch(`${stock}/api/sessiond/health`, { signal: AbortSignal.timeout(2000) }),
         'the previous stock service must be gone before retry');
+      await firstWriterRead;
+      rmSync(holdWriterStartup);
       await api('/_switch', 202, { generation, requestId: retryId, target: 'chat' });
       await until('same attempt offers Chat again', async () => (await readSwitch()).chatUrl);
       // An HTTP snapshot does not imply live delivery. Fail just the event
