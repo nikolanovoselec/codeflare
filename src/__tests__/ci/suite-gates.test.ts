@@ -867,6 +867,21 @@ describe('Cloudflare test transport capacity', () => {
   });
 });
 
+it('defers an unreviewed Impeccable release before preparing a bump', () => {
+  const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8'));
+  const step = workflow.jobs.impeccable.steps.find(({ name }: { name?: string }) =>
+    name === 'Diff vendored skill against latest bundle');
+  const curl = join(work, 'curl');
+  const output = join(work, 'github-output');
+  writeFileSync(curl, `#!/bin/sh\nprintf '%s\\n' '{"skills":"99.0.0"}'\n`);
+  chmodSync(curl, 0o755);
+  const result = spawnSync('bash', ['-c', step.run], {
+    cwd: REPO, encoding: 'utf8', env: { ...process.env, PATH: `${work}:${process.env.PATH ?? ''}`, GITHUB_OUTPUT: output },
+  });
+  expect(result.status, result.stderr).toBe(0);
+  expect(readFileSync(output, 'utf8')).toBe('skip=true\n');
+});
+
 describe('REQ-OPS-032: SilverBullet coupled-pin automation', () => {
   it('resolves the authoritative release digest through the workflow command boundary', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
@@ -916,6 +931,10 @@ describe('REQ-OPS-032: SilverBullet coupled-pin automation', () => {
       `sha256=${'a'.repeat(64)}`,
       'url=https://example.invalid/silverbullet.zip',
     ]);
+    const majorOutput = join(fixture, 'unsupported-major-output');
+    const unsupported = execute({ tag_name: 'v3.0.1', assets: [asset] }, majorOutput);
+    expect(unsupported.status, unsupported.stderr).toBe(0);
+    expect(readFileSync(majorOutput, 'utf8')).toBe('skip=true\n');
     expect(execute(
       { tag_name: 'v2.10.0', assets: [{ ...asset, digest: undefined }] },
       join(fixture, 'missing-digest-output'),

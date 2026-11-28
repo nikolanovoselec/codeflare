@@ -140,7 +140,6 @@ describe('deployment container image input hash', () => {
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
       'scripts/patch-pi-todo-loop-default-pause.mjs',
       'scripts/patch-pi-native-model-display.mjs',
-      'scripts/patch-pi-codex-prompt-cache.mjs',
       'scripts/patch-pi-subagents-notifications.mjs',
       'scripts/patch-rpiv-host-peers.mjs',
       'scripts/patch-rpiv-question-timeout.mjs',

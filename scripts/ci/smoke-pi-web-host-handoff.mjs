@@ -31,6 +31,16 @@ const provider = 'handoff-fixture';
 const model = 'handoff-text';
 const seed = 'Keep this exact saved question.';
 const reply = 'Keep this exact saved reply.';
+// A synthetic 2x2 JPEG with legal comment segments, so its encoded prompt
+// crosses the old 1 MiB envelope without using a personal upload.
+function inlineImageFixture() {
+  const jpeg = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAACAAIDAREAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAVAQEBAAAAAAAAAAAAAAAAAAAHCf/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/ADoDFU3/2Q==', 'base64');
+  const comment = Buffer.alloc(60_004, 0x41);
+  comment.writeUInt16BE(0xfffe, 0);
+  comment.writeUInt16BE(comment.length - 2, 2);
+  const data = Buffer.concat([jpeg.subarray(0, 2), ...Array(20).fill(comment), jpeg.subarray(2)]).toString('base64');
+  return { kind: 'image', mimeType: 'image/jpeg', data };
+}
 const held = 'Do not wait for a normal reply to this input.';
 const nativePrompt = 'Park this Terminal turn until it is interrupted.';
 const handled = 'Hold and consume this native input.';
@@ -132,13 +142,17 @@ async function qualify(ambiguous) {
     CODEFLARE_PI_GENERATION: String(generation), CODEFLARE_PI_SURFACE: 'chat', SESSION_ID: sessionId });
 
   const calls = [];
+  let seedHadImage = false;
   let nativeStream;
   const modelServer = createServer(async (req, res) => {
     try {
       let raw = '';
       for await (const chunk of req) raw += chunk;
       const input = JSON.parse(raw);
-      const prompt = text(input.messages.findLast(({ role }) => role === 'user')?.content);
+      const content = input.messages.findLast(({ role }) => role === 'user')?.content;
+      const prompt = text(content);
+      if (prompt === seed) seedHadImage = Array.isArray(content) && content.some(part =>
+        part.type === 'image_url' && part.image_url?.url?.startsWith('data:image/jpeg;base64,'));
       calls.push(prompt);
       assert.equal(req.url, '/v1/chat/completions');
       assert.equal(input.model, model);
@@ -215,7 +229,7 @@ async function qualify(ambiguous) {
     const modelOrigin = await listen(modelServer);
     writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ defaultProvider: provider, defaultModel: model }));
     writeFileSync(join(agentDir, 'models.json'), JSON.stringify({ providers: { [provider]: {
-      api: 'openai-completions', baseUrl: `${modelOrigin}/v1`, apiKey: 'local-fixture-not-a-secret', models: [{ id: model }],
+      api: 'openai-completions', baseUrl: `${modelOrigin}/v1`, apiKey: 'local-fixture-not-a-secret', models: [{ id: model, input: ['text', 'image'] }],
     } } }));
     // Only public Pi hooks are added; the image-owned handoff extension
     // still registers and writes all native ownership evidence itself.
@@ -550,7 +564,7 @@ export default function (pi) {
     const attachment = bytes => ({ kind: 'file', mimeType: 'application/octet-stream', name: 'fixture.bin', data: bytes.toString('base64') });
     const uploadFolder = 'attachment-smoke';
     const upload = (status, attachments, overrides = {}, route = ref) => api(`${route}/attachments`, status,
-      { cwd, folder: uploadFolder, attachments, ...overrides });
+      { cwd, folder: uploadFolder, attachments, ...overrides }, 30_000);
     const command = (status, text, bodyCwd = cwd, route = ref) =>
       api(`${route}/commands/run`, status, { cwd: bodyCwd, text });
     if (!ambiguous && !retryOnly) {
@@ -567,14 +581,14 @@ export default function (pi) {
       assert.ok((lastInput() ?? 0) > (beforeCommand ?? 0), 'accepted command advances the idle input clock');
       await until('Pi extension processes scoped slash command', () => existsSync(commandReceipt));
       assert.deepEqual(JSON.parse(readFileSync(commandReceipt, 'utf8')), { args: 'hello there', id, cwd });
-      const first = Buffer.alloc(6_000_000, 0x31);
-      const second = Buffer.alloc(4_000_000, 0x32);
+      const first = Buffer.alloc(30_000_000, 0x31);
+      const second = Buffer.alloc(20_000_000, 0x32);
       const batch = [attachment(first), attachment(second)];
       const oversized = [...batch, attachment(Buffer.from('!'))];
       await upload(413, oversized);
       await upload(400, Array.from({ length: 17 }, () => attachment(Buffer.from('small'))));
       // Stay below the decoded limit but exceed the bounded JSON envelope.
-      await upload(413, [attachment(Buffer.from('small'))], { padding: 'a'.repeat(14 * 1024 * 1024) });
+      await upload(413, [attachment(Buffer.from('small'))], { padding: 'a'.repeat(65 * 1024 * 1024) });
       assert.equal(existsSync(join(cwd, uploadFolder)), false, 'oversized request body leaves the requested folder untouched');
       await upload(400, [batch[0], { ...batch[1], data: '!' }]);
       await upload(400, [batch[0]], { cwd: dirname(cwd) });
@@ -586,24 +600,21 @@ export default function (pi) {
         assert.equal(dirname(file), uploadFolder);
         assert.deepEqual(readFileSync(join(cwd, file)), [first, second][index]);
       }
-      // The existing non-upload reader can close the socket on overflow.
-      const hugePrompt = await nativeFetch(`${origin}${activeApp}${ref}/prompt`, {
-        method: 'POST', headers: { ...browserHeaders, Origin: origin, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cwd, text: 'x'.repeat(1024 * 1024) }), signal: AbortSignal.timeout(8000),
-      }).catch(error => {
-        if (error.cause?.code !== 'UND_ERR_SOCKET' && error.cause?.code !== 'ECONNRESET') throw error;
-        return undefined;
-      });
-      if (hugePrompt) {
-        assert.equal(hugePrompt.status, 503);
-        await hugePrompt.arrayBuffer();
-      }
+      await api(`${ref}/prompt`, 413, { cwd, text: 'x'.repeat(1024 * 1024) });
+      await api(`${ref}/prompt`, 400, { cwd, text: 'invalid image', attachments: [{ ...inlineImageFixture(), data: '!' }] });
+      await api(`${ref}/prompt`, 413, { cwd, text: 'too much image data', attachments: [
+        { ...inlineImageFixture(), data: Buffer.alloc(50_000_001).toString('base64') },
+      ] }, 30_000);
     }
     if (!ambiguous) {
-      assert.equal((await prompt(seed)).accepted, true);
+      const seedResult = retryOnly ? await prompt(seed) : await api(`${ref}/prompt`, 200, {
+        cwd, text: seed, attachments: [inlineImageFixture()],
+      });
+      assert.equal(seedResult.accepted, true);
       await until('normal saved Chat reply', async () => await writer() === 'idle' &&
         text(messages(readFileSync(path, 'utf8')).at(-1)?.content) === reply);
       assert.deepEqual(calls, [seed]);
+      if (!retryOnly) assert.equal(seedHadImage, true, 'the above-1 MiB JPEG reaches the model inline');
       if (!retryOnly) {
         const beforeTree = lastInput();
         await until('clock advances past Tree baseline', () => Date.now() > (beforeTree ?? 0));

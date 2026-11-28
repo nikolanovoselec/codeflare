@@ -4,7 +4,7 @@
 # ---- Stage 1: Builder (compile native addons + TypeScript) ----
 # Use the digest-verified Google mirror of Docker Hub. Public ECR throttled
 # both pinned Node bases on shared GitHub Actions runners (HTTP 429).
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
@@ -31,7 +31,7 @@ RUN if node /tmp/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" pi; t
     fi
 
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS rclone-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://go.dev/dl/go1.27.4.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && echo "7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840  /tmp/go.tar.gz" | sha256sum -c - \
@@ -66,11 +66,11 @@ RUN mkdir -p /out \
 # ---- Same gh release with the fixed HTML parser dependency (CVE-2026-78661) ----
 FROM rclone-builder AS gh-builder
 WORKDIR /src/gh
-RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/e1219499a578b69e3437adaa31cd60614e23c802" -o /tmp/gh-src.tar.gz && \
-    echo "09bc3a29ab105e5cd36589550550ab6246711002b8f53a7237ce316e3482315c  /tmp/gh-src.tar.gz" | sha256sum -c - && \
+RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/529111a21612ff1e29dc45e567a157df24e0e243" -o /tmp/gh-src.tar.gz && \
+    echo "1c142ce019804721ce688316e349f553b72cd3ced0f5bbec3f6d137357f819cf  /tmp/gh-src.tar.gz" | sha256sum -c - && \
     tar --strip-components=1 -xzf /tmp/gh-src.tar.gz && rm /tmp/gh-src.tar.gz && \
     go mod edit -require=golang.org/x/net@v0.62.0 && go mod tidy && \
-    GH_VERSION=2.105.0-codeflare-xnet1 SOURCE_DATE_EPOCH=1794958518 GO_LDFLAGS="-s -w" go run script/build.go bin/gh && \
+    GH_VERSION=2.106.0-codeflare-xnet1 SOURCE_DATE_EPOCH=1795646094 GO_LDFLAGS="-s -w" go run script/build.go bin/gh && \
     cp bin/gh /out/gh && \
     go version -m /out/gh | grep -E '^/out/gh: go1\.27\.4$' && \
     go version -m /out/gh | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' && \
@@ -92,13 +92,13 @@ RUN LAZYGIT_VERSION="0.66.3" && \
     /out/lazygit --version
 
 # ---- Image-owned Impeccable engine with configured question idle grace ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS impeccable-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9 AS impeccable-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential pkg-config libssl-dev python3 && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://static.rust-lang.org/dist/2026-11-12/rust-1.100.0-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
-    && echo "98ee6bec240e1cfe944f17e7092412dc5ef6e008484bb668c6936d35a7d15acd  /tmp/rust.tar.xz" | sha256sum -c - \
+RUN curl -fsSL https://static.rust-lang.org/dist/2026-11-27/rust-1.100.1-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
+    && echo "cf0d1dc00dbccc0bc63ec0bdb3da8bafe3e969cb3fbfa36dc5e6205467a50fea  /tmp/rust.tar.xz" | sha256sum -c - \
     && tar -xJf /tmp/rust.tar.xz -C /tmp \
-    && /tmp/rust-1.100.0-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
-    && rm -rf /tmp/rust.tar.xz /tmp/rust-1.100.0-x86_64-unknown-linux-gnu
+    && /tmp/rust-1.100.1-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
+    && rm -rf /tmp/rust.tar.xz /tmp/rust-1.100.1-x86_64-unknown-linux-gnu
 COPY image/impeccable-engine-4.10.0.json image/impeccable-engine.json image/impeccable-engine-4.8.2.json image/impeccable-engine-4.8.0.json image/impeccable-engine-4.7.0.json image/impeccable-engine-4.6.0.json image/impeccable-engine-4.5.0.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
 COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
 WORKDIR /src/impeccable
@@ -137,7 +137,7 @@ RUN node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1
 
 # ---- Node 26 compiler host; emitted extensions still target Node 22 ----
 # Only build tools cross this boundary. No node_modules ship with the extension.
-FROM mirror.gcr.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS openvscode-agent-sidebar-builder
+FROM mirror.gcr.io/library/node:26.13.1-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9 AS openvscode-agent-sidebar-builder
 WORKDIR /app/openvscode/agent-sidebar
 COPY --from=openvscode-agent-sidebar-dependencies /app/openvscode/agent-sidebar/ ./
 COPY openvscode/agent-sidebar/tsconfig.json openvscode/agent-sidebar/esbuild.mjs openvscode/agent-sidebar/official-claude.json openvscode/agent-sidebar/welcome-package.json ./
@@ -159,7 +159,7 @@ COPY openvscode/agent-sidebar/media/ /out/welcome/media/
 # ---- Official Claude Code Open VSX extension ----
 # Owner-accepted license risk: install Anthropic's exact unmodified linux-x64
 # package into the image, configured externally at runtime. Never serve the VSIX.
-FROM mirror.gcr.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS openvscode-official-claude-extension
+FROM mirror.gcr.io/library/node:26.13.1-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9 AS openvscode-official-claude-extension
 
 COPY openvscode/agent-sidebar/official-claude.json /tmp/official-claude.json
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
@@ -189,7 +189,7 @@ RUN node -e 'require("node:assert/strict").equal(process.versions.node, "26.13.1
     find /out -type f ! -perm /111 -exec chmod 0444 {} +
 
 # ---- Assemble immutable agent inventories once, before the runtime image ----
-FROM mirror.gcr.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS openvscode-agent-inventories
+FROM mirror.gcr.io/library/node:26.13.1-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9 AS openvscode-agent-inventories
 
 COPY --from=openvscode-agent-sidebar-builder /out/extension /tmp/codeflare-sidebar-extension
 COPY --from=openvscode-official-claude-extension /out /tmp/official-claude-extension
@@ -205,7 +205,7 @@ RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions
     rm -rf /out/openvscode/extensions/claude
 
 # ---- Stage 2: Runtime ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9
 
 # Suppress npm update nag; configure Claude Code for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
@@ -525,8 +525,8 @@ COPY .cache-bust /tmp/.cache-bust
 COPY preseed/silverbullet/ /opt/silverbullet-preseed/
 
 # Install an integrity-pinned gh release built with Go 1.27.3 (CVE-2026-111943).
-RUN GH_VERSION="2.105.0" && \
-    GH_SHA256="1dac939af3e84fb3861927c984b357531341be9403b889e4aa86e8822145a09d" && \
+RUN GH_VERSION="2.106.0" && \
+    GH_SHA256="d76d387b8fe7619b9b7bfdf40883fa2b38f6e80cf773a3f4b1fcd5e8070ab346" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
       "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" \
       -o /tmp/gh.deb && \
@@ -536,7 +536,7 @@ RUN GH_VERSION="2.105.0" && \
     rm /tmp/gh.deb /usr/bin/gh
 # Retain official support files; replace only the dependency-rebuilt executable.
 COPY --from=gh-builder /out/gh /usr/bin/gh
-RUN gh --version | grep -F "gh version 2.105.0-codeflare-xnet1"
+RUN gh --version | grep -F "gh version 2.106.0-codeflare-xnet1"
 
 # Privileged npm tools execute user code, hold OAuth tokens, or participate in
 # image builds. Install from one committed lock so exact package bytes and
@@ -613,9 +613,9 @@ RUN --mount=from=openvscode-official-claude-extension,source=/out,target=/codefl
 # only in bump-shadow-pins.yml; image builds consume this committed identity,
 # never the mutable manifest or installer. Verify before reading archive members.
 # The 512 MiB extraction ceiling is a resource bound, not a per-release size pin.
-ARG ANTIGRAVITY_VERSION=1.5.14
-ARG ANTIGRAVITY_URL=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.14-5302690847260672/linux-x64/cli_linux_x64.tar.gz
-ARG ANTIGRAVITY_SHA512=83311d3f354567612dc16c1ae2ea9b503d6f6833aa4e138d39aa229da3f3bb99b0e4d7cca0bce4796b0060d6a51d8113eb7449ed5dc0e7900bf217107ea5bff9
+ARG ANTIGRAVITY_VERSION=1.5.19
+ARG ANTIGRAVITY_URL=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.19-4821414830800896/linux-x64/cli_linux_x64.tar.gz
+ARG ANTIGRAVITY_SHA512=8160da6ceef2b7b62bb4a630b54b3fb4ee5283377509230736880c4ba4815e848a25cf346954a98134b647eb2f5d34e0364e77fbf74367ffd7dc29c525ddd82d
 RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" antigravity; then \
       curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 300 --max-filesize 268435456 "$ANTIGRAVITY_URL" -o /tmp/agy.tar.gz && \
       printf '%s  %s\n' "$ANTIGRAVITY_SHA512" /tmp/agy.tar.gz | sha512sum -c - && \
@@ -632,7 +632,7 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-todo-loop-default-pause.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-pi-codex-prompt-cache.mjs scripts/patch-pi-subagents-notifications.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs /opt/codeflare/scripts/
+COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-todo-loop-default-pause.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-pi-subagents-notifications.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs /opt/codeflare/scripts/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
@@ -659,12 +659,10 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     node /opt/codeflare/scripts/verify-pi-lockstep.mjs \
       /opt/codeflare/npm-tools/package.json ./package.json \
       ./node_modules/@earendil-works/pi-coding-agent/package.json && \
-    node /opt/codeflare/scripts/patch-pi-codex-prompt-cache.mjs ./node_modules/@earendil-works/pi-coding-agent && \
     node /opt/codeflare/scripts/patch-pi-native-model-display.mjs ./node_modules/@earendil-works/pi-coding-agent && \
     node /opt/codeflare/scripts/patch-rpiv-host-peers.mjs ./node_modules && \
     node /opt/codeflare/scripts/patch-rpiv-question-timeout.mjs ./node_modules/@juicesharp/rpiv-ask-user-question && \
     if [ -f /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json ]; then \
-      node /opt/codeflare/scripts/patch-pi-codex-prompt-cache.mjs /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent && \
       node /opt/codeflare/scripts/patch-pi-native-model-display.mjs /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent && \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime \
         /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json; \
@@ -784,8 +782,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # ---------------------------------------------------------------------------
 # Upstream 0.9.72+ auto-refresh must not replace signed managed skills.
 ENV GRAPHIFY_NO_AUTO_REFRESH=1
-ARG UV_VERSION=0.13.8
-ARG UV_X86_64_LINUX_SHA256=5acfd9177cfecf0bf87578f059728215ccc884388988f55f7a65041b57387d91
+ARG UV_VERSION=0.13.9
+ARG UV_X86_64_LINUX_SHA256=a7fbaff2b9a271d85c1bdb540941090fd1ce011797b4abeb48e4dcd39c2471d5
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e

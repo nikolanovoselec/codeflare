@@ -86,7 +86,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       assert.ok(sources.includes(spec), `assembled packages must include ${spec}`);
     }
     assert.deepEqual(settings.packages.filter((entry) => /^npm:context-mode(?:@|$)/.test(sourceOf(entry))),
-      [{ source: 'npm:context-mode@2.2.0', extensions: [], skills: [] }]);
+      [{ source: 'npm:context-mode@2.2.1', extensions: [], skills: [] }]);
   });
 
   it('REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings', () => {
@@ -94,7 +94,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       theme: 'user-theme', defaultProvider: 'user-provider', defaultModel: 'user-model',
       customPreference: { keep: true },
       packages: [
-        { source: 'npm:context-mode@2.2.0', extensions: [] },
+        { source: 'npm:context-mode@2.2.1', extensions: [] },
         'npm:pi-goal-list-loop-audit@0.34.16',
         'npm:pi-caveman@1.0.8',
         'npm:some-user-package@1.0.0', // an unrelated package the user added
@@ -102,8 +102,8 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     });
     const settings = runAssembly(initial);
     const sources = settings.packages.map(sourceOf);
-    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@2.2.0');
-    assert.deepEqual(cm, { source: 'npm:context-mode@2.2.0', extensions: [], skills: [] });
+    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@2.2.1');
+    assert.deepEqual(cm, { source: 'npm:context-mode@2.2.1', extensions: [], skills: [] });
     for (const key of ['theme', 'defaultProvider', 'defaultModel', 'customPreference']) {
       assert.deepEqual(settings[key], JSON.parse(initial)[key]);
     }
@@ -263,15 +263,15 @@ describe('REQ-MEM-035 AC1: stock Hermes package delivery', () => {
 // Its provider-neutral configuration is exercised against real settings files in
 // src/__tests__/lib/pi-smart-compact-config.test.ts.
 describe('REQ-AGENT-222 AC1: managed Smart Compact package assembly', () => {
-  it('REQ-AGENT-222 AC1: fresh boot installs exactly npm:pi-smart-compact@10.8.1', () => {
+  it('REQ-AGENT-222 AC1: fresh boot installs exactly npm:pi-smart-compact@10.9.0', () => {
     const settings = runAssembly('{}');
     assert.deepEqual(settings.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
-      ['npm:pi-smart-compact@10.8.1']);
-    assert.equal(piPackage.dependencies['pi-smart-compact'], '10.8.1', 'the baked package matches the startup pin');
+      ['npm:pi-smart-compact@10.9.0']);
+    assert.equal(piPackage.dependencies['pi-smart-compact'], '10.9.0', 'the baked package matches the startup pin');
   });
 
   for (const stale of ['npm:pi-smart-compact', 'npm:pi-smart-compact@9.0.0',
-    { source: 'npm:pi-smart-compact@10.8.1', extensions: [], skills: [] }]) {
+    { source: 'npm:pi-smart-compact@10.9.0', extensions: [], skills: [] }]) {
     it(`REQ-AGENT-222 AC1: restored ${JSON.stringify(stale)} converges once without changing user settings or similarly named packages`, () => {
       const user = { source: 'npm:user-extension@1.0.0', extensions: ['keep.ts'], userField: true };
       const initial = {
@@ -285,7 +285,7 @@ describe('REQ-AGENT-222 AC1: managed Smart Compact package assembly', () => {
       const first = runAssembly(JSON.stringify(initial));
       const second = runAssembly(JSON.stringify(first));
       assert.deepEqual(first.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
-        ['npm:pi-smart-compact@10.8.1']);
+        ['npm:pi-smart-compact@10.9.0']);
       assert.deepEqual(second, first, 'repeat startup neither duplicates the package nor changes settings');
       assert.deepEqual(first.packages.find(entry => sourceOf(entry) === user.source), user);
       assert.ok(first.packages.includes('npm:pi-smart-compact-extra@1.0.0'));
@@ -308,7 +308,7 @@ describe('REQ-AGENT-222 AC1: restored local Smart Compact registration migration
           : './packages/pi-smart-compact-10.6.2';
         original = {
           packages: [shape.startsWith('filtered') ? { source, extensions: ['dist/index.js'] } : source,
-            'npm:pi-smart-compact@10.8.1', 'npm:pi-smart-compact-extra@1.0.0',
+            'npm:pi-smart-compact@10.9.0', 'npm:pi-smart-compact-extra@1.0.0',
             './custom/pi-smart-compact-10.6.2', './packages/pi-smart-compact-10.6.2-extra'],
           smartCompact: { mode: 'fast', autoTrigger: false },
           semanticCompact: { futureOption: false }, theme: 'keep-theme',
@@ -325,7 +325,7 @@ describe('REQ-AGENT-222 AC1: restored local Smart Compact registration migration
     const sources = settings.packages.map(sourceOf);
     assert.equal(sources.includes(sourceOf(original.packages[0])), false, 'the duplicate local registration is removed');
     assert.deepEqual(settings.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
-      ['npm:pi-smart-compact@10.8.1']);
+      ['npm:pi-smart-compact@10.9.0']);
     for (const source of original.packages.slice(2)) assert.ok(sources.includes(source), source);
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), spec);
     for (const key of ['smartCompact', 'semanticCompact', 'theme', 'customPreference']) {
@@ -348,7 +348,7 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
   });
 
   for (const stale of ['npm:pi-open-tui', 'npm:pi-open-tui@0.2.0',
-    { source: 'npm:pi-open-tui@0.4.6', extensions: ['extensions/open-tui/index.ts'], skills: [] }]) {
+    { source: 'npm:pi-open-tui@0.4.7', extensions: ['extensions/open-tui/index.ts'], skills: [] }]) {
     it(`REQ-AGENT-209 AC1/AC2 / REQ-AGENT-056: restored ${JSON.stringify(stale)} converges without deleting similarly named user packages`, () => {
       const user = { source: 'npm:user-extension@1.0.0', extensions: ['keep.ts'], userField: true };
       const initial = {
@@ -372,7 +372,7 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
       for (const key of ['defaultModel', 'defaultThinkingLevel', 'customPreference']) assert.deepEqual(first[key], initial[key]);
       assert.deepEqual(first.extensions, ['user-extension.ts', '-builtin:mcp']);
       assert.deepEqual(first.packages.find(entry => /^npm:context-mode@/.test(sourceOf(entry))),
-        { source: 'npm:context-mode@2.2.0', extensions: [], skills: [] });
+        { source: 'npm:context-mode@2.2.1', extensions: [], skills: [] });
       for (const required of REQUIRED) assert.ok(first.packages.some(entry => sourceOf(entry) === required), required);
     });
   }

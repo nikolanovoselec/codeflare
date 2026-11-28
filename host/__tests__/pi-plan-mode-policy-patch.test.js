@@ -26,6 +26,7 @@ const PLAN_FIXTURES = {
   '0.59.6': ['sha512-c749Stq0YL0Sj3W62o8puWOUhvjbExGu4MAreepnuodI3mqDdzm10duT3broRD7J0RdRVJ0dotONH7lT5oxEGA==', 'chunk-W7D6N2MI.ts'],
   '0.60.0': ['sha512-ea+KiLQo4P3tn5Orp/l8sdsvSXjq+Ws3032hakwh9bse0TkONjDpAXPrgww2ppL9XE1jE1kson6jr0jHxpD1kQ==', 'chunk-UJ6TV2YV.ts'],
   '0.60.1': ['sha512-TRG8ncSkkS9qgDSxIgRr5S5hohvB9pC/GaNb1OrIDnkXTDVL9SlU27B45MoZILQdTLzo8qklaniyhBx+7xZ4RA==', 'chunk-UJ6TV2YV.ts'],
+  '0.60.3': ['sha512-uGbCKrJOKqLMBbH2vvmkVWQp4baRArX/xSCyB5LFQaqoUu3dphpdvYam/Kgyv2EYAXuY0I/qS/S2TYsiWmOErg==', 'chunk-OB2K6QCX.ts'],
 };
 const ENTRYPOINTS = ['src/plan-mode.ts', 'dist/index.ts'];
 const policyPaths = version => ['src/tool-policy.ts', `dist/chunks/${PLAN_FIXTURES[version][1]}`];
@@ -217,7 +218,7 @@ async function assertParsedShellAuthorization(root, version) {
   }
 }
 
-for (const version of ['0.56.0', '0.58.3', '0.59.2', '0.60.1']) {
+for (const version of ['0.56.0', '0.58.3', '0.59.2', '0.60.1', '0.60.3']) {
   it(`REQ-AGENT-266 AC2: Plan ${version} parses configured shell reads before authorizing them`, async t => {
     const root = mkdtempSync(join(tmpdir(), 'pi-plan-parsed-policy-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -294,7 +295,7 @@ for (const version of Object.keys(PLAN_FIXTURES)) {
   });
 }
 
-for (const version of ['0.60.0', '0.60.1']) {
+for (const version of ['0.60.0', '0.60.1', '0.60.3']) {
   it(`REQ-AGENT-152: Plan ${version} is repeatable and fails closed before writes on manifest or source drift`, t => {
     const prepare = root => patchPiPlanModeDirectory(version, root);
     const paths = [...ENTRYPOINTS, ...policyPaths(version)];
@@ -487,7 +488,7 @@ for (const targetVersion of ['0.59.4', '0.59.6', '0.60.0']) {
   });
 }
 
-for (const version of ['0.59.2', '0.59.4']) {
+for (const version of ['0.59.2', '0.59.4', '0.60.3']) {
   it(`REQ-AGENT-266 AC3: candidate Plan ${version} retains published user intent through custom turns but invalidates it on a user prompt`, async (t) => {
     const root = mkdtempSync(join(tmpdir(), 'pi-plan-custom-turn-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));

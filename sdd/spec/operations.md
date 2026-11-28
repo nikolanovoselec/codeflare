@@ -708,6 +708,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Constraints:**
 
 - The owned Browser IDE extension's npm dependencies remain Dependabot-owned.
+- Impeccable automation defers an unreviewed skill release until its matching engine and bundle are qualified together. <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (defers an unreviewed Impeccable release before preparing a bump) -->
 - Configured release-metadata credentials go only to the GitHub API, never public archive or checksum downloads. <!-- @impl: scripts/ci/update-shadow-image-pins.mjs::request --> <!-- @test: host/__tests__/shadow-image-pin-resolution.test.js (REQ-OPS-020: GitHub release metadata uses the configured token rather than anonymous rate limits) --> <!-- @test: host/__tests__/shadow-image-pin-resolution.test.js (REQ-OPS-020: release metadata authentication never reaches public checksum downloads) -->
 - GitHub CLI support files and the rebuilt executable advance together with the exact source commit, digest and build epoch. <!-- @impl: scripts/ci/update-shadow-image-pins.mjs::updateShadowImagePins --> <!-- @test: host/__tests__/shadow-image-pin-update.test.js (REQ-OPS-020: GitHub CLI support package and rebuilt runtime advance together) -->
 
@@ -864,7 +865,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The dedicated SilverBullet release job resolves the latest linux server archive and accepts only its authoritative asset integrity digest. <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (resolves the authoritative release digest through the workflow command boundary) -->
+1. The dedicated SilverBullet release job defers unsupported major upgrades and accepts only the authoritative asset integrity digest for a compatible Linux server archive. <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (resolves the authoritative release digest through the workflow command boundary) -->
 2. Applying the bump atomically updates the server version, artifact digest, vendored worker bytes, worker version annotation, and worker drift hash. <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @impl: scripts/ci/update-silverbullet-pins.mjs::updateSilverBulletPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-032: SilverBullet coupled-pin automation) -->
 
 **Constraints:**

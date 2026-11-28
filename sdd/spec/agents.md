@@ -116,20 +116,21 @@ These compatibility anchors resolve dated changelog references to retired review
 
 ---
 
+<a id="req-agent-261-codex-prompt-prefix-backport-preparation"></a>
 ### REQ-AGENT-238: Native Codex prompt-prefix compatibility
 
-**Intent:** Native Pi Codex requests keep the system prompt in the cacheable input prefix while a removable upstream backport remains necessary.
+**Intent:** Native Pi Codex requests keep the system prompt in the cacheable input prefix using the pinned upstream Pi runtime.
 
 **Applies To:** System
 
 **Acceptance Criteria:**
 
-1. Full Codex requests carry the initial system prompt as a leading developer input message, not top-level instructions, in the Pi library and bundled CLI. <!-- @impl: scripts/patch-pi-codex-prompt-cache.mjs::patchPiCodexPromptCache --> <!-- @test: preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs (REQ-AGENT-238: ${kind} HTTP completion sends cacheable developer input and preserves request options) -->
-2. Cached WebSocket continuations send only new input with their original response reference; full-history fallback restores the prompt without duplication. <!-- @test: preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs (REQ-AGENT-238: ${kind} WebSocket continuation sends only delta and reconnect restores developer prefix) --> <!-- @impl: scripts/patch-pi-codex-prompt-cache.mjs::patchPiCodexPromptCache -->
+1. Full Codex requests carry the initial system prompt as a leading developer input message, not top-level instructions, in the Pi library and bundled CLI. <!-- @test: preseed/agents/pi/test/codex-prompt-cache.test.mjs (REQ-AGENT-238: ${kind} HTTP completion sends cacheable developer input and preserves request options) -->
+2. Cached WebSocket continuations send only new input with their original response reference; full-history fallback restores the prompt without duplication. <!-- @test: preseed/agents/pi/test/codex-prompt-cache.test.mjs (REQ-AGENT-238: ${kind} WebSocket continuation sends only delta and reconnect restores developer prefix) -->
 
 **Constraints:**
 
-- Backport delivery and retirement follow [REQ-AGENT-261](#req-agent-261-codex-prompt-prefix-backport-preparation).
+- Use the upstream provider without a Codeflare prompt-cache backport.
 - Other providers, request options, streaming and cancellation semantics remain unchanged.
 - Cacheable wire placement is not proof of a live cache hit, reduced cost or successful deployed adoption.
 
@@ -137,33 +138,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated: [codex-prompt-cache-patch.test.mjs](../../preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs)
-
-**Status:** Implemented
-
----
-
-### REQ-AGENT-261: Codex prompt-prefix backport preparation
-
-**Intent:** The temporary backport applies only to the reviewed installed Pi inputs and stops once upstream owns the fix.
-
-**Applies To:** System
-
-**Acceptance Criteria:**
-
-1. Image preparation and post-update/repair preparation cover both installed Pi trees without changing credentials, settings, package versions or npm integrity. <!-- @impl: scripts/patch-pi-codex-prompt-cache.mjs::patchPiCodexPromptCache --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs (REQ-AGENT-238: owned receipt permits exact repeat preparation but never pristine admission) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: restores a real locked installation and reports unrecoverable repair) -->
-2. Tests and Bump Shadow Pins reject pristine packages already containing the upstream fix or incompatible source before publication; they require explicit retirement or review of the temporary backport. <!-- @impl: scripts/patch-pi-codex-prompt-cache.mjs::verifyPiCodexPatchRequired --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-025 AC4: updates every Pi runtime and prewarm artifact through one fail-closed operation) --> <!-- @test: preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs (REQ-AGENT-238: pristine necessity gate validates the actual lock-matched Pi packages without writes) --> <!-- @test: preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs (REQ-AGENT-238: raw ${futureVersion ? 'future upstream' : 'unowned fixed'} packages demand removal of the obsolete backport) -->
-
-**Constraints:**
-
-- The backport is limited to upstream PR 12319 at `f7d9657ce20eb6e660d90a46fa235270abd04010`.
-- Repeat preparation accepts only receipt-verified Codeflare-patched bytes; already-fixed pristine upstream is never a successful no-op.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-AGENT-238](#req-agent-238-native-codex-prompt-prefix-compatibility)
-
-**Verification:** Automated: [codex-prompt-cache-patch.test.mjs](../../preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs), [npm-tool-manifest-update.test.js](../../host/__tests__/npm-tool-manifest-update.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js)
+**Verification:** Automated: [codex-prompt-cache.test.mjs](../../preseed/agents/pi/test/codex-prompt-cache.test.mjs)
 
 **Status:** Implemented
 
@@ -1230,6 +1205,8 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 4. Alternating between two running, already-open Chats reveals their original frames without the startup screen or another writer request. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (switches between two running Chats without replacing either frame or requesting a writer, then handles %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#switch-between-two-running-chats -->
 5. Page exit discards all parked Chat frames. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (switches between two running Chats without replacing either frame or requesting a writer, then handles %s) -->
 
+6. An already-open Chat does not show a transient status-read failure that clears on the next poll. Consecutive failures are shown without replacing the frame. <!-- @impl: web-ui/src/hooks/usePiWebSurface.ts::createPiWebSurface --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the open Chat stable across a transient status failure without hiding sustained failure) -->
+
 **Constraints:** Keep at most two mounted Chat frames in the workspace; never show both at once.
 
 **Priority:** P1
@@ -1405,12 +1382,14 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 1. Chat retains Files and `@` references for workspace files. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 2. Chat starts in Quiet mode and allows the user to change it. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 3. Native questions are answerable in the live Chat frame. During startup, the original frame shows the question before Open appears. <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps the standard startup screen until Open reveals Chat, without mounting a native terminal) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
-4. The Chat composer saves attachments to the active conversation’s workspace, up to 16 attachments and 10,000,000 decoded bytes total. An over-limit batch writes no files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
+4. The Chat composer saves attachments to the active conversation’s workspace, up to 16 attachments and 50,000,000 decoded bytes total. An over-limit batch writes no files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
 5. The machine name defaults to Codeflare. <!-- @manual: documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout -->
 6. Managed Chat does not expose optional Info, Updates, MCP Manager, Tasks, or Relays panels. <!-- @impl: host/src/pi-web-services.ts::createPiWebServices --> <!-- @manual: documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions -->
-7. Attachment requests above 14 MiB are rejected without writing any files. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
+7. Save-to-workspace and inline-image requests share the 16-attachment, 50 MB decoded and 65 MiB JSON limits; invalid or oversized input is rejected before any file write or model turn. <!-- @impl: host/src/pi-web-proxy.ts::createPiWebProxy --> <!-- @test: scripts/ci/smoke-pi-web-host-handoff.mjs (qualify) -->
 
 **Constraints:**
+
+- Non-attachment prompt metadata remains bounded at 1 MiB; stock Pi still processes inline images under its model limits.
 
 - [REQ-AGENT-288](#req-agent-288-codeflare-chat-theme) owns the Chat theme.
 
@@ -1423,7 +1402,7 @@ The former REQ-AGENT-112, REQ-AGENT-113, REQ-AGENT-114, REQ-AGENT-117, and REQ-A
 
 **Dependencies:** [REQ-AGENT-272](#req-agent-272-pi-chat-and-terminal-transcript-handoff)
 
-**Verification:** Automated: [14 MiB attachment request-body limit](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Stock controls, composer attachments, and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
+**Verification:** Automated: [Workspace attachments and inline-image submissions](../../scripts/ci/smoke-pi-web-host-handoff.mjs); Manual: [Stock controls, composer attachments, and native questions](../../documentation/lanes/terminal-and-ide.md#check-stale-frames-and-native-questions), [Desktop and mobile layout](../../documentation/lanes/terminal-and-ide.md#check-desktop-and-mobile-layout)
 
 **Status:** Planned
 
