@@ -1533,7 +1533,8 @@ Inspect the delivered procedure in both modes using tabletop examples. Do not cr
 | A new interface versus a backend-only task | Interface work follows Codeflare design routing, uses the applicable design system, and checks the result with Impeccable when available. Backend-only work skips design. Unavailable tools or rendering are reported, not claimed as passed. |
 | A Cloudflare website with two eligible domains, or a denied zone read | The questionnaire uses the connected account's active zones, recommends a real domain and free subdomain, and shows the exact hostname. A failed read is not an empty list, and no alternate target is chosen silently. |
 | An approved free hostname versus an occupied hostname | The configured deployment attaches only the approved free hostname; the occupied hostname remains untouched. Verification checks the chosen domain over HTTPS, not a preview. |
-| A GitHub-only request versus an authorized deployment | GitHub-only work stops after verifying the remote commit. Deployment requires evidence for the intended revision and a live check at the actual URL before a success claim. |
+| A GitHub-only request versus an authorized deployment | GitHub-only work stops after verifying the remote commit. Deployment defaults to the connected Cloudflare integration, without creating an Actions workflow or deployment secret. Verify the intended revision at the live URL. |
+| A request for GitHub Actions deployment without verified CI credentials | The questionnaire asks whether the user has a scoped Cloudflare deployment token, not for its value. If they lack one or are unsure, recommend direct deployment. Use Actions secrets only for the requested workflow and never copy managed placeholders. |
 
 ### Managed workflow and policy inspection
 

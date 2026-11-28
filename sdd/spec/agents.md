@@ -4251,7 +4251,11 @@ None.
 6. For a Cloudflare website, offer the user's eligible connected domains and a recommended available subdomain through the questionnaire. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 2: Choose the website address --> <!-- @manual: Beginner ship workflow -->
 7. Deploy automatically to the approved hostname through the connected Cloudflare deployment path without taking over an unrelated hostname or silently choosing another. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 5: Deploy the agreed release --> <!-- @manual: Beginner ship workflow -->
 
-**Constraints:** Private source does not imply a private deployment; publication does not authorize deployment, credential changes, or deletion beyond the approved scope.
+**Constraints:**
+
+- Private source does not imply a private deployment; publication does not authorize deployment, credential changes, or deletion beyond the approved scope.
+- Default to direct Cloudflare deployment; set up Actions deployment workflows or repository deployment secrets only on request. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 5: Deploy the agreed release --> <!-- @manual: Beginner ship workflow -->
+- For requested Actions setup, ask whether a suitable deployment token is available when access is not verified; recommend direct deployment if it is unavailable or uncertain. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 5: Deploy the agreed release --> <!-- @manual: Beginner ship workflow -->
 
 **Priority:** P1
 
