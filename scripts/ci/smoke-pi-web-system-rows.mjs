@@ -736,7 +736,6 @@ async function verifyStockTranscriptControls(child, origin) {
 const profile = await mkdtemp(join(tmpdir(), 'pi-web-system-rows-'));
 let browser;
 let browserClosed;
-let deadline;
 let stderr = '';
 const diagnostics = () => `document loads=${fixtureLoads}, modules served=${servedModules}; Chromium stderr: ${stderr.trim()}`;
 try {
@@ -748,23 +747,31 @@ try {
   ], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
   browser.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-2400); });
   browserClosed = new Promise(resolve => browser.once('close', (code, signal) => resolve({ code, signal })));
-  await Promise.race([
-    browserResult.then(async result => {
-      assert.equal(result, 'pass', 'stock SYSTEM row fixture');
-      console.log('Stock Chat hides selected transcript, navigation and composer controls and keeps the remaining controls usable');
-      await verifyStockTranscriptControls(browser, origin);
-      console.log('Stock Chat sends scoped transcript intents for trusted + and history activation, never for passive navigation');
-    }),
+  const browserFailure = Promise.race([
     browserClosed.then(({ code, signal }) => {
       throw Error(`Chromium exited before the fixtures completed (${code ?? signal}); ${diagnostics()}`);
     }),
-    new Promise((_, reject) => {
-      browser.once('error', reject);
-      deadline = setTimeout(() => reject(Error(`Timed out waiting for stock browser fixtures; ${diagnostics()}`)), 40_000);
-    }),
+    new Promise((_, reject) => browser.once('error', reject)),
   ]);
+  const runPhase = async (label, run) => {
+    let deadline;
+    try {
+      return await Promise.race([
+        browserFailure,
+        new Promise((_, reject) => {
+          deadline = setTimeout(() => reject(Error(`Timed out waiting for ${label}; ${diagnostics()}`)), 40_000);
+        }),
+        run(),
+      ]);
+    } finally {
+      clearTimeout(deadline);
+    }
+  };
+  assert.equal(await runPhase('stock SYSTEM row fixture', () => browserResult), 'pass', 'stock SYSTEM row fixture');
+  console.log('Stock Chat hides selected transcript, navigation and composer controls and keeps the remaining controls usable');
+  await runPhase('stock browser interaction checks', () => verifyStockTranscriptControls(browser, origin));
+  console.log('Stock Chat sends scoped transcript intents for trusted + and history activation, never for passive navigation');
 } finally {
-  clearTimeout(deadline);
   if (browser?.pid) {
     try { process.kill(-browser.pid, 'SIGKILL'); }
     catch (error) {
