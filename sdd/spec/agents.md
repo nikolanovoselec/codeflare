@@ -4223,7 +4223,7 @@ None.
 
 - The canonical constitution is authored in Claude preseed and compiled for every supported runtime; transformed files are downstream artifacts.
 - Prose correctness is not pinned by wording, heading, token-count, or snapshot tests.
-- Repository clones run without an agent-imposed tool or command timeout. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+- Repository clones run in the foreground with visible progress and no agent-imposed tool or command timeout. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 
 **Priority:** P1
 
