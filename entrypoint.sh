@@ -4044,7 +4044,7 @@ const extensions = Array.isArray(settings.extensions)
   ? settings.extensions.filter(item => !managedReviewPaths.includes(item) && !nativeMcpPaths.has(item)
     && item !== obsoleteHermesExclusion
     && !(typeof item === 'string' && managedMcpIdentity(item.replace(/^[+!-]/, '')))) : [];
-fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()],
+fs.writeFileSync(path, JSON.stringify({ tuiMode: 'regular', ...settings, packages: [...byName.values()],
   extensions: [...extensions, '-builtin:mcp', ...reviewExclusions] }, null, 2) + '\n');
 NODE
 }

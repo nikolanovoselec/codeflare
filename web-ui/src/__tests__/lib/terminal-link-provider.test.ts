@@ -91,6 +91,10 @@ describe('terminal-link-provider', () => {
 
     it.each([
       ['(https://example.com)', 'https://example.com'],
+      ['See (https://something.ch).', 'https://something.ch'],
+      ['See (https://example.com/wiki/Function_(math)), next', 'https://example.com/wiki/Function_(math)'],
+      ['https://example.com/a).', 'https://example.com/a).'],
+      ['(https://example.com/a(b).', 'https://example.com/a(b).'],
       ['((https://example.com/path))', 'https://example.com/path'],
       ['(https://example.com/wiki/Function_(mathematics))', 'https://example.com/wiki/Function_(mathematics)'],
       ['https://example.com/a(b(c))', 'https://example.com/a(b(c))'],

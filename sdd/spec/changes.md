@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-28: Pi terminal copy and links
+
+- [Pi defaults to Regular](terminal.md#req-term-040-stable-herdr-pane-scrollback) unless a renderer is saved. In Classic Pi Fullscreen, dragging [copies the displayed text](terminal.md#req-term-032-herdr-clipboard-compatibility-boundary).
+- [Terminal links](terminal.md#req-term-042-browser-terminal-link-activation) leave unmatched prose wrappers out of the browser destination.
+
 ## 2026-11-28: Vibe navigation and startup
 
 - Vibe always exposes [Chat and Files](agents.md#req-agent-289-embedded-chat-chrome) without the stock menu. [MultiView](terminal.md#req-term-012-multiview-virtual-session-workspace) remains available in Code only.

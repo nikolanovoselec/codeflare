@@ -40,7 +40,7 @@ OPEN still renders the selected pane before viewport dimensions are known. Genui
 
 Browser Back or Dashboard during terminal startup selects a usable dashboard independently of any session's initialization latch. Startup and its progress/OPEN ownership continue in the background; returning restores progress or Ready without another Start or Stop while that state still belongs to the session. Background completion/failure cannot hide Dashboard or steal selection. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> [REQ-SESSION-037](../../sdd/spec/session-lifecycle.md#req-session-037-dashboard-navigation-remains-available-during-startup).
 
-Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); normal [Storage & Sync](storage-and-sync.md) retains the structural `session.json` and the current Herdr session’s exact Pi `agent-session-id` under private home metadata ([REQ-TERM-033](../../sdd/spec/terminal.md#req-term-033-durable-herdr-structural-session-recovery)). Pane output and arbitrary processes do not survive. Fresh Herdr Pi runs fullscreen and owns its transcript.
+Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); normal [Storage & Sync](storage-and-sync.md) retains the structural `session.json` and the current Herdr session’s exact Pi `agent-session-id` under private home metadata ([REQ-TERM-033](../../sdd/spec/terminal.md#req-term-033-durable-herdr-structural-session-recovery)). Pane output and arbitrary processes do not survive. Pi defaults to Regular; in Fullscreen, Pi owns its transcript.
 
 ### Pi Chat handoff acceptance
 
@@ -70,7 +70,7 @@ When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi
 - Before starting Vibe in a disposable browser, set up capture on one clock for the initial iframe’s `load` event, frame identity and URL, tab visibility changes, and any frame replacement.
 - Block only the initial Chat document’s stock client module request. Start Vibe, confirm the iframe loaded the stock document with `data-pi-web-loading` still present, and verify no startup question is active.
 - Hide the tab for more than 30 seconds. After returning, confirm no frame replacement occurred during the hidden interval.
-- Count 30 seconds of foreground loading from that event, excluding hidden time. Expect automatic replacement at the same URL after a separate one-second foreground delay, never before those thresholds.
+- Starting at the initial stock iframe’s `load` event, add the visible time before hiding and after returning. At 30 seconds total, keep the tab visible for the separate one-second delay before the automatic same-URL replacement.
 - Let the replacement request its module without blocking it. Verify the original conversation becomes ready without a manual reload or recovery UI.
 - The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) simulates a failed Host writer start and verifies the same request retries with Open gated. Hosted writer-start recovery is unexercised.
 - Separately, the [Host smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) waits beyond the 25-second writer budget after passive preload. That budget does not start until a request can open the writer. The smoke does not establish browser visibility.
@@ -651,7 +651,7 @@ Synchronized DEC 2026 frames remain whole byte-identical units across WS chunks,
 
 ### Herdr Viewport Ownership
 
-Fresh Pi starts `--tui-mode fullscreen`; Pi owns history. Codeflare queues/presents complete differential frames in order on the standard 33-ms cadence. The shared output pipeline bypasses read-hold for alternate-buffer application history; normal-buffer scrollback above the live bottom receives the bounded hold regardless of terminal mode. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite --> <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> [REQ-TERM-040](../../sdd/spec/terminal.md#req-term-040-stable-herdr-pane-scrollback).
+Pi defaults to Regular when no renderer is saved; explicit choices are preserved. In Fullscreen, Pi owns its application history. Codeflare queues/presents complete differential frames in order on the standard 33-ms cadence. The shared output pipeline bypasses read-hold for alternate-buffer application history; normal-buffer scrollback above the live bottom receives the bounded hold regardless of terminal mode. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite --> <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> [REQ-TERM-040](../../sdd/spec/terminal.md#req-term-040-stable-herdr-pane-scrollback).
 
 ### Viewport DOM Desync (instant yank to top)
 
@@ -840,6 +840,8 @@ AC6: On a tablet/desktop with two authorized running sessions, open the session 
 
 
 AC5: In disposable Classic and Herdr Bash sessions with only harmless clipboard fixtures, set the clipboard to `clipboard-before`, then emit `printf '\033]52;c;Y2xpcGJvYXJkLWFmdGVy\007'`. Inspect using the browser's ordinary clipboard paste into a disposable field. Classic must leave `clipboard-before` unchanged and request no Herdr write; Herdr may write `clipboard-after` only as browser permission allows. Repeat with clipboard permission denied: denial must remain authoritative. Never log clipboard content or send a read/query sequence; personal clipboard data is excluded. Restore only the disposable fixture, not private clipboard history.
+
+AC7: In a disposable desktop Classic Pi session, select Fullscreen and drag across known fixture text. Paste in another window and compare the exact displayed cells. Verify an ordinary click and wheel still reach Pi, and unselected Ctrl+C still interrupts.
 
 <a id="req-term-036-manual-qualification"></a>
 ### Samsung single activation (REQ-TERM-036)

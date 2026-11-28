@@ -9,6 +9,8 @@ import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualK
 import { attachSwipeGestures, sendTerminalKey } from '../lib/touch-gestures';
 import { attachHerdrMouseInput, sendHerdrTap, terminalCell } from '../lib/herdr-mouse';
 import { registerMultiLineLinkProvider, type TerminalLinkController } from '../lib/terminal-link-provider';
+import { trimTerminalUrlParentheses } from '../lib/terminal-url-delimiters';
+import { attachTerminalDragCopy } from '../lib/terminal-drag-copy';
 import { isSpeechSupported, isListening, startListening, stopListening } from '../lib/speech-input';
 import { focusMobileTerminal, FUNCTIONAL_KEY_MAP, setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
@@ -137,6 +139,17 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         brightWhite: '#ffffff',
       },
       allowProposedApi: true,
+      linkHandler: {
+        // Explicit OSC 8 hyperlinks bypass the plain-text URL provider.
+        activate: (_event, target) => {
+          const url = trimTerminalUrlParentheses(target);
+          if (!/^https?:\/\//i.test(url)) return;
+          try { new URL(url); } catch { return; }
+          if (window.confirm(`Do you want to navigate to ${url}?\n\nWARNING: This link could potentially be dangerous`)) {
+            window.open(url, '_blank', 'noopener');
+          }
+        },
+      },
       convertEol: true,
       scrollback: 5000,
       // Keystroke re-anchoring is handled by the onData listener below via
@@ -297,6 +310,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           focusMobileTerminal(t);
         };
       }
+    }
+
+    if (!isHerdr() && props.terminalId === '1') {
+      const screen = t.element?.querySelector<HTMLElement>('.xterm-screen');
+      if (screen) onCleanup(attachTerminalDragCopy(screen, t, () => isVisible() && !isTouchDevice()
+        && sessionStore.sessions?.some(session => session.id === props.sessionId && session.agentType === 'pi') === true,
+      text => { void navigator.clipboard?.writeText(text).catch(() => {}); }));
     }
 
     if (isTouchDevice()) {

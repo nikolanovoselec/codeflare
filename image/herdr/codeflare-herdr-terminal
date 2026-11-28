@@ -256,7 +256,7 @@ bootstrap() {
                     timeout 10 "$HERDR_BIN" pane run "$pane" 'codeflare-terminal-writer --tui-mode fullscreen' >/dev/null
                 fi
             else
-                run_agent "$pane" 'pi --tui-mode fullscreen' pi pi
+                run_agent "$pane" pi pi pi
             fi
             ;;
         'agy'|'agy --dangerously-skip-permissions') run_agent "$pane" "$command" antigravity-cli agy ;;

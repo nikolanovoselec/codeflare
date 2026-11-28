@@ -175,7 +175,7 @@ function linksForBufferLine(terminal: XTerm, y: number): ILink[] | undefined {
   const urlRegex = /https?:\/\/[^\s"'<>]+/g;
   let match: RegExpExecArray | null;
   while ((match = urlRegex.exec(fullText)) !== null) {
-    const text = trimTerminalUrlParentheses(match[0]);
+    const text = trimTerminalUrlParentheses(match[0], fullText[match.index - 1] === '(');
     const startPos = mapStringToBuffer(buffer, joinedLines, match.index);
     const endPos = mapStringToBuffer(buffer, joinedLines, match.index + text.length);
     if (!startPos || !endPos || lineIndex < startPos.y || lineIndex > endPos.y) continue;

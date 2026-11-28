@@ -246,6 +246,28 @@ describe('useTerminal hook', () => {
     vi.restoreAllMocks();
   });
 
+  it('REQ-TERM-042 AC6: confirms and opens a parenthesized OSC 8 target without the closing wrapper', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const dispose = createRoot(dispose => {
+      useTerminal({ ...defaultProps, terminalMode: 'classic' }).containerRef(containerEl);
+      return dispose;
+    });
+    try {
+      const handler = vi.mocked(XTerm).mock.calls[0]?.[0]?.linkHandler;
+      const event = new MouseEvent('click');
+      const range = { start: { x: 2, y: 1 }, end: { x: 24, y: 1 } };
+      handler?.activate(event, 'https://something.ch)', range);
+      expect(confirm.mock.calls[0]?.[0]).toContain('https://something.ch?');
+      expect(open).not.toHaveBeenCalled();
+      confirm.mockReturnValue(true);
+      handler?.activate(event, 'https://something.ch/wiki/a(b))', range);
+      expect(open).toHaveBeenLastCalledWith('https://something.ch/wiki/a(b)', '_blank', 'noopener');
+      handler?.activate(event, 'javascript:alert(1)', range);
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally { dispose(); }
+  });
+
   it('reveals a prepared Code attachment without a hidden or duplicate initial resize', async () => {
     const { terminalStore: transport, sendInputToTerminal } = await vi.importActual<typeof import('../../stores/terminal')>('../../stores/terminal');
     const methods = ['connect', 'getConnectionState', 'claimResizeAuthority', 'clearPendingResizeAuthority',
