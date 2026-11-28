@@ -1520,6 +1520,21 @@ Use separately authorized disposable owners/objects and the existing Settings/se
 | [REQ-AGENT-032](../../sdd/spec/agents.md#req-agent-032-starter-documentation-manually-recreatable-from-settings) | For an authorized disposable Getting Started reseed, record storage statistics, perform the existing tutorial recreate action once, and reopen statistics; compare the changed seeded objects with the invalidated/recomputed cache rather than assuming an HTTP success proves invalidation. | After tutorial reseeding, storage statistics are recomputed from current objects rather than returned from the old cache. |
 | [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) | Compare existing sorted compiled payload keys/bytes with their recorded content hash, then inspect an already-authorized successful manual/automatic reconciliation's persisted applied identity and the next dashboard upgrade-decision response. Repeat identity comparisons for missing/outdated stored identity and Enterprise inputs without manufacturing releases. | Content hash is deterministic over sorted managed documents; successful reconcile stores the applied identity. Dashboard upgrade decisions compare stored identity/mode with current desired environment, including missing/stale identity and Enterprise inputs. |
 
+### Beginner ship workflow
+
+`ship` guides first-time builders through a brief, website address selection, build, private GitHub push, authorized deployment, and live verification. Each phase names when to advance. The same skill is delivered in both session modes. See [REQ-AGENT-295](../../sdd/spec/agents.md#req-agent-295-guided-first-project-delivery). <!-- @impl: preseed/agents/claude/manifest.json::skills/ship/SKILL.md -->
+
+Inspect the delivered procedure in both modes using tabletop examples. Do not create repositories, handle real credentials, or deploy to run this inspection.
+
+| Example | Required observation |
+|---|---|
+| A new project with incomplete requirements and no name | The questionnaire asks only unresolved questions and recommends a concrete option in each. It offers custom naming and infers a name if none is supplied. Without the tool, guidance offers equivalent choices and does not invent approval. |
+| GitHub confirms the name is taken | The guide selects another slug without asking or touching the existing repo, verifies the new repo is private before pushing, and includes a README with real features and commands. An ambiguous error is not a name collision. |
+| A new interface versus a backend-only task | Interface work follows Codeflare design routing, uses the applicable design system, and checks the result with Impeccable when available. Backend-only work skips design. Unavailable tools or rendering are reported, not claimed as passed. |
+| A Cloudflare website with two eligible domains, or a denied zone read | The questionnaire uses the connected account's active zones, recommends a real domain and free subdomain, and shows the exact hostname. A failed read is not an empty list, and no alternate target is chosen silently. |
+| An approved free hostname versus an occupied hostname | The configured deployment attaches only the approved free hostname; the occupied hostname remains untouched. Verification checks the chosen domain over HTTPS, not a preview. |
+| A GitHub-only request versus an authorized deployment | GitHub-only work stops after verifying the remote commit. Deployment requires evidence for the intended revision and a live check at the actual URL before a success claim. |
+
 ### Managed workflow and policy inspection
 
 Read delivered guidance and its owning source, then manually review the named examples or existing output transcripts. Wording, copy, editorial judgment and policy contracts remain manual; this procedure does not demand a runtime harness for them. Instructions are not guarantees of deterministic agent obedience. Actual guard outcomes need existing boundary receipts or separately approved safe observations.

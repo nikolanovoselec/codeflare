@@ -4235,6 +4235,34 @@ None.
 
 ---
 
+### REQ-AGENT-295: Guided first project delivery
+
+**Intent:** A first-time builder can turn a plain-language idea into a usable project and publish it without handling Git or deployment mechanics.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Guide unresolved project requirements and naming through the available structured questionnaire, with a grounded recommendation for each question. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 1: Agree on the brief --> <!-- @manual: Beginner ship workflow -->
+2. When authorized to publish a new repository, use the selected project name or infer one from requirements, create it privately, and choose an alternative slug automatically on a confirmed collision without touching the conflicting repository. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 4: Push to private GitHub --> <!-- @manual: Beginner ship workflow -->
+3. Include a professional README describing actual features and supported setup, test, and delivery instructions in the first push. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 4: Push to private GitHub --> <!-- @manual: Beginner ship workflow -->
+4. For new or changed interfaces, use Codeflare's design routing and the applicable project design system, with Impeccable for critique and bounded finishing when available. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 3: Build and check the project --> <!-- @manual: Beginner ship workflow -->
+5. Report a live deployment only after verifying the authorized target and intended release at its actual URL. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 6: Verify and hand off --> <!-- @manual: Beginner ship workflow -->
+6. For a Cloudflare website, offer the user's eligible connected domains and a recommended available subdomain through the questionnaire. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 2: Choose the website address --> <!-- @manual: Beginner ship workflow -->
+7. Deploy automatically to the approved hostname through the connected Cloudflare deployment path without taking over an unrelated hostname or silently choosing another. <!-- @impl: preseed/agents/claude/skills/ship/SKILL.md::Phase 5: Deploy the agreed release --> <!-- @manual: Beginner ship workflow -->
+
+**Constraints:** Private source does not imply a private deployment; publication does not authorize deployment, credential changes, or deletion beyond the approved scope.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite), [REQ-AGENT-198](#req-agent-198-engineering-constitution-security-policy)
+
+**Verification:** Manual: [Beginner ship workflow](../../documentation/lanes/preseed.md#beginner-ship-workflow)
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-198: Engineering Constitution security policy
 
 **Intent:** Every managed coding session receives the constitution's compact authorization and security boundaries.
