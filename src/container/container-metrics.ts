@@ -39,7 +39,7 @@ export interface MetricsState {
 
 /** Callbacks provided by the Container class for idle detection + scheduling. */
 export interface MetricsCallbacks {
-  stop: (signal: number | string) => Promise<void>;
+  stop: (signal: number | string, onSignalAccepted?: () => void) => Promise<void>;
   schedule: (delaySec: number, method: string) => Promise<unknown>;
   /** Cached value from class field. collectMetrics re-reads storage as the
    *  authoritative source on every tick to avoid drift from stale caches. */
@@ -376,8 +376,9 @@ type AgentEventDeliveryState = {
 const agentEventDeliveryStates = new WeakMap<MetricsState, AgentEventDeliveryState>();
 // Diagnostic state only; activity/timestamps cannot create an ordinary event every tick.
 const idlePolicyObservations = new WeakMap<MetricsState, string>();
-// A warm coordinator can serialize its continuations and retry recording an
-// accepted signal. D1 still owns the claim across coordinator reconstruction.
+// This marker consumes the automatic effect attempt, not the D1 claim or exit proof.
+const IDLE_STOP_ATTEMPT_KEY = 'idleStopAttempt';
+// A warm coordinator serializes retries and can record a signal it saw accepted.
 const idleStopContinuations = new WeakMap<MetricsState, MetricsPin & {
   runtime: MetricsExecution['runtime'];
   active: boolean;
@@ -1168,21 +1169,37 @@ export async function collectMetrics(
     const continuation = existing?.generation === generation && existing.runtime === runtime
       && existing.ownerKey === ownerKey && existing.sessionId === sessionId
       ? existing : { ownerKey, sessionId, generation, runtime, active: false, signalSentAt: undefined };
-    if (continuation.active) return;
+    if (continuation.active) {
+      // This delivery may have consumed the active attempt's only retry.
+      await armIdleRecovery();
+      return;
+    }
     continuation.active = true;
     idleStopContinuations.set(state, continuation);
     try {
       if (recovering) await armIdleRecovery();
       if (!await readUnsignaledIdle()) return;
       if (!continuation.signalSentAt) {
+        // Consume the automatic drain and signal before either begins. A late
+        // storage commit is not dispatch authority, and a cold retry must not
+        // replay potentially dispatched effects. Stop/Kill can still recover.
+        const started = await raceBudget(ctx.storage.transaction(async txn => {
+          const previous = await txn.get<MetricsPin>(IDLE_STOP_ATTEMPT_KEY);
+          if (previous?.ownerKey === ownerKey && previous.sessionId === sessionId && previous.generation === generation) return false;
+          if (await txn.get('bucketName') !== ownerKey || await txn.get(SESSION_ID_KEY) !== sessionId
+            || await txn.get('lifecycleGeneration') !== generation
+            || typeof await txn.get(SHUTDOWN_REQUESTED_KEY) === 'number' || !execution.isCurrent()) return false;
+          await txn.put(IDLE_STOP_ATTEMPT_KEY, { ownerKey, sessionId, generation });
+          return true;
+        }), CONTAINER_POLL_BUDGET_MS);
+        if (started !== true || !execution.isCurrent()) return;
         await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
         if (!execution.isCurrent()) return;
         await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent, readUnsignaledIdle);
         if (!await readUnsignaledIdle() || !execution.isCurrent()) return;
-        await callbacks.stop('SIGTERM');
-        continuation.signalSentAt = new Date().toISOString();
+        await callbacks.stop('SIGTERM', () => { continuation.signalSentAt = new Date().toISOString(); });
       }
-      if (!execution.isCurrent()) return;
+      if (!continuation.signalSentAt || !execution.isCurrent()) return;
       await raceBudget(repository.recordTerminationSignal(ownerKey, sessionId, generation,
         idleIntent, continuation.signalSentAt), CONTAINER_POLL_BUDGET_MS).catch(() => null);
     } finally {

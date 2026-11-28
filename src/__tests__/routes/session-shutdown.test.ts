@@ -25,8 +25,11 @@ vi.mock('@cloudflare/containers', () => ({
     }
     async destroy() { await this.ctx.container?.destroy(); }
     async stop(signal: string | number = 'SIGTERM') { this.ctx.container?.signal(signal === 'SIGTERM' ? 15 : Number(signal)); }
-    readonly scheduled = new Map<string, { delay: number; payload: unknown }>();
+    private get scheduled() {
+      return (this.ctx as unknown as { fixtureSchedules: Map<string, { delay: number; payload: unknown }> }).fixtureSchedules;
+    }
     async schedule(delay: number, callback: string, payload: unknown) {
+      (this.ctx as unknown as { beforeSchedule: () => void }).beforeSchedule();
       this.scheduled.set(callback, { delay, payload });
       return { taskId: crypto.randomUUID(), callback, type: 'delayed', time: Math.floor(Date.now() / 1000) + delay, delayInSeconds: delay };
     }
@@ -87,6 +90,9 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const other = `shutdown-${crypto.randomUUID()}`;
   const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean, failCleanup: boolean | 'settlement') => void }>();
   const processes = new Map<string, ReturnType<typeof processFixture>>();
+  const persisted = new Map<string, { records: Map<string, unknown>; schedules: Map<string, {
+    delay: number; payload: Parameters<SessionContainer['collectMetrics']>[0];
+  }> }>();
   const retained = new Map<string, Record<string, { generation: number }>>();
   const evictAtLaunch = new Set<string>();
   const trace: string[] = [];
@@ -97,6 +103,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
 
   function processFixture(label: string, initiallyRunning: boolean, hasSnapshot: boolean, directGeneration: boolean, idle: boolean) {
     let running = initiallyRunning;
+    let failPostSignalAlarm = false;
     // Model exit confirmation independently of the running hint. The fixture
     // uses awaited native destroy as its source of positive exit evidence.
     const monitorExit = raceMonitor ? gate<void>(undefined) : undefined;
@@ -203,7 +210,15 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         return Response.json({ error: `Unexpected fixture Host path ${path}` }, { status: 404 });
       } }),
     };
-    return { native, monitorExit, directGeneration, idle, idleSaveEntered, get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
+    return { native, monitorExit, directGeneration, idle, idleSaveEntered,
+      failNextPostSignalAlarm: () => { running = false; failPostSignalAlarm = true; },
+      beforeSchedule: () => {
+        if (failPostSignalAlarm && trace.includes(`${label}:sigterm`)) {
+          failPostSignalAlarm = false;
+          throw new Error('Post-signal alarm unavailable');
+        }
+      },
+      get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
   }
 
   const idFromName = (name: string) => ({ toString: () => name, equals: (id: DurableObjectId) => id.toString() === name });
@@ -211,7 +226,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     if (!states.has(address)) {
       const process = processes.get(address);
       const first = address.lastIndexOf('-');
-      const records = new Map<string, unknown>(process ? [
+      const records = persisted.get(address)?.records ?? new Map<string, unknown>(process ? [
         ['bucketName', address.slice(0, first)], ['_sessionId', address.slice(first + 1)],
         ['lifecycleGeneration', 1], ['containerAuthToken', process.token], ['workspaceSyncEnabled', workspaceSyncEnabled],
         ['sessionMode', 'advanced'], ['hermes:direct-layout', true],
@@ -224,6 +239,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
           outcome: raceMonitor === 'stale successful audit' ? 'completed' : 'errored',
         }] as const] : []),
       ] : []);
+      const schedules = persisted.get(address)?.schedules ?? new Map();
+      persisted.set(address, { records, schedules });
       let failExitCleanup: boolean | 'settlement' = false;
       const retentionOwner = address.startsWith('bucket-owner:') ? address.slice('bucket-owner:'.length) : undefined;
       if (retentionOwner) records.set('bucketOwnerEmail', 'test@example.com');
@@ -300,6 +317,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
       };
       let ready = Promise.resolve();
       const instance = new SessionContainer({ id: idFromName(address), container: process?.native, storage,
+        fixtureSchedules: schedules, beforeSchedule: () => process?.beforeSchedule(),
         // Native startup wires both mandatory Enterprise transports. This fixture
         // stops at the Host boundary; any use of those transports is unexpected.
         exports: Object.fromEntries(['OperatorOwnerInferenceAuthority', 'LlmInterceptor'].map(name =>
@@ -367,11 +385,10 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const kill = (id: string) => app().request(`${path(id)}/kill`, { method: 'POST' });
   const retry = (id: string, bucket = owner) => app(bucket).request(`${path(id)}/retry-memory-consolidation`, { method: 'POST' });
   const session = (id: string) => getByName(`${owner}-${id}`);
+  const reconstruct = (id: string) => { states.delete(`${owner}-${id}`); };
   const metricsTasks = (id: string) => {
     session(id);
-    return (states.get(`${owner}-${id}`)!.instance as unknown as {
-      scheduled: Map<string, { delay: number; payload: Parameters<SessionContainer['collectMetrics']>[0] }>;
-    }).scheduled;
+    return persisted.get(`${owner}-${id}`)!.schedules;
   };
   const nextMetrics = (id: string) => metricsTasks(id).get('collectMetrics');
   const deliverMetrics = async (id: string) => {
@@ -385,7 +402,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     await session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation });
   };
   return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, cleanup, latestWriterWork: () => lastWriterWork!,
-    publishDelayedAudit: () => publishDelayedAudit!(), wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session, nextMetrics, deliverMetrics,
+    publishDelayedAudit: () => publishDelayedAudit!(), wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session, nextMetrics, deliverMetrics, reconstruct,
     evictSnapshot: (id: string) => { delete retained.get(owner)![id]; },
     evictWhilePreparingRetry: (id: string) => { evictAtLaunch.add(id); } };
 }
@@ -447,6 +464,7 @@ it('REQ-SESSION-043: the next metrics tick continues an idle claim that committe
     expect(await committed.promise).toBe(true);
     expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'stopping', terminationGeneration: 1 });
     vi.useRealTimers();
+    f.reconstruct(a);
     await f.deliverMetrics(a);
     expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
   } finally {
@@ -467,6 +485,7 @@ it('REQ-SESSION-026: an overlapping idle retry cannot repeat the final drain or 
     expect(f.nextMetrics(a)).toMatchObject({ delay: 5, payload: pin });
     await f.deliverMetrics(a);
     expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`]);
+    expect(f.nextMetrics(a)).toMatchObject({ payload: pin });
   } finally {
     process.save.release('saved');
     await first;
@@ -486,6 +505,44 @@ it('REQ-SESSION-026: a lost idle signal acceptance write retries recording witho
     expect((await repository.getSession(f.owner, a))?.terminationSignalAcceptedAt).toBeUndefined();
     await f.deliverMetrics(a);
     expect((await repository.getSession(f.owner, a))?.terminationSignalAcceptedAt).toEqual(expect.any(String));
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
+  } finally { record.mockRestore(); }
+});
+
+it('REQ-SESSION-026: a failed alarm after native idle SIGTERM does not cause a resend', async () => {
+  const f = rig();
+  const process = await f.create(a, { idle: true });
+  const first = f.session(a).collectMetrics({ ownerKey: f.owner, sessionId: a, generation: 1 });
+  try {
+    await Promise.race([process.idleSaveEntered.promise, first.then(() => { throw new Error('Idle save was not dispatched'); })]);
+    process.failNextPostSignalAlarm();
+  } finally { process.save.release('saved'); }
+  await expect(first).rejects.toThrow('Post-signal alarm unavailable');
+  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
+  expect((await repository.getSession(f.owner, a))?.terminationSignalAcceptedAt).toBeUndefined();
+  await f.deliverMetrics(a);
+  expect((await repository.getSession(f.owner, a))?.terminationSignalAcceptedAt).toEqual(expect.any(String));
+  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
+});
+
+it('REQ-SESSION-026: reconstruction does not replay an idle attempt with uncertain dispatch', async () => {
+  const f = rig();
+  const process = await f.create(a, { idle: true });
+  process.save.release('saved');
+  const record = vi.spyOn(D1SessionRepository.prototype, 'recordTerminationSignal')
+    .mockRejectedValueOnce(new Error('Acceptance write unavailable'));
+  try {
+    await f.session(a).collectMetrics({ ownerKey: f.owner, sessionId: a, generation: 1 });
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
+    f.reconstruct(a);
+    await f.deliverMetrics(a);
+    const row = await repository.getSession(f.owner, a);
+    expect(row?.lifecycleState).toBe('stopping');
+    expect(row?.terminationSignalAcceptedAt).toBeUndefined();
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
+    if (!row?.terminationIntentId) throw new Error('Expected retained idle ownership');
+    await f.replayExit(a, 1, row.terminationIntentId);
+    expect((await repository.getSession(f.owner, a))?.lifecycleState).toBe('stopped');
     expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
   } finally { record.mockRestore(); }
 });
