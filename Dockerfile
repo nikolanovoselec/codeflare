@@ -247,6 +247,7 @@ RUN apt-get -o Acquire::Retries=0 update && apt-get -o Acquire::Retries=0 upgrad
     openssh-client \
     # Require Debian's fixed compression, regex, media and event builds before publication.
     libbrotli1 \
+    libzstd1 \
     libpcre2-8-0 \
     libexpat1 \
     libde265-0 \
@@ -278,6 +279,7 @@ RUN apt-get -o Acquire::Retries=0 update && apt-get -o Acquire::Retries=0 upgrad
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' librsvg2-2)" ge '2.54.7+dfsg-1~deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' librsvg2-bin)" ge '2.54.7+dfsg-1~deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge '1.0.9-2+deb12u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libzstd1)" ge '1.5.4+dfsg2-5+deb12u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.42-1+deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge '2.5.0-1+deb12u5' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssh2-1)" ge '1.10.0-3+deb12u1' \
