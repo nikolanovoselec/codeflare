@@ -465,7 +465,7 @@ authority, latest-stable dependency selection, and current-task continuity
 [REQ-AGENT-199](../../sdd/spec/agents.md#req-agent-199-engineering-constitution-dependency-policy),
 [REQ-AGENT-200](../../sdd/spec/agents.md#req-agent-200-engineering-constitution-work-continuity)).
 
-Before declaring implementation blocked, it separates the required outcome and hard constraints from the chosen mechanism. On a platform limit or recurring failure, it checks why the design exists and takes a smaller in-scope path if available ([REQ-AGENT-065 AC6](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
+Before declaring implementation blocked, it separates the required outcome and hard constraints from the chosen mechanism. On a platform limit or recurring failure, it checks why the design exists and takes a smaller in-scope path only if it achieves the same outcome under the same hard constraints ([REQ-AGENT-065 AC6](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
 
 It acknowledges and retains new input, then finishes and verifies the active task before acting
 on unrelated input unless the user stops, pauses, or reprioritizes it. The current user controls
