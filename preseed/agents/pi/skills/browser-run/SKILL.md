@@ -33,12 +33,33 @@ Managed Browser Run is Advanced-only and requires configured Browser Rendering a
 
 All three take `url` and an optional `wait_until`. For JS-heavy pages or SPAs, pass `wait_until: "networkidle0"` so content has rendered before capture.
 
-## Interactive discovery and recovery
+## Interactive preflight and recovery
 
 1. Read the `pi-mcp-adapter` skill. Activate native `mcp` through `capability`, inspect status/catalogues with `{}`, and connect using `{"connect":"chrome-devtools"}` when needed. Search/describe actual tools through that proxy, or discover and activate verified deferred tools through `capability`. Inspect live input schemas; use `tool`/`args` only for the proxy and direct arguments for activated wrappers. If connected tools are inactive, activate them rather than assuming reconnect will override exposure policy. Do not guess qualified names or arguments.
-2. Call live `list_pages` before assuming page IDs. Reuse an appropriate existing tab and `navigate_page` before attempting `new_page`; create a page only if needed. Treat `No page found` as a stale ID: list again, never reuse a cached tab ID blindly.
-3. Use a meaningful bounded long timeout supported by the discovered schema (120000 ms was successful for navigation). If `new_page` aborts, refresh discovery/list pages and try existing-tab navigation rather than repeating creation. Stop if that bounded recovery fails; report the operation, timeout and concrete sanitized error. An abort is not proof of credential expiry or an underlying transport cause.
-4. Preserve the configured command, CA, headers, credentials and retention settings. Do not request Pi reload, install `npx @latest`, change npm/symlinks/configuration, patch the SDK, write a custom CDP client, kill browsers/servers, or warm Pi/Enterprise compute sessions as browser recovery. Missing tools do not authorize authentication bypass. Performance traces may send URLs to Google's CrUX service; do not submit private URLs or sensitive traces without authorization.
+2. Activate `chrome-devtools_list_pages` and call it before navigating, resizing, or logging in. MCP connection only exposes tools; a successful `list_pages` proves Chrome is reachable. Use the returned live page IDs. Reuse a suitable tab or open one with `new_page`, then keep the same tab through login and testing. Treat `No page found` as a stale tab ID: list again, never reuse a cached ID.
+3. If the Browser Run WebSocket handshake returns HTTP 404 before navigation, follow [Enterprise browser replacement](#enterprise-browser-replacement). Do not loop MCP reconnects, use `new_page` as recovery, or send an OTP. MCP reconnect reconnects the tool, and `new_page` opens a tab inside an existing browser; neither replaces the retained browser. Report this as a browser attachment failure, not a website 404, invalid token, or confirmed browser expiry.
+4. Use a meaningful bounded long timeout supported by the discovered schema (120000 ms was successful for navigation). If `new_page` aborts, refresh discovery/list pages and try existing-tab navigation rather than repeating creation. Stop if that bounded recovery fails; report the operation, timeout and concrete sanitized error. An abort is not proof of credential expiry or an underlying transport cause.
+5. Preserve the configured command, CA, headers, credentials and retention settings. Do not request Pi reload, install `npx @latest`, change npm/symlinks/configuration, patch the SDK, write a custom CDP client, kill browsers/servers, or warm Pi/Enterprise compute sessions as browser recovery. Missing tools do not authorize authentication bypass. Performance traces may send URLs to Google's CrUX service; do not submit private URLs or sensitive traces without authorization.
+
+### Enterprise browser replacement
+
+For a persistent pre-navigation handshake 404, replace only the unreachable browser owned by this Codeflare session. First resolve any earlier browser mutation with an uncertain outcome. Replacement is a recovery step, not a separate Browser Run approval flow. It does not restore the previous tabs or sign-in. Do not replace a reachable browser, replace a browser for a website error, or switch accounts. In an Enterprise session with managed Browser Run configured, make one owner-bound request:
+
+```bash
+set -o pipefail
+: "${CLOUDFLARE_ACCOUNT_ID:?Managed Browser Run account is not configured}"
+curl --silent --show-error --fail --max-time 45 \
+  -H 'Authorization: Bearer codeflare-enterprise' \
+  -H 'Content-Type: application/json' \
+  --data '{}' \
+  "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser" |
+  jq -e 'if (.sessionId | type) == "string" and
+            (.webSocketDebuggerUrl | type) == "string"
+         then "Managed browser replacement confirmed"
+         else error("Browser replacement unconfirmed") end'
+```
+
+`codeflare-enterprise` is the non-secret Enterprise Browser Run placeholder; `CF_TOKEN` is for a different credential route. Do not print the response body or browser reference. If the request fails or times out, report the sanitized error and do not retry an uncertain replacement. After confirmed replacement, call `list_pages` again to verify Chrome, then use `navigate_page` or `new_page` as appropriate. A fresh browser does not recover the old sign-in.
 
 ## Session lifetime and sequencing
 
@@ -50,9 +71,9 @@ A failed mutating call is not replayed merely because transport reconnects; veri
 
 ## Authorized public owner login
 
-Only with explicit current-user authorization, navigate the public site in the configured interactive browser. Inspect a bounded DOM projection of input types and button labels only, not full URLs, field values, page dumps, cookies, tokens or challenge metadata. Fill the authorized owner email in the actual form and use **Send login code**. Confirm the verification prompt and its stated validity window before asking for the current code. Use the user-provided code only in that site's actual **Verify** form, submit once, and observe the result; do not replay an uncertain submission or automatically resend codes. Stop for renewed user input if rejected or expired.
+Only with explicit current-user authorization, navigate the public site in the configured interactive browser. Inspect a bounded DOM projection of input types and button labels only, not full URLs, field values, page dumps, cookies, tokens or challenge metadata. Check which sign-in methods the deployed environment actually offers. If it offers only an identity provider, do not assume email OTP is available or switch to a different environment or identity. When email OTP is offered and authorized, fill the owner email in the actual form and use **Send login code**. Confirm the verification prompt and its stated validity window before asking for the current code. Use the user-provided code only in that site's actual **Verify** form, submit once, and observe the result; do not replay an uncertain submission or automatically resend codes. Stop for renewed user input if rejected or expired.
 
-Verify the expected application path and, when authorized, a protected owner GET by status only; a login redirect alone is not protected-access proof. Never export sessions/tokens, bypass Access, substitute token API authentication for owner login, or persist email, OTP, token, cookies or challenge URL metadata in docs/logs/artifacts. Authorization to log in does not authorize unrelated protected actions.
+Verify the expected application path and, when authorized, a protected owner GET. For Codeflare acceptance, verify `/api/user` succeeds and matches the expected disposable identity and bucket before changing anything. Compare in the browser and report status and match results only; a redirect or HTTP 200 alone does not establish the right identity. Never export sessions/tokens, bypass Access, substitute token API authentication for owner login, or persist email, OTP, token, cookies or challenge URL metadata in docs/logs/artifacts. Authorization to log in does not authorize unrelated protected actions.
 
 ## Verified recovery evidence
 

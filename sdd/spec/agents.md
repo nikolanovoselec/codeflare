@@ -4217,6 +4217,8 @@ None.
 4. Updates prefer immutability, keep necessary mutation local, validate untrusted boundaries, and trust typed internals. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 5. CI, automated-test, deployment, and log-tail monitoring never blocks the main session; only approved safe local checks run in-session. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 
+6. Before declaring implementation blocked, distinguish the required outcome and constraints from the failed approach. Recheck the design’s rationale and reuse a smaller in-scope path if available; report only unresolved blockers without bypassing review, authorization or a stop. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+
 **Constraints:**
 
 - The canonical constitution is authored in Claude preseed and compiled for every supported runtime; transformed files are downstream artifacts.
