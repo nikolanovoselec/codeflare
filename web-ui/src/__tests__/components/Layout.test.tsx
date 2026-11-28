@@ -778,7 +778,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   describe('REQ-AGENT-275: startup Open and the phone prompt', () => {
     it.each(['fresh empty', 'Resume', 'desktop', 'mouse on phone', 'keyboard activation', 'nonempty', 'unknown history',
       'native question', 'transcript question', 'stock modal', 'activity notice', 'replaced document', 'different conversation',
-      'switched attachment', 'background until ready', 'startup attachment retry', 'conflicted startup retry', 'denied startup retry', 'persistent startup failure', 'frame-only startup retry'] as const)(
+      'switched attachment', 'background until ready', 'startup attachment retry', 'conflicted startup retry', 'denied startup retry', 'persistent startup failure', 'frame-only startup retry', 'exhausted frame after Dashboard'] as const)(
       'opens the retained Chat in place: %s', async scenario => {
         navigationRendering.realTerminalArea = true;
         const id = 'abcdef0123456789';
@@ -812,6 +812,10 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         const pendingRetry = new Promise<void>(resolve => { finishRetry = resolve; });
         const requestId = () => `00000000-0000-4000-8000-00000000000${retrying ? 3 : attachment + 2}`;
         let retryCount = 0;
+        let conflict = false;
+        let postConflictReads = 0;
+        let releaseStatus!: () => void;
+        const delayedStatus = new Promise<void>(resolve => { releaseStatus = resolve; });
         const failed = () => ({ phase: 'failed', surface: null, target: 'chat', requestId: requestId() });
         const readyStatus = () => ({ phase: 'complete', surface: 'chat', target: 'chat', requestId: requestId(),
           chatUrl: `/api/pi-web/${id}/g/${generation}/a/00000000-0000-4000-8000-00000000000${attachment}/?project=p&workspace=w&session=native&view=chat` });
@@ -822,9 +826,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
             await pendingRetry;
             if (rejected) return Response.json({}, { status: 403 });
             if (persistent) return Response.json(failed());
-            if (scenario === 'conflicted startup retry' && retryCount === 1) return Response.json({}, { status: 409 });
+            if (scenario === 'conflicted startup retry' && retryCount === 1) {
+              conflict = true;
+              return Response.json({}, { status: 409 });
+            }
             attachment = 2;
             return Response.json(readyStatus());
+          }
+          if (conflict && url.endsWith(`/_switch?generation=${generation}`)) {
+            postConflictReads++;
+            await delayedStatus;
           }
           return Response.json(url.endsWith(`/_switch?generation=${generation}`)
             ? retrying && attachment === 1 ? failed() : readyStatus()
@@ -832,7 +843,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         });
         vi.useFakeTimers();
         const visibility = scenario === 'background until ready' ? vi.spyOn(document, 'visibilityState', 'get') : undefined;
-        const hidden = visibility || retrying || scenario === 'frame-only startup retry' ? vi.spyOn(document, 'hidden', 'get').mockReturnValue(false) : undefined;
+        const hidden = visibility || retrying || scenario === 'frame-only startup retry' || scenario === 'exhausted frame after Dashboard' ? vi.spyOn(document, 'hidden', 'get').mockReturnValue(false) : undefined;
         try {
           render(() => <Layout />);
           fireEvent.click(screen.getByRole('button', { name: creating ? 'Start fresh Vibe' : 'Start session' }));
@@ -851,11 +862,23 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
             expect(retryCount).toBe(1);
             expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
             finishRetry();
+            if (scenario === 'conflicted startup retry') {
+              await vi.advanceTimersByTimeAsync(3000);
+              expect(postConflictReads).toBeGreaterThan(0);
+              expect(retryCount).toBe(1);
+              releaseStatus();
+            }
             await vi.advanceTimersByTimeAsync(15_000);
             if (rejected || persistent) {
               expect(retryCount).toBe(rejected ? 1 : 2);
               expect(screen.queryByRole('button', { name: /^(open|reload chat|retry switch)$/i })).not.toBeInTheDocument();
               expect(screen.queryByText('Could not switch Pi surfaces.')).not.toBeInTheDocument();
+              fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+              await vi.advanceTimersByTimeAsync(1000);
+              fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
+              await vi.advanceTimersByTimeAsync(15_000);
+              expect(retryCount).toBe(rejected ? 1 : 2);
+              expect(screen.getAllByText('Loading Chat', { exact: true })[0]).toBeInTheDocument();
               return;
             }
             expect(retryCount).toBe(scenario === 'conflicted startup retry' ? 2 : 1);
@@ -866,6 +889,33 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
             attachment = 2;
             await vi.advanceTimersByTimeAsync(5000);
             await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).not.toBe(first));
+          }
+          if (scenario === 'exhausted frame after Dashboard') {
+            const failFrame = () => {
+              const frame = screen.getByTitle('Pi Chat') as HTMLIFrameElement;
+              const doc = document.implementation.createHTMLDocument();
+              Object.defineProperty(doc, 'URL', { value: frame.src });
+              Object.defineProperty(frame, 'contentDocument', { value: doc });
+              fireEvent.load(frame);
+              return frame;
+            };
+            for (let i = 0; i < 2; i++) {
+              const failedFrame = failFrame();
+              await vi.advanceTimersByTimeAsync(1000);
+              expect(screen.getByTitle('Pi Chat')).not.toBe(failedFrame);
+            }
+            const exhausted = failFrame();
+            fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+            await vi.advanceTimersByTimeAsync(1000);
+            fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
+            await vi.advanceTimersByTimeAsync(0);
+            const returned = failFrame();
+            expect(returned).not.toBe(exhausted);
+            expect(returned.src).toBe(exhausted.src);
+            await vi.advanceTimersByTimeAsync(15_000);
+            expect(screen.getByTitle('Pi Chat')).toBe(returned);
+            expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+            return;
           }
           if (scenario === 'frame-only startup retry') {
             const first = screen.getByTitle('Pi Chat') as HTMLIFrameElement;

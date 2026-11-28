@@ -8,7 +8,7 @@ export function isPiWebSwitchPending(status?: PiWebStatus): boolean {
 }
 
 /** A read-only observer by default, scoped to the selected session generation. */
-export function createPiWebSurface(sessionId: string, generation: number) {
+export function createPiWebSurface(sessionId: string, generation: number, onDefinitiveRejection?: (requestId: string) => void) {
   const [status, setStatus] = createSignal<PiWebStatus>();
   const [unavailable, setUnavailable] = createSignal(false);
   const [mutation, setMutation] = createSignal<'switch' | 'cancel'>();
@@ -77,7 +77,10 @@ export function createPiWebSurface(sessionId: string, generation: number) {
       if (stillCurrent()) {
         const rejected = error instanceof ApiError && error.status >= 400 && error.status < 500;
         if (rejected && kind === 'switch') {
-          if (requestId) setRejectedSwitch({ id: requestId, status: error.status, observation });
+          if (requestId) {
+            if (error.status !== 409) onDefinitiveRejection?.(requestId);
+            setRejectedSwitch({ id: requestId, status: error.status, observation });
+          }
           setAttempt(undefined);
         }
         setMutationError(kind === 'cancel'

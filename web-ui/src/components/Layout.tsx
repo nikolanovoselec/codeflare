@@ -107,8 +107,20 @@ const Layout: Component<LayoutProps> = (props) => {
     return interrupted?.generation === generation && interrupted.requestId === status.requestId
       && status.target === 'chat' && (isPiWebSwitchPending(status) || status.phase === 'complete');
   };
+  // Recovery belongs to the running identity, not its observer or iframe.
+  const chatRecovery = new Map<string, { generation: number; writers: Map<string, { attempts: number; denied: boolean }>;
+    frames: Map<string, { attempts: number }> }>();
+  const recoveryFor = (id: string, generation: number) => {
+    const previous = chatRecovery.get(id);
+    if (previous?.generation === generation) return previous;
+    const next = { generation, writers: new Map<string, { attempts: number; denied: boolean }>(),
+      frames: new Map<string, { attempts: number }>() };
+    chatRecovery.set(id, next);
+    return next;
+  };
   const forgetChat = (id: string) => {
     interruptedChat.delete(id);
+    chatRecovery.delete(id);
     setRetainedChats(entries => entries.filter(entry => entry.frame.id !== id));
   };
   const [retainedTerminal, setRetainedTerminal] = createSignal<{ pane: VisibleTerminalPane; generation: number }>();
@@ -159,14 +171,20 @@ const Layout: Component<LayoutProps> = (props) => {
   // A parked Chat keeps its read-only status observer until evicted. Retaining
   // the observer avoids reapplying the Dashboard's default surface on return.
   const observers = new Map<ChatFrame['scope'], () => void>();
+  const startupSubmissions = new Map<ChatFrame['scope'], { id: string; generation: number }>();
   const activePi = createMemo((previous?: { id: string; generation: number; scope: ChatFrame['scope'] }) => {
     const id = piWebSid();
     const generation = piWebGeneration();
     if (!id || generation === undefined || generation < 1) return;
     if (previous && previous.id === id && previous.generation === generation) return previous;
     const parked = retainedChats().find(entry => entry.frame.id === id && entry.frame.generation === generation);
-    const scope = parked?.frame.scope ?? createRoot(dispose => {
-      const observer = createPiWebSurface(id, generation);
+    const submitting = [...startupSubmissions].find(([, owner]) => owner.id === id && owner.generation === generation)?.[0];
+    const scope = parked?.frame.scope ?? submitting ?? createRoot(dispose => {
+      const observer = createPiWebSurface(id, generation, requestId => {
+        const record = chatRecovery.get(id);
+        const retry = record?.generation === generation ? record.writers.get(requestId) : undefined;
+        if (retry) retry.denied = true;
+      });
       observers.set(observer, dispose);
       return observer;
     });
@@ -177,6 +195,9 @@ const Layout: Component<LayoutProps> = (props) => {
   createEffect(() => {
     const entries = retainedChats();
     const sessions = sessionStore.sessions;
+    for (const [id, { generation }] of chatRecovery) {
+      if (!sessions.some(session => session.id === id && session.generation === generation)) chatRecovery.delete(id);
+    }
     for (const [id, { generation }] of interruptedChat) {
       if (!sessions.some(session => session.id === id && session.generation === generation
         && session.status === 'running' && session.lifecycle !== 'stopping')) interruptedChat.delete(id);
@@ -205,6 +226,10 @@ const Layout: Component<LayoutProps> = (props) => {
       if (submitting.rejectedSwitchId() === entry.requestId) interruptedChat.delete(id);
       else if (submitting.mutation() === 'switch') keep.add(submitting);
       else entry.submitting = undefined;
+    }
+    for (const scope of startupSubmissions.keys()) {
+      if (scope.mutation() === 'switch') keep.add(scope);
+      else startupSubmissions.delete(scope);
     }
     for (const [scope, dispose] of observers) {
       if (!keep.has(scope)) { dispose(); observers.delete(scope); }
@@ -481,22 +506,23 @@ const Layout: Component<LayoutProps> = (props) => {
       && !!status.requestId && !status.recovery;
   };
   const [chatForeground, setChatForeground] = createSignal(!document.hidden);
-  const startupRetries = new WeakMap<ChatFrame['scope'], Map<string, number>>();
   createEffect(() => {
-    const handoff = piWeb();
+    const active = activePi();
+    const handoff = active?.scope;
     const status = handoff?.status();
     const requestId = status?.requestId;
-    if (!handoff || !requestId || !retryableChatStart() || !handoff.canRetryFailedStartup(requestId) || !chatForeground()) return;
-    const attempts = startupRetries.get(handoff) ?? new Map<string, number>();
-    const tried = attempts.get(requestId) ?? 0;
-    if (tried >= 2) return;
+    if (!active || !handoff || !requestId || !retryableChatStart() || !handoff.canRetryFailedStartup(requestId) || !chatForeground()) return;
+    const { writers } = recoveryFor(active.id, active.generation);
+    const record = writers.get(requestId) ?? { attempts: 0, denied: false };
+    if (record.attempts >= 2 || record.denied) return;
     const retry = setTimeout(() => {
-      if (document.hidden || !retryableChatStart() || piWeb() !== handoff || handoff.status() !== status
+      if (document.hidden || record.denied || !retryableChatStart() || piWeb() !== handoff || handoff.status() !== status
         || !handoff.canRetryFailedStartup(requestId)) return;
-      attempts.set(requestId, tried + 1);
-      startupRetries.set(handoff, attempts);
+      record.attempts++;
+      writers.set(requestId, record);
+      startupSubmissions.set(handoff, active);
       handoff.retry();
-    }, 1000 * (tried + 1));
+    }, 1000 * (record.attempts + 1));
     onCleanup(() => clearTimeout(retry));
   });
   const cancelPiWeb = () => piWeb()?.cancel();
@@ -1521,6 +1547,10 @@ const Layout: Component<LayoutProps> = (props) => {
               </Show>
               <For each={chatFrames()}>{frame => {
                 const selected = () => shownChatStatus().frame === frame;
+                const { frames } = recoveryFor(frame.id, frame.generation);
+                const attachment = frame.url.split('?', 1)[0];
+                const retryBudget = frames.get(attachment) ?? { attempts: 0 };
+                frames.set(attachment, retryBudget);
                 const parked = untrack(() => retainedChats().find(entry => entry.frame === frame)?.status ?? shownChatStatus().status!);
                 return <div class="pi-web-chat" style={{ display: selected() ? undefined : 'none' }}>
                   <PiWebChat sessionId={frame.id} generation={frame.generation} status={selected() ? shownChatStatus().status! : parked}
@@ -1528,7 +1558,7 @@ const Layout: Component<LayoutProps> = (props) => {
                     onPanelSize={size => reportChatPanelSize(frame, size)}
                     fitTabletKeyboard={selected() && showOpenChatPanel()}
                     onKeyboardInset={inset => { if (selected()) setChatKeyboardFit(inset > 0 ? { frame, inset } : undefined); }}
-                    recoveryEnabled={selected() && showTerminal()}
+                    recoveryEnabled={selected() && showTerminal()} retryBudget={retryBudget}
                     onStartupReady={(ready, focus) => reportChatLoad(frame, ready, focus)}
                     problem={selected() ? piWebProblem() : undefined} canCancel={selected() && canCancelPiWeb()}
                     switchingTarget={selected() ? piWebSwitchingTarget() : undefined} />

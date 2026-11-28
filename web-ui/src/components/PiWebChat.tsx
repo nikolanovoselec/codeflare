@@ -17,6 +17,7 @@ interface PiWebChatProps {
   switchingTarget?: PiWebStatus['target'];
   onStartupReady?: (ready: boolean, focusPrompt?: () => void) => void;
   recoveryEnabled?: boolean;
+  retryBudget?: { attempts: number };
   onPanelSize?: (size?: ChatPanelSize) => void;
   onKeyboardInset?: (inset: number) => void;
   fitTabletKeyboard?: boolean;
@@ -263,7 +264,8 @@ export default function PiWebChat(props: PiWebChatProps) {
   const fitWorkspace = () => tablet() && props.fitTabletKeyboard;
   const innerKeyboardInset = () => fitWorkspace() ? 0 : keyboardInset();
   createEffect(() => props.onKeyboardInset?.(fitWorkspace() ? keyboardInset() : 0));
-  const [frameRetry, setFrameRetry] = createSignal<{ src: string; attempts: number }>();
+  const [frameRevision, setFrameRevision] = createSignal(0);
+  const localRetryBudgets = new Map<string, { attempts: number }>();
   const [frameFailed, setFrameFailed] = createSignal(false);
   const [foreground, setForeground] = createSignal(!document.hidden);
   const syncVisibility = () => setForeground(!document.hidden);
@@ -318,16 +320,21 @@ export default function PiWebChat(props: PiWebChatProps) {
 
   const frame = createMemo(() => {
     const src = frameUrl();
-    // A generation change always remounts the frame, even for the same deep link.
-    const retry = frameRetry();
-    return src ? { src, generation: props.generation, attempts: retry?.src === src ? retry.attempts : 0 } : undefined;
+    frameRevision();
+    if (!src) return;
+    const attachment = new URL(src).pathname;
+    const budget = props.retryBudget ?? localRetryBudgets.get(attachment) ?? { attempts: 0 };
+    if (!props.retryBudget) localRetryBudgets.set(attachment, budget);
+    return { src, budget };
   });
 
   createEffect(() => {
     const source = frame();
-    if (!source || source.attempts >= 2 || !frameFailed() || !foreground() || props.recoveryEnabled === false || props.status.startupQuestion) return;
+    if (!source || source.budget.attempts >= 2 || !frameFailed() || !foreground() || props.recoveryEnabled === false || props.status.startupQuestion) return;
     const retry = setTimeout(() => {
-      if (frame() === source && !document.hidden) setFrameRetry({ src: source.src, attempts: source.attempts + 1 });
+      if (frame() !== source || document.hidden || !frameFailed()) return;
+      source.budget.attempts++;
+      setFrameRevision(value => value + 1);
     }, 1000);
     onCleanup(() => clearTimeout(retry));
   });
@@ -340,7 +347,10 @@ export default function PiWebChat(props: PiWebChatProps) {
       <div class="pi-web-chat__space">
         <Show when={frame()} keyed
           fallback={<p role="status">{props.status.chatUrl ? 'Chat could not be opened.' : 'Preparing Chat…'}</p>}>
-          {source => <StockChatFrame src={source.src} keyboardInset={innerKeyboardInset()} startupQuestion={props.status.startupQuestion} onPanelSize={props.onPanelSize} onStartupReady={props.onStartupReady} onStartupFailure={setFrameFailed} />}
+          {source => <StockChatFrame src={source.src} keyboardInset={innerKeyboardInset()} startupQuestion={props.status.startupQuestion} onPanelSize={props.onPanelSize} onStartupReady={(...result) => {
+            if (result[0]) source.budget.attempts = 0;
+            props.onStartupReady?.(...result);
+          }} onStartupFailure={setFrameFailed} />}
         </Show>
       </div>
     </section>

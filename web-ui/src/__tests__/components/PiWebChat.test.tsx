@@ -375,7 +375,7 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       const [status, setStatus] = createSignal<typeof active | (typeof opening & { target: 'chat'; chatUrl: string })>(
         { ...opening, target: 'chat', chatUrl: CHAT_URL });
       render(() => <PiWebChat sessionId={SESSION_ID} generation={GENERATION} status={status()}
-        onCancel={() => {}} onRetry={onRetry} />);
+        onCancel={() => {}} onRetry={onRetry} onStartupReady={() => {}} />);
       const failedFrame = chatFrame();
       expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
       const errorDocument = document.implementation.createHTMLDocument();
@@ -393,10 +393,23 @@ describe('Pi web Chat wrapper (REQ-AGENT-272)', () => {
       await vi.advanceTimersByTimeAsync(1000);
       const last = chatFrame();
       expect(last).not.toBe(second);
-      Object.defineProperty(last, 'contentDocument', { value: errorDocument });
+      Object.defineProperty(last, 'contentDocument', { configurable: true, value: errorDocument });
       fireEvent.load(last);
       await vi.advanceTimersByTimeAsync(15_000);
       expect(chatFrame()).toBe(last);
+      const good = document.implementation.createHTMLDocument();
+      Object.defineProperty(good, 'URL', { value: last.src });
+      good.body.appendChild(good.createElement('pi-web-app'));
+      let currentDocument = good;
+      Object.defineProperty(last, 'contentDocument', { configurable: true, get: () => currentDocument });
+      fireEvent.load(last);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(chatFrame()).toBe(last);
+      currentDocument = errorDocument;
+      fireEvent.load(last);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(chatFrame()).not.toBe(last);
+      expect(chatFrame().src).toBe(last.src);
       setStatus(active);
       expect(screen.queryByRole('button', { name: 'Reload Chat' })).not.toBeInTheDocument();
     } finally { hidden.mockRestore(); vi.useRealTimers(); }
