@@ -298,7 +298,7 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   }
 
   if (!await repository.deleteConfirmed(bucketName, sessionId, generation)) {
-    throw new Error('Session exit is not confirmed');
+    return c.json({ error: 'Session shutdown authority changed' }, 409);
   }
 
   return c.json({ success: true, deleted: true, id: sessionId });

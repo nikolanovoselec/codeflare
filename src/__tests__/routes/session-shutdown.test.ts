@@ -651,7 +651,7 @@ it('REQ-MEM-044: a legacy Host receipt cannot authorize fixed-master success or 
   expect((await f.app().request(f.path(a))).status).toBe(200);
 });
 
-it('REQ-SESSION-006 AC5: Delete removes the captured row after concurrent Stop confirms exit', async () => {
+it.each(['no restart', 'restart wins'] as const)('REQ-SESSION-006 AC5: Delete after concurrent Stop confirms exit (%s)', async outcome => {
   const f = rig(true, false);
   const process = await f.create(a, { directGeneration: false });
   process.save.release('saved');
@@ -664,13 +664,28 @@ it('REQ-SESSION-006 AC5: Delete removes the captured row after concurrent Stop c
       expect((await f.stop(a)).status).toBe(200);
       return observed;
     });
+  const deleteConfirmed = D1SessionRepository.prototype.deleteConfirmed;
+  const restart = outcome === 'restart wins' ? vi.spyOn(D1SessionRepository.prototype, 'deleteConfirmed')
+    .mockImplementationOnce(async function (this: D1SessionRepository, ...args) {
+      expect(await repository.start(f.owner, a, stamp, 1)).toMatchObject({ lifecycleGeneration: 2 });
+      return deleteConfirmed.apply(this, args);
+    }) : undefined;
   try {
     const deleted = await f.remove(a);
-    expect(deleted.status).toBe(200);
-    expect(await deleted.json()).toMatchObject({ deleted: true, id: a });
-    expect((await f.app().request(f.path(a))).status).toBe(404);
+    if (outcome === 'restart wins') {
+      expect(deleted.status).toBe(409);
+      expect(await deleted.json()).toEqual({ error: 'Session shutdown authority changed' });
+      expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 2 });
+    } else {
+      expect(deleted.status).toBe(200);
+      expect(await deleted.json()).toMatchObject({ deleted: true, id: a });
+      expect((await f.app().request(f.path(a))).status).toBe(404);
+    }
     expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:saved`, `${a}:sigterm`, `${a}:exit`]);
-  } finally { finishStopBeforeDelete.mockRestore(); }
+  } finally {
+    restart?.mockRestore();
+    finishStopBeforeDelete.mockRestore();
+  }
 });
 
 it('REQ-SESSION-043: Delete requeues a recovered session and preserves it when the save is refused', async () => {

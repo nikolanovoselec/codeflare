@@ -214,7 +214,8 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
 
       const response = await app.request(`/sessions/${SESSION_ID}`, { method: 'DELETE' });
 
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: 'Session shutdown authority changed' });
       expect(await mockKV.get(key, 'json')).toMatchObject({
         status: 'stopped', lifecycleGeneration: 1, name: 'Replacement',
       });
