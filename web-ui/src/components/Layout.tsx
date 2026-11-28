@@ -481,15 +481,22 @@ const Layout: Component<LayoutProps> = (props) => {
       && !!status.requestId && !status.recovery;
   };
   const [chatForeground, setChatForeground] = createSignal(!document.hidden);
+  const startupRetries = new WeakMap<ChatFrame['scope'], Map<string, number>>();
   createEffect(() => {
     const handoff = piWeb();
     const status = handoff?.status();
-    if (!handoff || !status || !retryableChatStart() || !handoff.canRetry() || handoff.unavailable()
-      || handoff.rejectedSwitchId() === status.requestId || !chatForeground()) return;
+    const requestId = status?.requestId;
+    if (!handoff || !requestId || !retryableChatStart() || !handoff.canRetryFailedStartup(requestId) || !chatForeground()) return;
+    const attempts = startupRetries.get(handoff) ?? new Map<string, number>();
+    const tried = attempts.get(requestId) ?? 0;
+    if (tried >= 2) return;
     const retry = setTimeout(() => {
-      if (!document.hidden && retryableChatStart() && piWeb() === handoff && handoff.status() === status
-        && handoff.canRetry() && !handoff.unavailable()) handoff.retry();
-    }, 1000);
+      if (document.hidden || !retryableChatStart() || piWeb() !== handoff || handoff.status() !== status
+        || !handoff.canRetryFailedStartup(requestId)) return;
+      attempts.set(requestId, tried + 1);
+      startupRetries.set(handoff, attempts);
+      handoff.retry();
+    }, 1000 * (tried + 1));
     onCleanup(() => clearTimeout(retry));
   });
   const cancelPiWeb = () => piWeb()?.cancel();

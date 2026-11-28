@@ -67,9 +67,11 @@ When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi
 - When the picker is available, choose Vibe or Code in the header before using a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
 - For [REQ-TERM-049](../../sdd/spec/terminal.md#req-term-049-shared-workspace-startup-progress), check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**.
 - Start Vibe, switch tabs during Chat bootstrap, and confirm `document.hidden` becomes true in the original tab. On return, the original startup screen should remain until Open reveals the same conversation.
-- Hold the stock client loader in a disposable browser until you return. The client’s 30-second recovery budget counts only foreground time. Clear the fault and verify no recovery button or message appears.
+- In a disposable browser, hold the loader with no startup question. Keep the original tab hidden for more than 30 seconds. On return, confirm the same frame remains until the remaining foreground budget expires.
+- With the fault still held, observe the replacement at the same URL after that budget. Clear the fault and verify the original conversation opens without a recovery button or message.
+- The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) simulates a failed Host writer start and verifies the same request retries with Open gated. Hosted writer-start recovery is unexercised.
 - Separately, the [Host smoke](../../scripts/ci/smoke-pi-web-host-handoff.mjs) waits beyond the 25-second writer budget after passive preload. That budget does not start until a request can open the writer. The smoke does not establish browser visibility.
-- Mark hosted recovery unexercised if you cannot confirm visibility, the loading state, or the relevant timing.
+- Mark hosted recovery unexercised if you cannot confirm visibility, the loading state, frame identity, or the relevant timing.
 - While waiting for Open, Vibe shows **Loading Chat** with the same one-decimal elapsed timer as the other startup steps and a loading icon that spins with default motion.
 - With a non-green theme accent, check the final startup row, not the subtitle. For **Loading Chat**, expect accent text and a muted-accent icon background.
 - When **Open** appears, the row still says **Loading Chat** with its final elapsed time, success text, and a muted-success icon background.
@@ -120,7 +122,7 @@ For [REQ-AGENT-280 AC4](../../sdd/spec/agents.md#req-agent-280-attachment-gated-
   3. After the Host reports the handoff, verify Code stays visible until Chat attaches and only the original switch POST was sent.
 - For the acknowledged case, also require exactly one POST. If Chat attached before return, or the outgoing status was not observed in the unpublished case, mark that case unexercised. The Layout regression controls publication timing deterministically.
 
-- During Code-to-Vibe handoff, fail the first destination frame navigation. Clear the failure. Verify Vibe recovers automatically in the same conversation without a new handoff.
+- During Code-to-Vibe handoff, fail the first destination frame navigation. Keep Code visible during recovery. Clear the failure and verify Vibe reveals the same conversation only when ready, without another handoff.
 - For [REQ-AGENT-286 AC7](../../sdd/spec/agents.md#req-agent-286-classic-chat-conversation-selection), the [Host coordinator test](../../host/__tests__/pi-web-handoff.test.js#L280-L295) injects a preparation failure after release and verifies that no replacement writer opens.
 - The [Layout test](../../web-ui/src/__tests__/components/Layout.test.tsx#L1357-L1373) supplies that failure status and verifies **Stop and reopen** guidance with no **Retry switch** button. It does not observe native writer ownership.
 - The manual post-release failure case remains unexercised until a reproducible fixture can trigger the failure and observe writer ownership. Failing frame navigation does not exercise this case.
@@ -207,7 +209,7 @@ Use these checks for the handoff header in [REQ-AGENT-272](../../sdd/spec/agents
 - Open a fresh Vibe conversation. Verify zero-height history and a usable composer. Above the phone breakpoint the header stays immediately above the frame; on phones only the Chat frame centers below the top-edge header ([REQ-AGENT-287](../../sdd/spec/agents.md#req-agent-287-empty-and-restored-vibe-layout)).
 - Send the first message. Verify Chat grows up and down without replacing the frame or losing composer focus. On phones, confirm the same header stays at the top.
 - Open a saved populated conversation and verify it starts full-size. Enable reduced motion and verify empty Chat expands instantly after the first message.
-- Open Files and return before sending a message; confirm Files gets the full panel. An early native question or a failed load must remain reachable without typing a message.
+- Open Files and return before sending a message; confirm Files gets the full panel. An early native question remains reachable without typing a message. For failed navigation, use the silent recovery check above.
 - On a phone, open and dismiss the keyboard in ready empty Chat. Verify the composer stays reachable ([REQ-AGENT-287 AC5](../../sdd/spec/agents.md#req-agent-287-empty-and-restored-vibe-layout)).
 - In Samsung Browser, lock then unlock the phone with Chat open, once empty and once populated. Check that the same frame visibly refits without a reload or another handoff ([REQ-AGENT-287 AC6](../../sdd/spec/agents.md#req-agent-287-empty-and-restored-vibe-layout)).
 - Save a different theme with **Use in this browser**, reload Codeflare, and reopen Chat. Verify the new choice is still selected and active ([REQ-AGENT-288 AC3](../../sdd/spec/agents.md#req-agent-288-codeflare-chat-theme)).

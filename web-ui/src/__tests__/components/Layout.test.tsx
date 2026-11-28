@@ -778,7 +778,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   describe('REQ-AGENT-275: startup Open and the phone prompt', () => {
     it.each(['fresh empty', 'Resume', 'desktop', 'mouse on phone', 'keyboard activation', 'nonempty', 'unknown history',
       'native question', 'transcript question', 'stock modal', 'activity notice', 'replaced document', 'different conversation',
-      'switched attachment', 'background until ready', 'startup attachment retry'] as const)(
+      'switched attachment', 'background until ready', 'startup attachment retry', 'conflicted startup retry', 'denied startup retry', 'persistent startup failure', 'frame-only startup retry'] as const)(
       'opens the retained Chat in place: %s', async scenario => {
         navigationRendering.realTerminalArea = true;
         const id = 'abcdef0123456789';
@@ -805,30 +805,40 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
           bumpSessionStoreVersion();
         });
         let attachment = 1;
-        const retrying = scenario === 'startup attachment retry';
+        const retrying = ['startup attachment retry', 'conflicted startup retry', 'denied startup retry', 'persistent startup failure'].includes(scenario);
+        const rejected = scenario === 'denied startup retry';
+        const persistent = scenario === 'persistent startup failure';
+        let finishRetry!: () => void;
+        const pendingRetry = new Promise<void>(resolve => { finishRetry = resolve; });
         const requestId = () => `00000000-0000-4000-8000-00000000000${retrying ? 3 : attachment + 2}`;
         let retryCount = 0;
+        const failed = () => ({ phase: 'failed', surface: null, target: 'chat', requestId: requestId() });
         const readyStatus = () => ({ phase: 'complete', surface: 'chat', target: 'chat', requestId: requestId(),
           chatUrl: `/api/pi-web/${id}/g/${generation}/a/00000000-0000-4000-8000-00000000000${attachment}/?project=p&workspace=w&session=native&view=chat` });
         vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
           if (retrying && url.endsWith('/_switch') && init?.method === 'POST') {
             expect(JSON.parse(String(init.body))).toEqual({ generation, target: 'chat', requestId: requestId() });
             retryCount++;
+            await pendingRetry;
+            if (rejected) return Response.json({}, { status: 403 });
+            if (persistent) return Response.json(failed());
+            if (scenario === 'conflicted startup retry' && retryCount === 1) return Response.json({}, { status: 409 });
             attachment = 2;
             return Response.json(readyStatus());
           }
           return Response.json(url.endsWith(`/_switch?generation=${generation}`)
-            ? retrying && !retryCount ? { phase: 'failed', surface: null, target: 'chat', requestId: requestId() } : readyStatus()
+            ? retrying && attachment === 1 ? failed() : readyStatus()
             : {});
         });
         vi.useFakeTimers();
         const visibility = scenario === 'background until ready' ? vi.spyOn(document, 'visibilityState', 'get') : undefined;
-        const hidden = visibility || retrying ? vi.spyOn(document, 'hidden', 'get').mockReturnValue(false) : undefined;
+        const hidden = visibility || retrying || scenario === 'frame-only startup retry' ? vi.spyOn(document, 'hidden', 'get').mockReturnValue(false) : undefined;
         try {
           render(() => <Layout />);
           fireEvent.click(screen.getByRole('button', { name: creating ? 'Start fresh Vibe' : 'Start session' }));
           if (retrying) {
             await vi.waitFor(() => expect(screen.getAllByText('Loading Chat', { exact: true })[0]).toBeInTheDocument());
+            expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
             expect(screen.queryByText('Could not switch Pi surfaces.')).not.toBeInTheDocument();
             expect(screen.queryByRole('button', { name: /reload chat|retry switch/i })).not.toBeInTheDocument();
             hidden?.mockReturnValue(true);
@@ -839,6 +849,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
             document.dispatchEvent(new Event('visibilitychange'));
             await vi.advanceTimersByTimeAsync(1500);
             expect(retryCount).toBe(1);
+            expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+            finishRetry();
+            await vi.advanceTimersByTimeAsync(15_000);
+            if (rejected || persistent) {
+              expect(retryCount).toBe(rejected ? 1 : 2);
+              expect(screen.queryByRole('button', { name: /^(open|reload chat|retry switch)$/i })).not.toBeInTheDocument();
+              expect(screen.queryByText('Could not switch Pi surfaces.')).not.toBeInTheDocument();
+              return;
+            }
+            expect(retryCount).toBe(scenario === 'conflicted startup retry' ? 2 : 1);
           }
           await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).toBeInTheDocument());
           if (scenario === 'switched attachment') {
@@ -846,6 +866,17 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
             attachment = 2;
             await vi.advanceTimersByTimeAsync(5000);
             await vi.waitFor(() => expect(screen.getByTitle('Pi Chat')).not.toBe(first));
+          }
+          if (scenario === 'frame-only startup retry') {
+            const first = screen.getByTitle('Pi Chat') as HTMLIFrameElement;
+            const errorDoc = document.implementation.createHTMLDocument();
+            Object.defineProperty(errorDoc, 'URL', { value: first.src });
+            Object.defineProperty(first, 'contentDocument', { value: errorDoc });
+            fireEvent.load(first);
+            await vi.advanceTimersByTimeAsync(1000);
+            const recovered = screen.getByTitle('Pi Chat') as HTMLIFrameElement;
+            expect(recovered).not.toBe(first);
+            expect(recovered.src).toBe(first.src);
           }
           const frame = screen.getByTitle('Pi Chat');
           if (!(frame instanceof HTMLIFrameElement) || !frame.contentDocument) throw new Error('Expected the stock Chat frame');
@@ -912,7 +943,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
           fireEvent(open, new PointerEvent('click', { bubbles: true, composed: true,
             detail: scenario === 'keyboard activation' ? 0 : 1,
             pointerType: scenario === 'mouse on phone' || scenario === 'desktop' ? 'mouse' : 'touch' }));
-          if (scenario === 'fresh empty' || scenario === 'background until ready') {
+          if (scenario === 'fresh empty' || scenario === 'background until ready' || scenario === 'frame-only startup retry') {
             expect(stock.editorRoot.activeElement).toBe(stock.input);
             expect(stock.focusedWhileVisible).toEqual([true]);
           } else {
@@ -1050,7 +1081,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     } finally { cleanup(); vi.unstubAllGlobals(); }
   }, 10000);
 
-  it.each(['acknowledged', 'unacknowledged', 'superseded', 'rejected', 'other tab'] as const)('restores the matching Chat attachment gate or saved preference after a %s handoff', async scenario => {
+  it.each(['acknowledged', 'unacknowledged', 'superseded', 'rejected', 'other tab', 'frame recovery'] as const)('restores the matching Chat attachment gate or saved preference after a %s handoff', async scenario => {
     navigationRendering.realTerminalArea = true;
     const first = 'abcdef0123456789';
     const second = 'fedcba9876543210';
@@ -1085,6 +1116,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         chatUrl: `/api/pi-web/${first}/g/7/a/00000000-0000-4000-8000-000000000001/?view=chat` });
     });
     const dashboard = () => fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+    const hidden = scenario === 'frame recovery' ? vi.spyOn(document, 'hidden', 'get').mockReturnValue(false) : undefined;
     try {
       render(() => <Layout />);
       const mode = () => within(screen.getByRole('banner')).getByRole('button', { name: 'Workspace mode: Code Mode' });
@@ -1137,11 +1169,25 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         await waitFor(() => expect(switches).toEqual([first, first]));
         return;
       }
-      const frame = unpublished ? screen.getByTitle('Pi Chat') : await screen.findByTitle('Pi Chat');
+      let frame = unpublished ? screen.getByTitle('Pi Chat') : await screen.findByTitle('Pi Chat');
       expect(frame).not.toBeVisible();
       expect(screen.getByTestId('workspace-content')).toBeVisible();
-      if (!(frame instanceof HTMLIFrameElement)) throw new Error('Expected the stock Chat frame');
       if (!unpublished) vi.useFakeTimers();
+      if (hidden && frame instanceof HTMLIFrameElement) {
+        const failed = frame;
+        const errorDoc = document.implementation.createHTMLDocument();
+        Object.defineProperty(errorDoc, 'URL', { value: failed.src });
+        Object.defineProperty(failed, 'contentDocument', { value: errorDoc });
+        fireEvent.load(failed);
+        expect(screen.getByTestId('workspace-content')).toBeVisible();
+        expect(failed).not.toBeVisible();
+        await vi.advanceTimersByTimeAsync(1000);
+        frame = screen.getByTitle('Pi Chat');
+        expect(frame).not.toBe(failed);
+        expect(frame).not.toBeVisible();
+        expect(screen.getByTestId('workspace-content')).toBeVisible();
+      }
+      if (!(frame instanceof HTMLIFrameElement)) throw new Error('Expected the stock Chat frame');
       const doc = document.implementation.createHTMLDocument();
       Object.defineProperty(doc, 'URL', { value: frame.src });
       doc.body.innerHTML = '<pi-web-app></pi-web-app>';
@@ -1150,7 +1196,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await vi.advanceTimersByTimeAsync(5000);
       expect(frame).toBeVisible();
       expect(switches).toEqual([first]);
-    } finally { acknowledge(); cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); }
+    } finally { hidden?.mockRestore(); acknowledge(); cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); }
   });
 
   it.each(['workspace', 'Dashboard'] as const)('returns from %s Profile Usage to the same Chat without another writer request', async origin => {
