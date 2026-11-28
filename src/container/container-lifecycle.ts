@@ -759,10 +759,8 @@ export async function confirmMonitoredExit(
   await fencePendingBoundaryStart(env, repository, stopping);
   const confirmed = await repository.confirmStopped(ownerKey, sessionId, generation, intentId, new Date().toISOString());
   if (confirmed) {
-    // A matching teardown claim identifies who requested Stop, not why the
-    // process exited. Keep the monitor's observation independent of the job.
-    const stopTrigger = (reason === 'platform' || reason === 'unknown')
-      && stopping.terminationGeneration === generation && stopping.shutdown?.teardownClaimed
+    // A matching Stop intent identifies who requested it, not why the process exited.
+    const stopTrigger = (reason === 'platform' || reason === 'unknown') && stopping.terminationGeneration === generation
       ? queuedStopTrigger(stopping.shutdown, intentId) : undefined;
     logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
       incidentId: current.unreachableIncidentId ?? null, terminationIntentId: intentId, reason,

@@ -96,8 +96,8 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     let running = initiallyRunning;
     // Model exit confirmation independently of the running hint. The fixture
     // uses awaited native destroy as its source of positive exit evidence.
-    const monitorExit = raceMonitor ? gate<void>(undefined) : undefined;
-    const monitor = monitorExit?.promise ?? new Promise<void>(() => {});
+    const monitorExit = raceMonitor ? gate<Error | undefined>(undefined) : undefined;
+    const monitor = monitorExit?.promise.then(error => { if (error) throw error; }) ?? new Promise<void>(() => {});
     const save = gate<'saved' | 'failed' | 'ambiguous' | 'timed-out' | 'pi-shutdown-unconfirmed' | 'pi-shutdown-timeout'
       | 'missing-reason' | 'not-started' | 'disk-refused' | 'disk-without-dispatch-proof' | { disabledGeneration: number }>('saved');
     let firstSave = true;
@@ -991,16 +991,21 @@ it.each(['audit first', 'exit first', 'stale audit', 'stale successful audit'] a
   }
 });
 
-it.each(['idle', 'user'] as const)('REQ-SESSION-025 AC2: monitor exit before SIGTERM records %s Stop separately from the exit reason', async stopTrigger => {
-  const f = rig(true, true, false, false, 'exit first');
-  const process = await f.create(a, { idle: true });
+function captureExitLogs(sessionId: string) {
   const exits: Array<Record<string, unknown>> = [];
   const logs = vi.spyOn(console, 'log').mockImplementation(line => {
     if (typeof line !== 'string' || !line.startsWith('{')) return;
     const entry = JSON.parse(line);
-    if (entry.message === 'process_exit_confirmed' && entry.data?.sessionId === a) exits.push(entry.data);
+    if (entry.message === 'process_exit_confirmed' && entry.data?.sessionId === sessionId) exits.push(entry.data);
   });
   setLogLevel('info');
+  return { exits, restore: () => { setLogLevel('silent'); logs.mockRestore(); } };
+}
+
+it.each(['idle', 'user'] as const)('REQ-SESSION-025 AC2: monitor exit before SIGTERM records %s Stop separately from the exit reason', async stopTrigger => {
+  const f = rig(true, true, false, false, 'exit first');
+  const process = await f.create(a, { idle: true });
+  const { exits, restore } = captureExitLogs(a);
   try {
     process.save.release('saved');
     if (stopTrigger === 'idle') await f.idleTick(a);
@@ -1021,9 +1026,56 @@ it.each(['idle', 'user'] as const)('REQ-SESSION-025 AC2: monitor exit before SIG
   } finally {
     process.exit.release();
     f.cleanup!.resume.release();
-    setLogLevel('silent');
-    logs.mockRestore();
+    restore();
   }
+});
+
+it('REQ-SESSION-025 AC2: monitor exit after the Stop intent is claimed preserves its trigger before teardown', async () => {
+  const f = rig(true, true, false, false, 'exit first');
+  const process = await f.create(a, { idle: true });
+  const held = gate<void>(undefined);
+  const resume = gate<void>(undefined);
+  const claim = D1SessionRepository.prototype.claimStop;
+  const spy = vi.spyOn(D1SessionRepository.prototype, 'claimStop')
+    .mockImplementationOnce(async function (this: D1SessionRepository, ...args) {
+      const row = await claim.apply(this, args);
+      held.release();
+      await resume.promise;
+      return row;
+    });
+  const { exits, restore } = captureExitLogs(a);
+  try {
+    process.save.release('saved');
+    await f.idleTick(a);
+    await bounded(held.promise.then(() => new Response()));
+    const stopping = f.latestWriterWork();
+    process.monitorExit!.release();
+    await vi.waitFor(() => expect(exits).toEqual([expect.objectContaining({
+      lifecycleGeneration: 1, reason: 'unknown', stopTrigger: 'idle',
+    })]));
+    expect((await f.batch())[a]?.status).toBe('stopped');
+    resume.release();
+    await stopping;
+    expect(f.trace).not.toContain(`${a}:sigterm`);
+  } finally { resume.release(); spy.mockRestore(); restore(); }
+});
+
+it('REQ-SESSION-025 AC2: a rollout monitor exit retains its reason when D1 confirmation is retried', async () => {
+  const f = rig(true, true, false, false, 'exit first');
+  const process = await f.create(a);
+  await f.idleTick(a);
+  const { exits, restore } = captureExitLogs(a);
+  const confirm = vi.spyOn(D1SessionRepository.prototype, 'confirmStopped')
+    .mockRejectedValueOnce(new Error('D1 confirmation unavailable'));
+  try {
+    process.monitorExit!.release(new Error('runtime signalled the container to exit due to a new version rollout: 15'));
+    await vi.waitFor(async () => expect((await f.batch())[a]?.status).toBe('stopping'));
+    await f.latestWriterWork();
+    expect(exits).toEqual([]);
+    await f.idleTick(a);
+    expect((await f.batch())[a]?.status).toBe('stopped');
+    expect(exits).toEqual([expect.objectContaining({ lifecycleGeneration: 1, reason: 'platform' })]);
+  } finally { confirm.mockRestore(); restore(); }
 });
 
 it('REQ-SESSION-006: deleting an already stopped, settled row does not launch or stop a native process', async () => {

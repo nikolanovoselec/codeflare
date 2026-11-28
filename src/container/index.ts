@@ -148,7 +148,7 @@ const HERMES_CHECKPOINT_ADAPTER = 'd6e0420a7a73120a48a457f38bce4a941a4c658fb7799
 // rather than an `implements` clause that would couple to the base class's
 // member modifiers.
 type ExitEvidence = { owner: string; session: string; generation: number; terminationIntentId?: string;
-  nativeStopReason?: 'idle' | 'user'; awaitingAudit?: true };
+  nativeStopReason?: 'idle' | 'user'; monitorReason?: 'platform' | 'unknown'; awaitingAudit?: true };
 
 export class container extends Container<Env> implements ContainerEnvState {
   #sdkCredentialQueues = new Map<string, Promise<void>>();
@@ -341,14 +341,13 @@ export class container extends Container<Env> implements ContainerEnvState {
       });
       if (!persisted) return;
       await this.reconcileObservedExit({ ownerKey: evidence.owner, sessionId: evidence.session,
-        generation: evidence.generation }, () => this._teardownEpoch === epoch, false, 'unknown');
+        generation: evidence.generation }, () => this._teardownEpoch === epoch, false, true);
     })();
     this.ctx.waitUntil(work);
     return work;
   }
 
   private async retryObservedExit(
-    reason: 'platform' | 'unknown' = 'unknown',
     onObservation?: (incidentId: string | null) => void,
     expected?: MetricsPin,
   ): Promise<boolean> {
@@ -383,7 +382,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     // Capture the shutdown job before exit confirmation lets the queue clear it.
     let settlementRow: D1Session | null = null;
     const exitReason = evidence.terminationIntentId !== undefined && evidence.nativeStopReason !== undefined
-      ? evidence.nativeStopReason : matchesExpected ? reason : 'unknown';
+      ? evidence.nativeStopReason : evidence.monitorReason ?? 'unknown';
     const confirmed = await confirmMonitoredExit(this.ctx, this.env, owner, session, generation,
       exitReason, (incidentId, row) => {
         settlementRow = row;
@@ -440,7 +439,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     pin: MetricsPin | undefined,
     current: () => boolean,
     replaceSchedule = false,
-    reason?: 'platform' | 'unknown',
+    exitJustObserved = false,
   ): Promise<boolean> {
     let incidentId: string | null = null;
     let retry = false;
@@ -453,9 +452,9 @@ export class container extends Container<Env> implements ContainerEnvState {
           pin = { ownerKey: evidence.owner, sessionId: evidence.session, generation: evidence.generation };
         }
       }
-      if (await this.retryObservedExit(reason ?? 'unknown', observed => { incidentId = observed; }, pin)) return true;
+      if (await this.retryObservedExit(observed => { incidentId = observed; }, pin)) return true;
       const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
-      retry = reason !== undefined || (!!evidence && evidence.generation === pin?.generation);
+      retry = exitJustObserved || (!!evidence && evidence.generation === pin?.generation);
     } catch {
       this.logger.warn('Container exit confirmation retry failed', {
         sessionId: pin?.sessionId ?? null, lifecycleGeneration: pin?.generation ?? null,
@@ -476,7 +475,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       catch (error) {
         logFailure();
         // Preserve the existing warm monitor/metrics second chance for a transient scheduler failure.
-        if (current() && (replaceSchedule || reason !== undefined)) {
+        if (current() && (replaceSchedule || exitJustObserved)) {
           try { await schedule(); }
           catch (retryError) { logFailure(); throw retryError; }
         } else throw error;
@@ -512,10 +511,10 @@ export class container extends Container<Env> implements ContainerEnvState {
     this.monitoredGeneration = generation;
     const recordExit = (reason: 'platform' | 'unknown') => {
       if (this.pendingExit && this.pendingExit.generation > generation) return;
-      this.pendingExit = { owner, session, generation };
+      this.pendingExit = { owner, session, generation, monitorReason: reason };
       // Own finite work after positive exit observation, not the monitor's lifetime.
       this.ctx.waitUntil(this.reconcileObservedExit(
-        { ownerKey: owner, sessionId: session, generation }, current, false, reason));
+        { ownerKey: owner, sessionId: session, generation }, current, false, true));
     };
     try {
       const exit = runtime.monitor();
