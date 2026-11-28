@@ -10,6 +10,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - [Optional GitHub counts](github.md#req-github-324-dashboard-repository-loading-during-github-app-renewal) do not start credential renewal; repository listing retains its request-bound refresh and transient-error recovery.
 
+- If a [Chat conversation change](agents.md#req-agent-286-classic-chat-conversation-selection) cannot prepare the next transcript after releasing the current writer, Chat tells you to stop and reopen the session instead of offering an unusable retry.
+
 - [Delete](session-lifecycle.md#req-session-006-user-can-start-stop-restart-and-delete-sessions) can finish after a concurrent Stop confirms the same session generation. If a restart wins before deletion, Delete reports a conflict and leaves the replacement intact.
 
 ## 2026-11-27: Chat chrome and Dashboard recovery
