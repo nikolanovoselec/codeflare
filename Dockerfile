@@ -94,11 +94,11 @@ RUN LAZYGIT_VERSION="0.66.3" && \
 # ---- Image-owned Impeccable engine with configured question idle grace ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS impeccable-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential pkg-config libssl-dev python3 && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://static.rust-lang.org/dist/2026-11-12/rust-1.100.0-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
-    && echo "98ee6bec240e1cfe944f17e7092412dc5ef6e008484bb668c6936d35a7d15acd  /tmp/rust.tar.xz" | sha256sum -c - \
+RUN curl -fsSL https://static.rust-lang.org/dist/2026-11-27/rust-1.100.1-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
+    && echo "cf0d1dc00dbccc0bc63ec0bdb3da8bafe3e969cb3fbfa36dc5e6205467a50fea  /tmp/rust.tar.xz" | sha256sum -c - \
     && tar -xJf /tmp/rust.tar.xz -C /tmp \
-    && /tmp/rust-1.100.0-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
-    && rm -rf /tmp/rust.tar.xz /tmp/rust-1.100.0-x86_64-unknown-linux-gnu
+    && /tmp/rust-1.100.1-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
+    && rm -rf /tmp/rust.tar.xz /tmp/rust-1.100.1-x86_64-unknown-linux-gnu
 COPY image/impeccable-engine-4.10.0.json image/impeccable-engine.json image/impeccable-engine-4.8.2.json image/impeccable-engine-4.8.0.json image/impeccable-engine-4.7.0.json image/impeccable-engine-4.6.0.json image/impeccable-engine-4.5.0.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
 COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
 WORKDIR /src/impeccable
