@@ -67,8 +67,9 @@ When **VS Code** is the effective workspace, Dashboard **New Session** starts Pi
 - When the picker is available, choose Vibe or Code in the header before using a Dashboard card. The card menu retains lifecycle actions but has no Chat or Terminal override ([REQ-AGENT-276](../../sdd/spec/agents.md#req-agent-276-vibe-and-code-workspace-preference), AC5).
 - For [REQ-TERM-049](../../sdd/spec/terminal.md#req-term-049-shared-workspace-startup-progress), check that **Syncing workspace** stays active through verification, then advances to **Preparing environment**.
 - Start Vibe, switch tabs during Chat bootstrap, and confirm `document.hidden` becomes true in the original tab. On return, the original startup screen should remain until Open reveals the same conversation.
-- In a disposable browser, block only the initial Chat document’s stock client module request. Let the iframe document load, confirm `data-pi-web-loading` remains, and verify no startup question is active.
-- Record the iframe `load` event and visibility changes on the same clock. Hide the tab for more than 30 seconds. After returning, confirm no frame replacement occurred during the hidden interval.
+- Before starting Vibe in a disposable browser, set up capture on one clock for the initial iframe’s `load` event, frame identity and URL, tab visibility changes, and any frame replacement.
+- Block only the initial Chat document’s stock client module request. Start Vibe, confirm the iframe loaded the stock document with `data-pi-web-loading` still present, and verify no startup question is active.
+- Hide the tab for more than 30 seconds. After returning, confirm no frame replacement occurred during the hidden interval.
 - Count 30 seconds of foreground loading from that event, excluding hidden time. Expect automatic replacement at the same URL after a separate one-second foreground delay, never before those thresholds.
 - Let the replacement request its module without blocking it. Verify the original conversation becomes ready without a manual reload or recovery UI.
 - The [Layout regression](../../web-ui/src/__tests__/components/Layout.test.tsx) simulates a failed Host writer start and verifies the same request retries with Open gated. Hosted writer-start recovery is unexercised.
