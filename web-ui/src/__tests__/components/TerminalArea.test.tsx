@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, cleanup, waitFor, fireEvent } from '@solidjs/testing-library';
 import { createRoot, createSignal } from 'solid-js';
 
 const terminalLifecycle = vi.hoisted(() => ({
@@ -54,7 +54,9 @@ vi.mock('../../components/FloatingTerminalButtons', () => ({
 }));
 
 vi.mock('../../components/InitProgress', () => ({
-  default: () => <div data-testid="init-progress" />
+  default: (props: { onOpen: () => void; openReady?: boolean }) => <div data-testid="init-progress">
+    {props.openReady !== false && <button onClick={props.onOpen}>Open</button>}
+  </div>
 }));
 
 vi.mock('../../components/Dashboard', () => ({
@@ -161,6 +163,74 @@ describe('TerminalArea', () => {
     const { container } = render(() => <TerminalArea {...defaultProps} />);
 
     expect(container.querySelector('.layout-main')).toBeInTheDocument();
+  });
+
+  it('keeps the standard startup screen until Open reveals Chat, without mounting a native terminal', async () => {
+    const id = 'abcdefgh1234';
+    mockSessions = [{ id, name: 'Pi workspace', status: 'running', workspace: 'terminal' }];
+    mockActiveSessionId = id;
+    mockVisiblePanes = [{ sessionId: id, terminalId: '1' }];
+    const [initializing, setInitializing] = createSignal(true);
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation(initializing);
+    const open = vi.fn(() => setInitializing(false));
+    const [ready, setReady] = createSignal(false);
+    const [question, setQuestion] = createSignal(false);
+    render(() => <TerminalArea {...defaultProps} showTerminal showPiWebPanel viewState="terminal"
+      piWebOpenReady={ready()} piWebShowDuringStartup={question()}
+      piWebPanel={<div>Pi Chat frame</div>} onOpenSessionById={open} />);
+
+    const frame = screen.getByText('Pi Chat frame');
+    expect(screen.getByTestId('init-progress')).toBeVisible();
+    expect(frame).not.toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`terminal-${id}-1`)).not.toBeInTheDocument();
+    setQuestion(true);
+    expect(frame).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
+    setQuestion(false);
+    expect(frame).not.toBeVisible();
+    setReady(true);
+    await fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(open).toHaveBeenCalledWith(id);
+    expect(screen.getByText('Pi Chat frame')).toBe(frame);
+    expect(frame).toBeVisible();
+    expect(screen.queryByTestId(`terminal-${id}-1`)).not.toBeInTheDocument();
+  });
+
+  it('attaches Code behind Vibe and reveals the same prepared pane', () => {
+    const id = 'abcdefgh1234';
+    mockSessions = [{ id, status: 'running', workspace: 'terminal' }];
+    mockActiveSessionId = id;
+    mockVisiblePanes = [{ id: `${id}:1`, source: 'session', sessionId: id, terminalId: '1' }];
+    const [chat, showChat] = createSignal(true);
+    render(() => <TerminalArea {...defaultProps} showTerminal showPiWebPanel={chat()} prepareNativeTerminal={chat()}
+      codeAttachment={{ terminalId: '1', onAttached: () => {} }} viewState="terminal" piWebPanel={<div>Pi Chat frame</div>} />);
+    const terminal = screen.getByTestId(`terminal-${id}-1`);
+    expect(screen.getByText('Pi Chat frame')).toBeVisible();
+    expect(terminal).not.toBeVisible();
+    expect(terminal).toHaveAttribute('data-connect', 'true');
+    expect(terminal).toHaveAttribute('data-focused', 'false');
+    showChat(false);
+    expect(screen.getByTestId(`terminal-${id}-1`)).toBe(terminal);
+    expect(terminal).toBeVisible();
+    expect(screen.queryByText('Pi Chat frame')).not.toBeInTheDocument();
+  });
+
+  it('prepares Vibe invisibly until the stock view is ready to replace Code', () => {
+    const id = 'abcdefgh1234';
+    mockSessions = [{ id, status: 'running', workspace: 'terminal' }];
+    mockActiveSessionId = id;
+    mockVisiblePanes = [{ id: `${id}:1`, source: 'session', sessionId: id, terminalId: '1' }];
+    const [chat, showChat] = createSignal(false);
+    render(() => <TerminalArea {...defaultProps} showTerminal showPiWebPanel={chat()} preparePiWebPanel={!chat()}
+      viewState="terminal" piWebPanel={<div>Pi Chat frame</div>} />);
+    const frame = screen.getByText('Pi Chat frame');
+    expect(frame).not.toBeVisible();
+    expect(screen.getByTestId(`terminal-${id}-1`)).toBeVisible();
+    showChat(true);
+    expect(screen.getByText('Pi Chat frame')).toBe(frame);
+    expect(frame).toBeVisible();
+    expect(screen.queryByTestId(`terminal-${id}-1`)).not.toBeInTheDocument();
   });
 
   it('shows Dashboard when showTerminal is false', () => {

@@ -14,6 +14,7 @@ import { createLogger } from '../lib/logger';
 import { toErrorMessage } from '../lib/error-types';
 import type { Env } from '../types';
 import { D1SessionRepository, type D1Session } from '../lib/session-repository';
+import { queuedStopTrigger } from '../lib/session-shutdown';
 import { fencePendingBoundaryStart } from '../routes/session/boundary-stop';
 import { updateEnvVars, type ContainerHost } from './container-config';
 import {
@@ -71,13 +72,15 @@ export interface LifecycleLogContext {
   lifecycleGeneration: number | null;
   incidentId: string | null;
   terminationIntentId?: string;
-  reason: 'user' | 'platform' | 'unknown' | 'recovery_expiry';
+  hermesWriter?: true;
+  reason: 'user' | 'idle' | 'platform' | 'unknown' | 'recovery_expiry';
 }
 
 export interface SessionStopRequest {
   bucket: string;
   sessionId: string;
   generation: number;
+  expectedLifecycleState?: D1Session['lifecycleState'];
 }
 
 // Non-secret lifecycle evidence, retained through graceful cleanup so a
@@ -115,19 +118,24 @@ function clearOperationalMemory(host: LifecycleHost): void {
 }
 
 /** Complete an owner-authorized Stop without depending on operational DO keys. */
-export async function stopSession(env: Env, input: SessionStopRequest, destroyContainer: (owned: D1Session) => Promise<void>): Promise<void> {
-  const { bucket, sessionId, generation } = input;
+export async function stopSession(env: Env, input: SessionStopRequest, destroyContainer: (owned: D1Session) => Promise<void>, expectedIntent?: string): Promise<boolean> {
+  const { bucket, sessionId, generation, expectedLifecycleState } = input;
   const repository = new D1SessionRepository(env.USAGE_DB);
   const current = await repository.getSession(bucket, sessionId);
   if (!current || current.lifecycleGeneration !== generation) throw new Error('Session stop generation changed');
-  if (current.lifecycleState === 'stopped') return;
+  if (expectedLifecycleState && current.lifecycleState !== expectedLifecycleState) return false;
+  if (current.lifecycleState === 'stopped') return true;
 
-  const claimed = current.lifecycleState === 'stopping'
-    ? current
-    : await repository.claimStop(bucket, sessionId, crypto.randomUUID(), new Date().toISOString(), generation)
-      ?? await repository.getSession(bucket, sessionId);
+  let claimed = current.lifecycleState === 'stopping' ? current
+    : await repository.claimStop(bucket, sessionId, expectedIntent ?? crypto.randomUUID(), new Date().toISOString(),
+      generation, expectedLifecycleState);
+  // A refused conditional claim must return to shutdown routing, not adopt a
+  // Stop that may have been accepted after the legacy path was selected.
+  if (!claimed && expectedLifecycleState) return false;
+  claimed ??= await repository.getSession(bucket, sessionId);
   if (!claimed || claimed.lifecycleState !== 'stopping' || claimed.lifecycleGeneration !== generation
-      || claimed.terminationGeneration !== generation || !claimed.terminationIntentId) {
+      || claimed.terminationGeneration !== generation || !claimed.terminationIntentId
+      || (expectedIntent && claimed.terminationIntentId !== expectedIntent)) {
     throw new Error('Session stop ownership unavailable');
   }
   const intentId = claimed.terminationIntentId;
@@ -136,17 +144,23 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
   // Cancellation may yield to an observed exit or a newer lifecycle. Never
   // borrow its authority to destroy a replacement after that asynchronous fence.
   const owned = await repository.getSession(bucket, sessionId);
-  if (owned?.lifecycleGeneration === generation && owned.lifecycleState === 'stopped') return;
+  if (owned?.lifecycleGeneration === generation && owned.lifecycleState === 'stopped') return true;
   if (!owned || owned.lifecycleGeneration !== generation || owned.lifecycleState !== 'stopping'
       || owned.terminationGeneration !== generation || owned.terminationIntentId !== intentId) {
     throw new Error('Session stop ownership changed');
   }
   await destroyContainer(owned);
-  if (!await repository.confirmStoppedOrObserved(bucket, sessionId, generation, intentId, new Date().toISOString())) {
-    throw new Error('Confirmed exit could not be persisted');
+  if (!await repository.confirmStopped(bucket, sessionId, generation, intentId, new Date().toISOString())) {
+    const stopped = await repository.getSession(bucket, sessionId);
+    if (stopped?.lifecycleGeneration !== generation || stopped.lifecycleState !== 'stopped') {
+      throw new Error('Confirmed exit could not be persisted');
+    }
+    return true; // The already-observed exit owns the confirmation event.
   }
   logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
-    incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: intentId, reason: 'user' });
+    incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: intentId,
+    reason: queuedStopTrigger(owned.shutdown, expectedIntent) ?? 'user' });
+  return true;
 }
 
 /** Force destruction shares D1 ownership with Stop, but never its graceful I/O. */
@@ -473,7 +487,7 @@ async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number, auth
     try {
       const candidate = ((await res.json()) as { reason?: unknown }).reason;
       // Preserve the host's existing outcome codes, never arbitrary response content.
-      if (typeof candidate === 'string' && ['disk-space-blocked', 'daemon-not-running', 'bisync-failed', 'timeout', 'pi-shutdown-timeout', 'pi-shutdown-unconfirmed'].includes(candidate)) reason = candidate;
+      if (typeof candidate === 'string' && ['disk-space-blocked', 'daemon-not-running', 'bisync-failed', 'timeout', 'pi-shutdown-timeout', 'pi-shutdown-unconfirmed', 'pi-transcript-unconfirmed'].includes(candidate)) reason = candidate;
     } catch { /* body may be empty */ }
     return { outcome: res.ok ? 'completed' : 'incomplete', httpStatus: res.status, reason };
   } catch {
@@ -491,7 +505,7 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
   const event: {
     outcome: FinalSyncOutcome; at: number; running: boolean;
     sessionId?: string; lifecycleGeneration?: number; incidentId?: string | null;
-    terminationIntentId?: string; httpStatus?: number; reason?: string;
+    terminationIntentId?: string; httpStatus?: number; reason?: string; hermesWriter?: true;
   } = { outcome: result.outcome, at: Date.now(), running: host.ctx.container?.running ?? false };
   if (context.sessionId) event.sessionId = context.sessionId;
   if (context.lifecycleGeneration !== null) {
@@ -499,6 +513,7 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
     event.incidentId = context.incidentId;
     if (context.terminationIntentId) event.terminationIntentId = context.terminationIntentId;
   }
+  if (context.hermesWriter) event.hermesWriter = true;
   if (result.httpStatus !== undefined) event.httpStatus = result.httpStatus;
   if (result.reason) event.reason = result.reason;
   // The durable audit's reason remains an outcome code; the transition's reason is its initiator.
@@ -521,7 +536,7 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
  * resurrect the KV entry (REQ-SESSION-009).
  */
 export async function destroy(host: LifecycleHost, context?: LifecycleLogContext,
-  onNativeExit?: () => Promise<void>, quiesceStart?: () => Promise<void>): Promise<void> {
+  onNativeExit?: () => Promise<void>, quiesceStart?: () => Promise<void>, confirmedSave = false, finalEventsAttempted = false): Promise<void> {
   const diagnostic: LifecycleLogContext = context ? { ...context } : {
     sessionId: host._sessionId, lifecycleGeneration: host._observedLifecycleGeneration ?? null, incidentId: null, reason: 'unknown',
   };
@@ -588,7 +603,7 @@ export async function destroy(host: LifecycleHost, context?: LifecycleLogContext
   // after teardown has started deleting them. Failure is best-effort and cannot
   // suppress the later sync, cleanup, or stop.
   try {
-    await withinDeadline(() => drainAgentEventsBeforeStop(
+    if (!finalEventsAttempted) await withinDeadline(() => drainAgentEventsBeforeStop(
       host,
       host.ctx,
       host.env,
@@ -643,9 +658,9 @@ export async function destroy(host: LifecycleHost, context?: LifecycleLogContext
   // failure/timeout so we always fall through to stop. Emit a durable audit
   // event recording the outcome so a skipped/failed final sync on delete is
   // never silent (#516).
-  let syncResult: FinalSyncResult;
+  let syncResult: FinalSyncResult = { outcome: 'completed' };
   try {
-    syncResult = await withinDeadline(() => drainFinalSyncAudited(
+    if (!confirmedSave) syncResult = await withinDeadline(() => drainFinalSyncAudited(
       host,
       Math.max(1, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start))),
       auditAuthToken,
@@ -726,8 +741,8 @@ export async function confirmMonitoredExit(
   ownerKey: string,
   sessionId: string,
   generation: number,
-  reason: 'platform' | 'unknown' = 'unknown',
-  onObservation?: (incidentId: string | null) => void,
+  reason: 'platform' | 'unknown' | 'idle' | 'user' = 'unknown',
+  onObservation?: (incidentId: string | null, current: D1Session) => void,
   expectedIntentId?: string,
 ): Promise<boolean> {
   const repository = new D1SessionRepository(env.USAGE_DB);
@@ -735,7 +750,7 @@ export async function confirmMonitoredExit(
   if (!current || current.lifecycleGeneration !== generation || current.lifecycleState === 'stopped') return false;
   if (expectedIntentId !== undefined && (current.lifecycleState !== 'stopping'
       || current.terminationGeneration !== generation || current.terminationIntentId !== expectedIntentId)) return false;
-  onObservation?.(current.unreachableIncidentId ?? null);
+  onObservation?.(current.unreachableIncidentId ?? null, current);
   const intentId = current.lifecycleState === 'stopping'
     ? current.terminationIntentId
     : `monitored-exit-${generation}`;
@@ -750,8 +765,12 @@ export async function confirmMonitoredExit(
   await fencePendingBoundaryStart(env, repository, stopping);
   const confirmed = await repository.confirmStopped(ownerKey, sessionId, generation, intentId, new Date().toISOString());
   if (confirmed) {
+    // A matching Stop intent identifies who requested it, not why the process exited.
+    const stopTrigger = (reason === 'platform' || reason === 'unknown') && stopping.terminationGeneration === generation
+      ? queuedStopTrigger(stopping.shutdown, intentId) : undefined;
     logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
-      incidentId: current.unreachableIncidentId ?? null, terminationIntentId: intentId, reason });
+      incidentId: current.unreachableIncidentId ?? null, terminationIntentId: intentId, reason,
+      ...(stopTrigger && { stopTrigger }) });
     try {
       // A replacement may claim a new generation while the exit callback
       // completes. Never fence or discard authority belonging to the replacement.

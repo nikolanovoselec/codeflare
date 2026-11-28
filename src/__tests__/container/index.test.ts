@@ -1450,7 +1450,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
             expect(observed.emitted.map(entry => entry.data)).toContainEqual(expect.objectContaining({
               sessionId, lifecycleGeneration: 21, incidentId, errorClass: 'schedule_failed',
             }));
-            expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 21 });
+            expect(persisted.get('monitoredExitGeneration')).toEqual({
+              owner, session: sessionId, generation: 21, monitorReason: completion === 'rollout' ? 'platform' : 'unknown',
+            });
             expect(persisted.get('lifecycleGeneration')).toBe(21);
             expect(persisted.get('usageSeconds')).toBe(23);
             expect(await kv.get(key, 'json')).toMatchObject({
@@ -1597,6 +1599,27 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       } finally { capture.restore(); }
     });
 
+    it('REQ-SESSION-247 AC2: monitor exit preserves its reason without attributing a mismatched queued Stop', async () => {
+      const capture = await captureLifecycleSerialization();
+      try {
+        const f = await attachedMonitor(17);
+        f.kv._set(f.key, {
+          ...await f.kv.get(f.key, 'json') as Record<string, unknown>,
+          status: 'stopping', terminationGeneration: 17, terminationIntentId: 'current-intent',
+          shutdown: { intent: 'other-intent', phase: 'finishing', delete: false, idle: true },
+        });
+        f.rejectExit(new Error('Runtime signalled the container to exit due to a new version rollout: 143'));
+        await vi.waitFor(async () => expect(await f.kv.get(f.key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 17 }));
+        await vi.waitFor(() => {
+          const exits = capture.entries().filter(entry => entry.message === 'process_exit_confirmed');
+          expect(exits).toEqual([expect.objectContaining({ data: expect.objectContaining({
+            sessionId, lifecycleGeneration: 17, terminationIntentId: 'current-intent', reason: 'platform',
+          }) })]);
+          expect(exits[0]?.data).not.toHaveProperty('stopTrigger');
+        });
+      } finally { capture.restore(); }
+    });
+
     it('REQ-SESSION-025 AC1: stale monitored-exit authority cannot emit confirmation for a replacement', async () => {
       const capture = await captureLifecycleSerialization();
       try {
@@ -1698,7 +1721,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       resolveExit();
       await firstRetry;
       expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopping');
-      await vi.waitFor(() => expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 10 }));
+      await vi.waitFor(() => expect(persisted.get('monitoredExitGeneration')).toEqual({
+        owner, session: sessionId, generation: 10, monitorReason: 'unknown',
+      }));
       const reconstructed = await reconstruct();
       expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
       await vi.waitFor(() => expect(persisted.has('monitoredExitGeneration')).toBe(false));
@@ -1725,7 +1750,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       };
       resolveExit();
       await vi.waitFor(() => expect(failOnce).toBe(false));
-      expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 11 });
+      expect(persisted.get('monitoredExitGeneration')).toEqual({
+        owner, session: sessionId, generation: 11, monitorReason: 'unknown',
+      });
       expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopping');
       await reconstruct();
       expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
@@ -1752,7 +1779,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       if (completion === 'rollout exit') rejectExit(new Error('Runtime signalled the container to exit due to a new version rollout: 143'));
       else resolveExit();
       await retry;
-      expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 7 });
+      expect(persisted.get('monitoredExitGeneration')).toEqual({
+        owner, session: sessionId, generation: 7, monitorReason: completion === 'rollout exit' ? 'platform' : 'unknown',
+      });
       expect(await kv.get(key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 8 });
     });
 

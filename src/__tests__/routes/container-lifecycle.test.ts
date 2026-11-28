@@ -149,9 +149,11 @@ describe('Container Lifecycle Routes', () => {
       let configured = false;
       let retired = false;
       const stub = container() as ReturnType<typeof createMockContainer> & {
+        canQueueHermesShutdown: ReturnType<typeof vi.fn>;
         bindReviewHuman: ReturnType<typeof vi.fn>;
         getReviewHuman: ReturnType<typeof vi.fn>;
       };
+      stub.canQueueHermesShutdown = vi.fn(async () => false);
       stub.getReviewHuman = vi.fn(async () => boundHuman);
       stub.bindReviewHuman = vi.fn(async (authority: { human: { email: string } } | null) => {
         if (!configured) throw new Error('binding preceded lifecycle configuration');
@@ -266,6 +268,93 @@ describe('Container Lifecycle Routes', () => {
   // POST /container/start
   // =========================================================================
   describe('POST /container/start', () => {
+    it.each([
+      { terminalMode: 'classic', surface: 'chat', body: '{"surface":"chat"}' },
+      { terminalMode: 'classic', surface: 'terminal', body: '{"surface":"terminal"}' },
+      { terminalMode: 'classic', surface: 'terminal', body: '' },
+    ] as const)('REQ-AGENT-272 AC1: forwards $terminalMode $surface with Start body $body', async ({ terminalMode, surface, body }) => {
+      const id = 'abcdef1234567890abcdef12';
+      const key = `session:test-bucket:${id}`;
+      const session = await mockKV.get(key, 'json') as Session;
+      mockKV._set(key, { ...session, agentType: 'pi', workspace: 'terminal', terminalMode, lifecycleGeneration: 4 });
+      const launches: unknown[] = [];
+      const configs: Array<{ previousGeneration: string | null; body: unknown }> = [];
+      container().startSession.mockImplementation(async input => { launches.push(input); });
+      container().fetch.mockImplementation(async (request: Request) => {
+        if (new URL(request.url).pathname === '/_internal/setBucketName') {
+          configs.push({ previousGeneration: request.headers.get('X-Codeflare-Start-Generation'), body: await request.json() });
+        }
+        return Response.json({ bucketName: 'test-bucket' });
+      });
+
+      const response = await createLifecycleApp()(`/container/start?sessionId=${id}`, {
+        method: 'POST', ...(body && { headers: { 'Content-Type': 'application/json' } }), body,
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ status: 'starting', generation: 5 });
+      expect(await new D1SessionRepository(createMockSessionD1(mockKV)).getSession('test-bucket', id))
+        .toMatchObject({ workspace: 'terminal', lifecycleState: 'starting', lifecycleGeneration: 5 });
+      expect(configs).toEqual([{
+        previousGeneration: '4',
+        body: expect.objectContaining({ bucketName: 'test-bucket', sessionId: id, sessionWorkspace: 'terminal', terminalMode, surface }),
+      }]);
+      expect(launches).toEqual([expect.objectContaining({ bucket: 'test-bucket', sessionId: id, generation: 5 })]);
+    });
+
+    it.each([
+      { label: 'unrecognized surface', surface: 'editor', fields: {} },
+      { label: 'VS Code workspace', surface: 'chat', fields: { workspace: 'vscode' } },
+      { label: 'non-Pi agent', surface: 'chat', fields: { agentType: 'bash' } },
+      { label: 'Herdr Pi Chat', surface: 'chat', fields: { terminalMode: 'herdr' } },
+      { label: 'Herdr Pi Terminal selection', surface: 'terminal', fields: { terminalMode: 'herdr' } },
+      { label: 'non-Pi primary command', surface: 'chat', fields: {
+        terminalMode: 'classic', tabConfig: [{ id: '1', label: 'Terminal 1', command: '' }],
+      } },
+    ])('REQ-AGENT-272 AC1: rejects $label before claiming an explicit-surface Start', async ({ surface, fields }) => {
+      const id = 'abcdef1234567890abcdef12';
+      const key = `session:test-bucket:${id}`;
+      const session = await mockKV.get(key, 'json') as Session;
+      mockKV._set(key, { ...session, agentType: 'pi', workspace: 'terminal', ...fields });
+      container().fetch.mockImplementation(async () => Response.json({ bucketName: 'test-bucket' }));
+      const response = await createLifecycleApp()(`/container/start?sessionId=${id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ surface }),
+      });
+
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      expect(response.status).toBeLessThan(500);
+      expect(await new D1SessionRepository(createMockSessionD1(mockKV)).getSession('test-bucket', id))
+        .toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 0 });
+    });
+
+    it('rejects malformed nonempty Start JSON before claiming the session', async () => {
+      const id = 'abcdef1234567890abcdef12';
+      const response = await createLifecycleApp()(`/container/start?sessionId=${id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{',
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+      expect(await new D1SessionRepository(createMockSessionD1(mockKV)).getSession('test-bucket', id))
+        .toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 0 });
+    });
+
+    it('REQ-AGENT-272 AC1: ordinary Herdr Pi Start does not configure a handoff surface', async () => {
+      const id = 'abcdef1234567890abcdef12';
+      const key = `session:test-bucket:${id}`;
+      const session = await mockKV.get(key, 'json') as Session;
+      mockKV._set(key, { ...session, agentType: 'pi', workspace: 'terminal', terminalMode: 'herdr' });
+      const configs: unknown[] = [];
+      container().fetch.mockImplementation(async (request: Request) => {
+        if (new URL(request.url).pathname === '/_internal/setBucketName') configs.push(await request.json());
+        return Response.json({ bucketName: 'test-bucket' });
+      });
+      const response = await createLifecycleApp()(`/container/start?sessionId=${id}`, { method: 'POST' });
+      expect(response.status).toBe(200);
+      expect(configs).toHaveLength(1);
+      expect(configs[0]).toMatchObject({ terminalMode: 'herdr' });
+      expect(configs[0]).not.toHaveProperty('surface');
+    });
+
     it('returns starting status when container is stopped', async () => {
       const fetch = createLifecycleApp();
       container().getState.mockResolvedValue({ status: 'stopped' });

@@ -1,4 +1,5 @@
-import { Component, For, Show, createEffect, createMemo, Setter, type JSX } from 'solid-js';
+import { Component, For, Show, createEffect, createMemo, createRenderEffect, untrack, Setter, type JSX } from 'solid-js';
+import type { PiWorkspaceModeBinding } from './PiWorkspaceMode';
 import Terminal from './Terminal';
 import TerminalTabs from './TerminalTabs';
 import TilingButton from './TilingButton';
@@ -11,13 +12,31 @@ import Dashboard from './Dashboard';
 import type { MigrationRetry } from './MigrationRetryNotice';
 import { sessionStore } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
-import { resolveTerminalMode, type TileLayout, type AgentType, type TabConfig, type VisibleTerminalPane } from '../types';
+import { resolveTerminalMode, type TileLayout, type AgentType, type TabConfig, type PiSurface, type SessionWithStatus, type VisibleTerminalPane } from '../types';
 import { generateSessionName } from '../lib/session-utils';
+import { isMobile, isTouchDevice } from '../lib/mobile';
 
 interface TerminalAreaProps {
+  workspaceMode?: PiWorkspaceModeBinding;
+  renderSessionVault?: (session: SessionWithStatus) => JSX.Element;
+  launchingVibe?: boolean;
   migrationRetry: MigrationRetry;
   repositoryRestoreNotices?: JSX.Element;
   showTerminal: boolean;
+  showPiWebPanel?: boolean;
+  preparePiWebPanel?: boolean;
+  prepareNativeTerminal?: boolean;
+  codeAttachment?: { terminalId: string; onAttached: () => void };
+  preserveDomFocus?: () => boolean;
+  handoffPending?: boolean;
+  piWebTerminalConnect?: boolean;
+  retainPiWebPanel?: boolean;
+  parkedTerminalPane?: VisibleTerminalPane;
+  piWebPanel?: JSX.Element;
+  piWebOpenReady?: boolean;
+  onOpenChatStartup?: (sessionId: string, phoneTap: boolean) => void;
+  piWebShowDuringStartup?: boolean;
+  piWebTerminalStatus?: JSX.Element;
   showTilingOverlay: boolean;
   onTilingButtonClick: () => void;
   onSelectTilingLayout: (layout: TileLayout) => void;
@@ -25,12 +44,12 @@ interface TerminalAreaProps {
   onTileClick: (tabId: string) => void;
   onOpenSessionById: (sessionId: string) => void;
   onOpenMultiView?: () => void;
-  onDashboardSessionSelect?: (sessionId: string) => void;
-  onStartSession: (id: string) => void;
+  onDashboardSessionSelect?: (sessionId: string, surface?: PiSurface) => void;
+  onStartSession: (id: string, surface?: PiSurface) => void;
   onOpenVscodeSession: (id: string) => void;
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
-  onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
+  onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[], surface?: PiSurface, implicitAgent?: boolean, repo?: string) => void | Promise<void>;
   onTerminalError: Setter<string | null>;
   error: string | null;
   onDismissError: () => void;
@@ -41,6 +60,14 @@ interface TerminalAreaProps {
 }
 
 const TerminalArea: Component<TerminalAreaProps> = (props) => {
+  const showNativeTerminal = () => props.showTerminal && !props.showPiWebPanel;
+  const mountNativeTerminal = () => showNativeTerminal() || (props.showTerminal && props.prepareNativeTerminal);
+  const nativeInteractive = () => showNativeTerminal() && !props.handoffPending;
+  const nativeConnect = (terminalId: string) => {
+    if (props.prepareNativeTerminal && !showNativeTerminal()) return props.codeAttachment?.terminalId === terminalId;
+    return props.piWebTerminalConnect ?? true;
+  };
+
   // Derive session state from store directly (avoids prop drilling from Layout)
   const activeSession = createMemo(() => sessionStore.getActiveSession() ?? null);
   const activeSessionId = () => sessionStore.activeSessionId;
@@ -71,6 +98,9 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
     const id = activeSessionId();
     return id ? sessionStore.isSessionInitializing(id) : false;
   });
+
+  const chatStartupOverlay = () => props.showTerminal && props.showPiWebPanel && isActiveSessionInitializing() && !props.piWebShowDuringStartup;
+  const chatVisible = () => props.showTerminal && props.showPiWebPanel && !chatStartupOverlay();
 
   const activeTiling = createMemo(() => {
     const session = activeTerminalSession();
@@ -105,7 +135,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
   });
 
   createEffect(() => {
-    if (!props.showTerminal) return;
+    if (!mountNativeTerminal()) return;
     if (isMultiViewWorkspace()) return;
 
     const session = activeTerminalSession();
@@ -130,6 +160,13 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
     }));
   });
 
+  const standardPane = () => mountNativeTerminal() && !isMultiViewWorkspace() && (isHerdrSession() || !activeTiling()?.enabled)
+    ? singleSessionPane() : props.parkedTerminalPane;
+  const standardPaneKeys = () => {
+    const pane = standardPane();
+    return pane ? [`${pane.sessionId}:${pane.terminalId}:${terminalSessionsById().get(pane.sessionId)?.generation ?? ''}`] : [];
+  };
+
   return (
     <main class="layout-main">
       {/* Error display */}
@@ -142,19 +179,53 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
         </div>
       </Show>
 
+      <Show when={showNativeTerminal()}>{props.piWebTerminalStatus}</Show>
+
       {/* Terminal tabs - show when active session is running/initializing */}
-      <Show when={props.showTerminal && activeTerminalSession() && !isMultiViewWorkspace() && !isHerdrSession()}>
+      <Show when={showNativeTerminal() && activeTerminalSession() && !isMultiViewWorkspace() && !isHerdrSession()}>
         <TerminalTabs sessionId={activeTerminalSession()!.id} />
       </Show>
 
       <div class="repository-restore-anchor">{props.repositoryRestoreNotices}</div>
 
+      <Show when={(props.showTerminal && (props.showPiWebPanel || props.preparePiWebPanel)) || props.retainPiWebPanel}>
+        <Show when={chatStartupOverlay()}>
+          <div class="terminal-init-overlay">
+            <InitProgress
+              sessionName={activeSession()?.name || 'Terminal'}
+              progress={sessionStore.getInitProgressForSession(activeSessionId()!)}
+              openReady={props.piWebOpenReady === true}
+              onOpen={event => {
+                const id = activeSessionId();
+                if (!id || !chatStartupOverlay() || !props.piWebOpenReady) return;
+                // Older touch browsers expose a MouseEvent for a tap. A
+                // keyboard/AT click has no click count; never borrow its focus.
+                const phoneTap = event.detail > 0 && isMobile() && isTouchDevice()
+                  && (!('pointerType' in event) || event.pointerType === 'touch');
+                const openChat = props.onOpenChatStartup;
+                if (openChat) openChat(id, phoneTap);
+                else props.onOpenSessionById(id);
+              }}
+            />
+          </div>
+        </Show>
+        <div class="pi-web-chat" classList={{ 'layout-hidden-handoff-pane': !!props.preparePiWebPanel && !chatVisible() }} style={{
+          display: props.showTerminal && (props.showPiWebPanel || props.preparePiWebPanel) ? undefined : 'none',
+          visibility: chatVisible() ? undefined : 'hidden',
+        }}
+          ref={el => createRenderEffect(() => el.toggleAttribute('inert', !chatVisible() || (!!props.handoffPending && !props.piWebShowDuringStartup)))}>
+          {props.piWebPanel}
+        </div>
+      </Show>
+
       {/* Terminal container: render only visible workspace panes.
           Hidden (display:none) when on dashboard to prevent bleed-through and
           floating buttons from appearing during session creation. */}
-      <div class="layout-terminal-container" style={{ display: props.showTerminal ? undefined : 'none' }}>
+      <div class="layout-terminal-container" classList={{ 'layout-hidden-handoff-pane': !!props.prepareNativeTerminal && !showNativeTerminal() }}
+        style={{ display: mountNativeTerminal() ? undefined : 'none', opacity: props.prepareNativeTerminal && !showNativeTerminal() ? 0 : undefined }}
+        ref={el => createRenderEffect(() => el.toggleAttribute('inert', !nativeInteractive()))}>
         {/* Tiling button - only show when active session is running with 2+ tabs */}
-        <Show when={props.showTerminal && !isMultiViewWorkspace() && !isHerdrSession() && activeTerminalSession() && activeTerminals()}>
+        <Show when={showNativeTerminal() && !isMultiViewWorkspace() && !isHerdrSession() && activeTerminalSession() && activeTerminals()}>
           <div class="layout-tiling-button-wrapper">
             <TilingButton
               sessionId={activeTerminalSession()!.id}
@@ -175,52 +246,57 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
         </Show>
 
         {/* Floating ESC/TAB buttons for mobile - only in terminal view */}
-        <FloatingTerminalButtons showTerminal={props.showTerminal} />
+        <FloatingTerminalButtons showTerminal={showNativeTerminal()} />
 
         {/* Tiled terminal view - when tiling is enabled */}
-        <Show when={props.showTerminal && !isMultiViewWorkspace() && !isHerdrSession() && activeTiling()?.enabled && activeTerminalSession() && activeTerminals()}>
-          {/* Single InitProgress overlay for tiled mode (instead of per-terminal) */}
-          <Show when={isActiveSessionInitializing()}>
-            <div class="terminal-init-overlay">
-              <InitProgress
-                sessionName={activeSession()?.name || 'Terminal'}
-                progress={sessionStore.getInitProgressForSession(activeSessionId()!)}
-                onOpen={() => props.onOpenSessionById(activeSessionId()!)}
-              />
-            </div>
-          </Show>
-          <TiledTerminalContainer
-            sessionId={activeTerminalSession()!.id}
-            terminals={activeTerminals()!.tabs}
-            tabOrder={activeTabOrder() || []}
-            layout={activeTiling()!.layout}
-            activeTabId={activeTerminals()!.activeTabId}
-            onTileClick={props.onTileClick}
-            renderTerminal={(tabId, _slotIndex) => {
-              const session = activeTerminalSession();
-              if (!session) return null;
-              return (
-                <Terminal
-                  sessionId={session.id}
-                  terminalId={tabId}
-                  sessionName={session.name}
-                  terminalMode={resolveTerminalMode(session.terminalMode)}
-                  active={true}
-                  visible={true}
-                  focused={tabId === activeTerminals()!.activeTabId}
-                  connect={true}
-                  alwaysObserveResize={true}
-                  hideInitProgress={true}
-                  onError={props.onTerminalError}
-                  onInitComplete={() => props.onOpenSessionById(session.id)}
+        <Show when={mountNativeTerminal() && !isMultiViewWorkspace() && !isHerdrSession() && activeTiling()?.enabled && activeTerminals() && activeTerminalSession()
+          && `${activeTerminalSession()!.id}:${activeTerminalSession()!.generation ?? ''}`} keyed>
+          {(_workspaceKey) => <>
+            {/* Single InitProgress overlay for tiled mode (instead of per-terminal) */}
+            <Show when={isActiveSessionInitializing()}>
+              <div class="terminal-init-overlay">
+                <InitProgress
+                  sessionName={activeSession()?.name || 'Terminal'}
+                  progress={sessionStore.getInitProgressForSession(activeSessionId()!)}
+                  onOpen={() => props.onOpenSessionById(activeSessionId()!)}
                 />
-              );
-            }}
-          />
+              </div>
+            </Show>
+            <TiledTerminalContainer
+              sessionId={activeTerminalSession()!.id}
+              terminals={activeTerminals()!.tabs}
+              tabOrder={activeTabOrder() || []}
+              layout={activeTiling()!.layout}
+              activeTabId={activeTerminals()!.activeTabId}
+              onTileClick={props.onTileClick}
+              renderTerminal={(tabId, _slotIndex) => {
+                const session = untrack(activeTerminalSession);
+                if (!session) return null;
+                return (
+                  <Terminal
+                    sessionId={session.id}
+                    terminalId={tabId}
+                    sessionName={activeTerminalSession()?.name || session.name}
+                    terminalMode={resolveTerminalMode(activeTerminalSession()?.terminalMode ?? session.terminalMode)}
+                    active={nativeInteractive()}
+                    visible={showNativeTerminal()}
+                    focused={nativeInteractive() && tabId === activeTerminals()!.activeTabId}
+                    connect={nativeConnect(tabId)}
+                    preserveDomFocus={props.preserveDomFocus}
+                    onHandoffAttached={props.codeAttachment?.terminalId === tabId ? props.codeAttachment.onAttached : undefined}
+                    alwaysObserveResize={nativeInteractive()}
+                    hideInitProgress={true}
+                    onError={props.onTerminalError}
+                    onInitComplete={() => props.onOpenSessionById(session.id)}
+                  />
+                );
+              }}
+            />
+          </>}
         </Show>
 
         {/* MultiView session grid - each pane is one existing session, not a nested tab set. */}
-        <Show when={props.showTerminal && isMultiViewWorkspace()}>
+        <Show when={showNativeTerminal() && isMultiViewWorkspace()}>
           <TerminalGrid
             layout={terminalWorkspaceStore.getLayout()}
             panes={multiViewGridPanes()}
@@ -248,36 +324,37 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
           />
         </Show>
 
-        {/* Standard tabbed view - only the visible workspace pane mounts/connects. */}
-        <Show when={props.showTerminal && !isMultiViewWorkspace() && (isHerdrSession() || !activeTiling()?.enabled)}>
-          <For each={singleSessionPane() ? [singleSessionPane()!] : []}>
-            {(pane) => {
-              const session = createMemo(() => sessionStore.sessions.find((candidate) => candidate.id === pane.sessionId));
-              return (
-                <Terminal
-                  sessionId={pane.sessionId}
-                  terminalId={pane.terminalId}
-                  sessionName={session()?.name || 'Terminal'}
-                  terminalMode={resolveTerminalMode(session()?.terminalMode)}
-                  active={true}
-                  visible={true}
-                  focused={pane.id === focusedPaneId()}
-                  connect={true}
-                  onError={props.onTerminalError}
-                  onInitComplete={() => props.onOpenSessionById(pane.sessionId)}
-                />
-              );
-            }}
-          </For>
-        </Show>
+        {/* Reuse one tabbed instance by identity instead of remounting it when the pane store clears on Dashboard. */}
+        <For each={standardPaneKeys()}>{() => {
+          const pane = standardPane()!;
+          const session = () => terminalSessionsById().get(pane.sessionId);
+          return (
+            <Terminal sessionId={pane.sessionId} terminalId={pane.terminalId}
+              sessionName={session()?.name || 'Terminal'} terminalMode={resolveTerminalMode(session()?.terminalMode)}
+              active={nativeInteractive()} visible={showNativeTerminal()}
+              focused={nativeInteractive() && pane.id === focusedPaneId()} connect={nativeConnect(pane.terminalId)}
+              preserveDomFocus={props.preserveDomFocus}
+              onHandoffAttached={props.codeAttachment?.terminalId === pane.terminalId ? props.codeAttachment.onAttached : undefined}
+              onError={props.onTerminalError} onInitComplete={() => props.onOpenSessionById(pane.sessionId)} />
+          );
+        }}</For>
       </div>
 
       {/* Dashboard: shown when no active terminal */}
       <Show when={!props.showTerminal}>
         <Dashboard
+          workspaceMode={props.workspaceMode}
+          renderSessionVault={props.renderSessionVault}
+          launchingVibe={props.launchingVibe}
           migrationRetry={props.migrationRetry}
           sessions={sessionStore.sessions}
-          onCreateSession={(agentType, tabConfig) => props.onCreateSession(generateSessionName(agentType, sessionStore.sessions), agentType, tabConfig)}
+          onCreateSession={(agentType, tabConfig, surface, implicitAgent, repo) => {
+            if (repo) return props.onCreateSession(repo.split('/')[1] || repo, agentType, tabConfig, surface, implicitAgent, repo);
+            const name = generateSessionName(agentType, sessionStore.sessions);
+            if (implicitAgent) return props.onCreateSession(name, agentType, tabConfig, surface, true);
+            if (surface) return props.onCreateSession(name, agentType, tabConfig, surface);
+            return props.onCreateSession(name, agentType, tabConfig);
+          }}
           onStartSession={props.onStartSession}
           onOpenVscodeSession={props.onOpenVscodeSession}
           onStopSession={props.onStopSession}

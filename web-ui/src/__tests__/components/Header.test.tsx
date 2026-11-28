@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, within } from '@solidjs/testing-library';
 import { mdiViewDashboardOutline, mdiMicrosoftVisualStudioCode } from '@mdi/js';
 import Header from '../../components/Header';
 import { createSignal } from 'solid-js';
@@ -37,6 +37,7 @@ const isMobileMock = vi.hoisted(() => ({ value: false }));
 vi.mock('../../lib/mobile', () => ({
   isMobile: () => isMobileMock.value,
   isTouchDevice: () => isMobileMock.value,
+  createTerminalViewportClass: () => () => isMobileMock.value ? 'mobile' : 'desktop',
 }));
 
 // Mock SessionSwitcher
@@ -175,6 +176,16 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
 
       if (visible) expect(screen.getByTestId('header-timer-button')).toBeVisible();
       else expect(screen.queryByTestId('header-timer-button')).not.toBeInTheDocument();
+    });
+
+    it('keeps Profile immediately before Vault when the sleep countdown is visible', () => {
+      const session = runningSession();
+      render(() => <Header {...defaultSessionProps} sessions={[session]} activeSessionId={session.id}
+        workspaceMode={{ value: 'terminal', onSelect: () => {} }} onVaultOpen={() => {}} vaultStatus="ready" />);
+      expect(screen.getByTestId('header-timer-button')).toBeVisible();
+      const buttons = screen.getAllByRole('button');
+      const profileIndex = buttons.indexOf(screen.getByTestId('header-user-menu'));
+      expect(buttons[profileIndex + 1]).toBe(screen.getByTestId('header-vault-button'));
     });
 
     it('REQ-SESSION-036 AC1: opens the active running session countdown and explains idle stopping', () => {
@@ -384,6 +395,109 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
   });
 
+  it('shows the Profile email only at the top of the open workspace menu', () => {
+    const email = 'long.account.address.for.profile.acceptance@example.com';
+    render(() => <Header {...defaultSessionProps} userName={email} />);
+    const profile = screen.getByRole('button', { name: 'User menu' });
+    expect(profile.querySelector('svg, img')).toBeVisible();
+    expect(profile).toHaveTextContent(/^$/);
+    expect(screen.queryByText(email)).not.toBeInTheDocument();
+    fireEvent.click(profile);
+    const menu = screen.getByTestId('header-user-dropdown');
+    expect(within(menu).getByTitle(email)).toHaveTextContent(email);
+    expect(within(menu).getByText(email)).toBeVisible();
+    const actions = within(menu).getByRole('group', { name: 'Account actions' });
+    expect(within(actions).queryByText(email)).not.toBeInTheDocument();
+  });
+
+  it('keeps Profile actions reachable when an open menu loses its email', () => {
+    const [email, setEmail] = createSignal<string | undefined>('fixture@example.com');
+    render(() => <Header {...defaultSessionProps} userName={email()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'User menu' }));
+    expect(screen.getByText('fixture@example.com')).toBeVisible();
+    setEmail(undefined);
+    window.dispatchEvent(new Event('resize'));
+    expect(screen.queryByText('fixture@example.com')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'Account actions' })).getByRole('link', { name: /Usage/ })).toBeVisible();
+  });
+
+  it('places the labeled desktop mode dropdown immediately before Profile', () => {
+    render(() => <Header {...defaultSessionProps} workspaceMode={{ value: 'terminal', onSelect: () => {} }} />);
+    const trigger = screen.getByRole('button', { name: 'Workspace mode: Code Mode' });
+    expect(trigger).toHaveTextContent('Code Mode');
+    const profile = screen.getByTestId('header-user-menu');
+    const toolbarButtons = within(profile.closest('.header-actions') as HTMLElement).getAllByRole('button');
+    expect(toolbarButtons[toolbarButtons.indexOf(profile) - 1]).toBe(trigger);
+    fireEvent.click(trigger);
+    expect(screen.getByRole('button', { name: 'Vibe Mode' })).toBeVisible();
+  });
+
+  it('moves VS Code, Operators, then Vault into Profile and restores them in reverse order', async () => {
+    isMobileMock.value = true;
+    sessionStoreState.enterpriseMode = true;
+    let width = 800;
+    const measurements: Array<() => void> = [];
+    const measure = () => measurements.forEach(callback => callback());
+    const layoutWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
+    const actionWidth = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() =>
+      ({ width: 44 } as DOMRect));
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { measurements.push(callback); }
+      observe() {}
+      disconnect() {}
+    });
+    try {
+      const openEditor = vi.fn();
+      const openVault = vi.fn();
+      render(() => <Header {...defaultSessionProps} workspaceMode={{ value: 'chat', onSelect: () => {} }}
+        onVscodeOpen={openEditor} onVaultOpen={openVault} vaultStatus="prewarming" />);
+      // Isolate placement from CSS: five fixed slots, a reserved gap, and three
+      // removable slots. Real padding, spacing, and hitboxes are a browser check.
+      const header = screen.getByRole('banner');
+      header.style.padding = '0px';
+      header.style.columnGap = '0px';
+      header.querySelector<HTMLElement>('.header-actions')!.style.columnGap = '0px';
+      const expectToolbar = (vscode: boolean, operators: boolean, vault: boolean) => {
+        expect(!!screen.queryByTestId('header-vscode-button')).toBe(vscode);
+        expect(!!screen.queryByRole('button', { name: 'Operator activity' })).toBe(operators);
+        expect(!!screen.queryByTestId('header-vault-button')).toBe(vault);
+      };
+      expectToolbar(true, true, true);
+      for (const [nextWidth, vscode, operators, vault] of [
+        [395, false, true, true], [351, false, false, true], [307, false, false, false],
+      ] as const) {
+        width = nextWidth;
+        measure();
+        expectToolbar(vscode, operators, vault);
+      }
+      await fireEvent.click(screen.getByTestId('header-user-menu'));
+      const menu = screen.getByTestId('header-user-dropdown');
+      expect(menu).toHaveTextContent(/VS Code.*Operators.*Vault/);
+      await fireEvent.click(within(menu).getByTestId('header-vault-button'));
+      expect(within(menu).getByRole('status')).toHaveTextContent('Preparing Vault on this device');
+      expect(openVault).not.toHaveBeenCalled();
+      await fireEvent.click(screen.getByRole('button', { name: 'Open editor (VS Code)' }));
+      expect(openEditor).toHaveBeenCalledOnce();
+      fireEvent.click(screen.getByTestId('header-user-menu'));
+      fireEvent.click(within(screen.getByTestId('header-user-dropdown')).getByRole('button', { name: 'Operator activity' }));
+      const operatorsPanel = await screen.findByRole('dialog', { name: 'Operator activity' });
+      expect(operatorsPanel).toBeVisible();
+      fireEvent.click(within(operatorsPanel).getByRole('button', { name: 'Close operators' }));
+      for (const [nextWidth, vscode, operators, vault] of [
+        [308, false, false, true], [352, false, true, true], [396, true, true, true],
+      ] as const) {
+        width = nextWidth;
+        measure();
+        expectToolbar(vscode, operators, vault);
+      }
+    } finally {
+      cleanup();
+      layoutWidth.mockRestore();
+      actionWidth.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   describe('REQ-OPERATOR-040: Enterprise operator placement', () => {
     it('places the operator control between VS Code and Storage in a terminal header', () => {
       sessionStoreState.enterpriseMode = true;
@@ -407,13 +521,6 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
   });
 
   describe('User Name Display', () => {
-    it('should show user name when provided', () => {
-      render(() => <Header {...defaultSessionProps} userName="test@example.com" />);
-      const userMenu = screen.getByTestId('header-user-menu');
-
-      expect(userMenu).toHaveTextContent('test@example.com');
-    });
-
     it('should show default avatar when no user name', () => {
       render(() => <Header {...defaultSessionProps} />);
       const userMenu = screen.getByTestId('header-user-menu');
@@ -507,6 +614,16 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
 
       fireEvent.click(screen.getByTestId('header-logo'));
       expect(handleLogoClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('lets keyboard users return to Dashboard from the icon-only header', () => {
+      isMobileMock.value = true;
+      const onLogoClick = vi.fn();
+      render(() => <Header {...defaultSessionProps} onLogoClick={onLogoClick} />);
+      const dashboard = screen.getByRole('button', { name: 'Dashboard' });
+      expect(dashboard.tabIndex).toBe(0);
+      fireEvent.keyDown(dashboard, { key: 'Enter' });
+      expect(onLogoClick).toHaveBeenCalledOnce();
     });
 
     it('should always use mdiViewDashboardOutline icon (never mdiMenu), even on mobile', () => {

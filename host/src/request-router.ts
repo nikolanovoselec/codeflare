@@ -12,12 +12,14 @@ import { parse as parseUrl } from 'node:url';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { checkContainerAuth } from './auth-check.js';
+import type { PiWebProxy } from './pi-web-proxy.js';
 import { ownerInference, OperatorInferenceRefusal, type OperatorInferenceOwner,
   type OperatorInferenceOwnerResolver } from './operator-inference.js';
 import { emitRaw, type RawLogContext } from './operator-raw-logging.js';
-import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady, getRepositoryRestoreStatus } from './metrics.js';
+import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady, getRepositoryRestoreStatus, getRepositoryRestoreRepos } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
 import type { PiMemoryShutdown } from './pi-memory-shutdown.js';
+import type { createHermesShutdownService } from './hermes-shutdown-service.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
 import type { HealthResponse } from './types.js';
 import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
@@ -50,6 +52,8 @@ let vscodeWarmingSince: number | undefined;
 
 const GIT_CLONE_TIMEOUT_MS = 120_000;
 export const FINAL_SYNC_INTERNAL_TIMEOUT_MS = 125_000;
+// Refuse an undispatched save before the Worker's 120s acknowledgement deadline.
+const HERMES_SAVE_READINESS_TIMEOUT_MS = 110_000;
 const FINAL_SYNC_POLL_MS = 500;
 const AGENT_EVENT_DRAIN_BODY_MAX_BYTES = 4 * 1024;
 const AGENT_EVENT_INGRESS_BODY_MAX_BYTES = 256;
@@ -91,6 +95,7 @@ export interface RequestRouterDeps {
   readiness(): ReadinessFlags;
   silverbullet: ProxyTarget;
   openvscode: ProxyTarget;
+  piWeb?: PiWebProxy;
   /** Present only for a parent-configured restricted operator session; container auth remains outermost. */
   operatorPi?: OperatorPiHttpController;
   /** Configured owner SDK services; never supplied by an HTTP caller or a restricted Conductor profile. */
@@ -103,7 +108,9 @@ export interface RequestRouterDeps {
   drainAgentEvents?: AgentEventDrainer['drainAgentEvents'];
   enqueueAgentEvent?: (kind: AgentEventKind) => boolean;
   /** Quiesce registered foreground memory writers before the authoritative final sync. */
+  prepareTranscriptSync?: () => Promise<void>;
   prepareFinalSync?: (deadline: number) => Promise<PiMemoryShutdown>;
+  hermesShutdown?: ReturnType<typeof createHermesShutdownService>;
   /** Injectable final-sync I/O keeps endpoint tests deterministic; production uses host I/O below. */
   finalSync?: {
     now(): number;
@@ -299,6 +306,34 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       return;
     }
 
+    if (deps.piWeb && pathname?.startsWith('/api/pi-web/')) {
+      await deps.piWeb.handle(req, res);
+      return;
+    }
+
+    if (pathname === '/internal/hermes-merge') {
+      if (method !== 'POST' || !deps.hermesShutdown) { res.writeHead(404); res.end(); return; }
+      const cancelled = new AbortController();
+      const abort = () => cancelled.abort();
+      res.once('close', abort);
+      req.once('aborted', abort);
+      try {
+        const body = await readBoundedBody(req, 4096, AbortSignal.any([cancelled.signal, AbortSignal.timeout(5000)]));
+        if (body.byteLength > 4096) throw new Error('Oversized merge request');
+        const result = await deps.hermesShutdown.merge(JSON.parse(Buffer.from(body).toString('utf8')), cancelled.signal);
+        if (!cancelled.signal.aborted) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify(result));
+        }
+      } catch {
+        if (!cancelled.signal.aborted) { res.writeHead(409); res.end(); }
+      } finally {
+        res.removeListener('close', abort);
+        req.removeListener('aborted', abort);
+      }
+      return;
+    }
+
     if (deps.operatorInference && (pathname === '/operator-inference' || pathname === '/operator-inference/profile')) {
       const controller = new AbortController();
       const cancelled = () => controller.abort();
@@ -450,6 +485,11 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         res.end(JSON.stringify({ workspaceRepos }));
         return;
       }
+      // Only report the launch's exact receipt once the replacement is verified in R2.
+      const receipt = process.env.CODEFLARE_HERMES_MERGED_SNAPSHOT;
+      const hermesRestoredSnapshot = receipt && /^[a-f0-9]{64}$/.test(receipt)
+        && await fs.promises.readFile(`${SYNC_RUNTIME_DIR}/hermes-restore-synced`, 'utf8').catch(() => '') === `${receipt}\n`
+        ? receipt : undefined;
       const syncInfo = getSyncStatus();
       const sysMetrics = await getSystemMetrics(log);
       const activity = deps.activityTracker.getActivityInfo(sessionManager);
@@ -467,6 +507,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         editorReady,
         editorReadyError: editorReadyTimedOut,
         ...inventoryFields,
+        ...(hermesRestoredSnapshot ? { hermesRestoredSnapshot } : {}),
         observedAt: new Date().toISOString(),
       }));
       return;
@@ -493,6 +534,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         : undefined;
       const { prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut, startupPolicyError } = deps.readiness();
 
+      const repositoryRestore = getRepositoryRestoreStatus();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -508,7 +550,8 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           editorReady,
           editorReadyTimedOut,
           startupPolicyError,
-          repositoryRestore: getRepositoryRestoreStatus(),
+          repositoryRestore,
+          ...(repositoryRestore ? { repositoryRestoreRepos: getRepositoryRestoreRepos() } : {}),
           cpu: sysMetrics.cpu,
           mem: sysMetrics.mem,
           hdd: sysMetrics.hdd,
@@ -871,13 +914,29 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     // triggered - the daemon coalesces our SIGUSR1 into a rerun whose `syncing`
     // ts lands after our trigger.
     if (pathname === '/internal/final-sync' && method === 'POST') {
-      const reportDiskBlock = (): boolean => {
+      const mergeSave = req.headers['x-codeflare-hermes-merge'] === '1';
+      const { SESSION_ID: sessionId, CODEFLARE_HERMES_GENERATION: generation, CODEFLARE_HERMES_PERSISTENCE: persistence } = process.env;
+      if (mergeSave) {
+        if (process.env.ENTERPRISE_MODE !== 'active' || process.env.SESSION_MODE !== 'advanced'
+            || process.env.CODEFLARE_OPERATOR_SESSION || process.env.CODEFLARE_HERMES_RETRY_SNAPSHOT
+            || (persistence !== 'new' && persistence !== 'existing')
+            || !/^[a-z0-9]{8,24}$/.test(sessionId ?? '') || !/^[1-9][0-9]{0,15}$/.test(generation ?? '')
+            || !Number.isSafeInteger(Number(generation))) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ synced: false, reason: 'invalid-hermes-launch' }));
+          return;
+        }
+        sessionManager.quiesceForHermesMerge();
+      }
+      const reportDiskBlock = (confirmNoDispatch = false): boolean => {
         if (!fs.existsSync(`${SYNC_RUNTIME_DIR}/disk-space-blocked`)) return false;
         res.writeHead(409, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ synced: false, reason: 'disk-space-blocked' }));
+        res.end(JSON.stringify({ synced: false, reason: 'disk-space-blocked',
+          ...(confirmNoDispatch ? { syncDispatched: false } : {}),
+        }));
         return true;
       };
-      if (reportDiskBlock()) return;
+      if (!mergeSave && reportDiskBlock()) return;
       const finalSync = deps.finalSync ?? {
         now: () => Date.now(),
         readStatus: (): { status?: string; ts?: number } => {
@@ -891,7 +950,44 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         },
         poll: (delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)),
       };
-      const deadline = finalSync.now() + FINAL_SYNC_INTERNAL_TIMEOUT_MS;
+      const startedAt = finalSync.now();
+      const deadline = startedAt + FINAL_SYNC_INTERNAL_TIMEOUT_MS;
+      if (mergeSave) {
+        // The Host binds before restore, and the daemon starts after it. A
+        // disabled launch can be acknowledged even when no sync can run.
+        const readStartup = (file: string) => fs.promises.readFile(`${SYNC_RUNTIME_DIR}/${file}`, 'utf8').catch(() => '');
+        let readyToSave = false;
+        while (!req.aborted && !res.destroyed && finalSync.now() < startedAt + HERMES_SAVE_READINESS_TIMEOUT_MS) {
+          const opened = await readStartup('hermes-ready') === `direct:${sessionId}\n`;
+          if (!opened && await readStartup('hermes-disabled-at-startup') === `${sessionId}:${generation}\n`) {
+            res.writeHead(409, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+            res.end(JSON.stringify({ synced: false, reason: 'hermes-disabled-at-startup', generation: Number(generation) }));
+            return;
+          }
+          if (reportDiskBlock(true)) return;
+          if (opened) {
+            if (!deps.hermesShutdown) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ synced: false, reason: 'hermes-merge-unavailable' }));
+              return;
+            }
+            if (fs.existsSync(SYNC_DAEMON_PID_FILE)) {
+              readyToSave = true;
+              break;
+            }
+          }
+          await finalSync.poll(FINAL_SYNC_POLL_MS);
+        }
+        if (req.aborted || res.destroyed) return;
+        if (!readyToSave) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ synced: false, reason: 'hermes-save-not-started' }));
+          return;
+        }
+      }
+      let transcriptPrepared = true;
+      try { await deps.prepareTranscriptSync?.(); }
+      catch { transcriptPrepared = false; log('warn', 'Managed Pi transcript release incomplete'); }
       let memoryShutdown: PiMemoryShutdown = { status: 'exited', count: 0 };
       try {
         if (deps.prepareFinalSync) memoryShutdown = await deps.prepareFinalSync(deadline);
@@ -899,6 +995,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         memoryShutdown = { status: 'unconfirmed' };
       }
       if (memoryShutdown.status !== 'exited') log('warn', 'Foreground Pi shutdown incomplete', { status: memoryShutdown.status });
+      if (mergeSave && reportDiskBlock(true)) return;
       // A periodic scan that ran while Pi was draining cannot satisfy this request.
       const triggerTs = finalSync.now();
       try {
@@ -928,12 +1025,22 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         const ev = evaluateFinalSync(finalSync.readStatus(), triggerTs, runStartedTs);
         runStartedTs = ev.runStartedTs;
         if (ev.result === 'success') {
-          if (memoryShutdown.status !== 'exited') {
+          if (!transcriptPrepared) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ synced: false, reason: 'pi-transcript-unconfirmed' }));
+          } else if (memoryShutdown.status !== 'exited') {
             res.writeHead(503, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ synced: false, reason: `pi-shutdown-${memoryShutdown.status}` }));
           } else {
+            let snapshotId: string | null = null;
+            if (mergeSave && deps.hermesShutdown) {
+              const remaining = deadline - finalSync.now();
+              if (remaining > 0) {
+                snapshotId = await deps.hermesShutdown.saved(AbortSignal.timeout(remaining)).catch(() => null);
+              }
+            }
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ synced: true }));
+            res.end(JSON.stringify({ synced: true, ...(snapshotId ? { snapshotId } : {}) }));
           }
           return;
         }

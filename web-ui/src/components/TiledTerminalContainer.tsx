@@ -37,7 +37,7 @@ const TiledTerminalContainer: Component<TiledTerminalContainerProps> = (props) =
       testId="tiled-terminal-container"
       slotTestId={(tabId) => `tiled-slot-${tabId}`}
       emptySlotTestId={(slotIndex) => `tiled-slot-empty-${slotIndex}`}
-      renderPane={(pane, slotIndex) => props.renderTerminal?.(pane.data.id, slotIndex)}
+      renderPane={(pane, slotIndex) => props.renderTerminal?.(pane.id, slotIndex)}
     />
   );
 };

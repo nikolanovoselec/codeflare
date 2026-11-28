@@ -1,4 +1,4 @@
-import { Component, Show, For, createSignal, createMemo } from 'solid-js';
+import { Component, Show, For, createSignal, createMemo, createEffect } from 'solid-js';
 import { mdiPlus } from '@mdi/js';
 import Icon from './Icon';
 import SelectableSessionCard from './SelectableSessionCard';
@@ -7,8 +7,12 @@ import SessionContextMenu from './SessionContextMenu';
 import CreateSessionDialog from './CreateSessionDialog';
 import type { MultiViewWorkspace, SessionWithStatus, SessionStatus, AgentType, TabConfig } from '../types';
 import { sessionStore } from '../stores/session';
+import { isSessionCardVisible, isShutdownInProgress, sessionCardStatus } from '../lib/session-presentation';
 import { generateSessionName } from '../lib/session-utils';
 import '../styles/session-dropdown.css';
+
+const canSelectForMultiView = (session: SessionWithStatus) => !isShutdownInProgress(session.shutdownPhase)
+  && ['running', 'initializing'].includes(sessionCardStatus(session));
 
 const STATUS_ORDER: Record<SessionStatus, number> = {
   running: 0,
@@ -45,7 +49,9 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
     position: { x: 0, y: 0 },
     session: null,
   });
-  const menuSession = createMemo(() => props.sessions.find((session) => session.id === menuState().session?.id));
+  const visibleSessions = createMemo(() => props.sessions.filter(isSessionCardVisible));
+  const menuSession = createMemo(() => visibleSessions().find((session) => session.id === menuState().session?.id));
+  const menuStatus = () => { const session = menuSession(); return session && sessionCardStatus(session); };
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [createBtnRef, setCreateBtnRef] = createSignal<HTMLButtonElement>();
   const [selectingMultiView, setSelectingMultiView] = createSignal(false);
@@ -53,16 +59,30 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
   const [limitHit, setLimitHit] = createSignal(false);
 
   const sortedSessions = createMemo(() =>
-    [...props.sessions].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
+    [...visibleSessions()].sort((a, b) => STATUS_ORDER[sessionCardStatus(a)] - STATUS_ORDER[sessionCardStatus(b)])
   );
 
   const liveSessions = createMemo(() =>
-    props.sessions.filter((session) => session.status === 'running' || session.status === 'initializing')
+    visibleSessions().filter(canSelectForMultiView)
   );
 
-  const showMultiViewRow = createMemo(() => Boolean(props.multiView) && (props.multiView?.capacity ?? 0) >= 2 && liveSessions().length >= 2);
   const multiViewDisabled = createMemo(() => !props.multiView || props.multiView.capacity < 2);
-  const canLaunchMultiView = createMemo(() => selectedMultiViewIds().length >= 2);
+  const showMultiViewRow = createMemo(() => !multiViewDisabled() && (selectingMultiView() || liveSessions().length >= 2));
+  const liveSelection = createMemo(() => selectedMultiViewIds().filter(id => liveSessions().some(s => s.id === id)));
+  const canLaunchMultiView = createMemo(() => !multiViewDisabled() && liveSelection().length >= 2);
+  createEffect(() => {
+    if (multiViewDisabled() && selectingMultiView()) {
+      setSelectingMultiView(false);
+      setSelectedMultiViewIds([]);
+      setLimitHit(false);
+      return;
+    }
+    const selection = liveSelection();
+    if (selection.length < selectedMultiViewIds().length) {
+      setSelectedMultiViewIds(selection);
+      setLimitHit(false);
+    }
+  });
 
   const beginMultiViewSelection = () => {
     const activeLive = props.activeSessionId && liveSessions().some((session) => session.id === props.activeSessionId)
@@ -75,11 +95,9 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
 
   const handleMultiViewAction = () => {
     const config = props.multiView;
-    if (!config || multiViewDisabled()) return;
-
     if (selectingMultiView()) {
-      if (canLaunchMultiView()) {
-        config.onLaunch(selectedMultiViewIds());
+      if (config && canLaunchMultiView()) {
+        config.onLaunch(liveSelection());
         setSelectingMultiView(false);
         setSelectedMultiViewIds([]);
         props.onClose();
@@ -91,6 +109,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
       return;
     }
 
+    if (!config || multiViewDisabled()) return;
     if (config.existing) {
       config.onOpen();
       props.onClose();
@@ -101,8 +120,8 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
   };
 
   const toggleMultiViewSession = (session: SessionWithStatus) => {
-    if (session.status !== 'running' && session.status !== 'initializing') return;
-    const current = selectedMultiViewIds();
+    if (!canSelectForMultiView(session)) return;
+    const current = liveSelection();
     if (current.includes(session.id)) {
       setSelectedMultiViewIds(current.filter((id) => id !== session.id));
       setLimitHit(false);
@@ -118,6 +137,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
   };
 
   const handleCardSelect = (session: SessionWithStatus) => {
+    if (isShutdownInProgress(session.shutdownPhase)) return;
     if (selectingMultiView()) {
       toggleMultiViewSession(session);
       return;
@@ -137,6 +157,10 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
   const handleMenuClose = () => {
     setMenuState({ isOpen: false, position: { x: 0, y: 0 }, session: null });
   };
+
+  createEffect(() => {
+    if (menuState().isOpen && !menuSession()) handleMenuClose();
+  });
 
   const handleAgentSelect = (agentType: AgentType, tabConfig?: TabConfig[]) => {
     setShowCreateDialog(false);
@@ -169,7 +193,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
           <MultiViewActionRow
             mode={selectingMultiView() ? 'selecting' : props.multiView?.existing ? 'open' : 'start'}
             canLaunch={canLaunchMultiView()}
-            disabled={multiViewDisabled()}
+            disabled={!selectingMultiView() && multiViewDisabled()}
             onClick={handleMultiViewAction}
             onClose={() => {
               props.multiView?.onClose();
@@ -190,9 +214,9 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
         <div class="session-dropdown__list">
           <For each={sortedSessions()}>
             {(session) => {
-              const selected = createMemo(() => selectedMultiViewIds().includes(session.id));
+              const selected = createMemo(() => liveSelection().includes(session.id));
               const disabled = createMemo(() =>
-                selectingMultiView() && session.status !== 'running' && session.status !== 'initializing'
+                selectingMultiView() && !canSelectForMultiView(session)
               );
               return (
                 <SelectableSessionCard
@@ -219,19 +243,27 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
         anchorRef={createBtnRef()}
       />
 
-      <SessionContextMenu
-        isOpen={menuState().isOpen}
-        position={menuState().position}
-        canStop={['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuState().session?.status ?? '')}
-        canKill={['starting', 'running', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
-        onKill={() => { const session = menuSession(); if (session) void sessionStore.killSession(session.id); }}
-        stopLabel={menuState().session?.status === 'stopping' ? 'Retry Stop' : 'Stop'}
-        sessionName={menuState().session?.name || ''}
-        onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
-        onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}
-        onRename={(name) => { if (menuState().session) void sessionStore.renameSession(menuState().session!.id, name); }}
-        onClose={handleMenuClose}
-      />
+      <Show when={menuState().isOpen && menuSession()?.id} keyed>
+        {id => (
+          <SessionContextMenu
+            isOpen
+            position={menuState().position}
+            canStop={!isShutdownInProgress(menuSession()?.shutdownPhase)
+              && (['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuStatus() ?? '')
+                || (menuSession()?.workspace === 'vscode' && menuStatus() === 'error'))}
+            canKill={isShutdownInProgress(menuSession()?.shutdownPhase)
+              || ['starting', 'running', 'unreachable', 'stopping'].includes(menuStatus() ?? '')}
+            onKill={() => { if (menuSession()?.id === id) void sessionStore.killSession(id); }}
+            stopLabel={menuStatus() === 'stopping' ? 'Retry Stop' : 'Stop'}
+            sessionName={menuSession()?.name ?? ''}
+            onStop={() => { if (menuSession()?.id === id) props.onStopSession(id); }}
+            canDelete={menuSession()?.shutdownPhase !== 'memory-not-merged'}
+            onDelete={() => { if (menuSession()?.id === id) props.onDeleteSession(id); }}
+            onRename={name => { if (menuSession()?.id === id) void sessionStore.renameSession(id, name); }}
+            onClose={handleMenuClose}
+          />
+        )}
+      </Show>
     </Show>
   );
 };

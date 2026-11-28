@@ -9,6 +9,7 @@ import { readBoundedResponse } from '../lib/bounded-stream';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { createLogger } from '../lib/logger';
 import { D1SessionRepository, type D1Session } from '../lib/session-repository';
+import { terminalFenced } from '../lib/session-shutdown';
 import { normalizeTrackedClones } from '../lib/clone-targets';
 import { isSaasModeActive } from '../lib/onboarding';
 import {
@@ -60,6 +61,7 @@ export interface MetricsExecution extends MetricsPin {
   readonly authToken: string | null;
   readonly isCurrent: () => boolean;
   readonly onHostResponse?: () => Promise<void>;
+  readonly queueIdleStop?: () => Promise<unknown>;
   /** Already observed for this generation; absence never triggers a logging lookup. */
   readonly incidentId?: string | null;
 }
@@ -261,7 +263,7 @@ export interface FinalSyncLogContext {
  */
 export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
   context: FinalSyncLogContext = { sessionId: null, lifecycleGeneration: null, incidentId: null },
-  isCurrent: () => boolean = () => true): Promise<void> {
+  isCurrent: () => boolean = () => true, mayDispatch?: () => Promise<boolean>): Promise<void> {
   if (!ctx.container) return;
   if (!ctx.container.running) {
     // Same rationale as the delete path (#516): running can read transiently
@@ -275,13 +277,16 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
   const remaining = () => Math.max(0, deadline - Date.now());
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budgetMs);
-  const recordAudit = (event: Record<string, unknown>) => raceBudget(ctx.storage.transaction(async txn => {
-    if (typeof await txn.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
-    if ((context.sessionId !== null && await txn.get(SESSION_ID_KEY) !== context.sessionId)
-      || (context.lifecycleGeneration !== null && await txn.get('lifecycleGeneration') !== context.lifecycleGeneration)) return;
-    if (!isCurrent() || controller.signal.aborted || remaining() === 0) return;
-    await txn.put(FINAL_SYNC_AUDIT_KEY, { ...context, ...event });
-  }), remaining());
+  const recordAudit = async (event: Record<string, unknown>) => {
+    if (mayDispatch && !await mayDispatch()) return;
+    return raceBudget(ctx.storage.transaction(async txn => {
+      if (typeof await txn.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
+      if ((context.sessionId !== null && await txn.get(SESSION_ID_KEY) !== context.sessionId)
+        || (context.lifecycleGeneration !== null && await txn.get('lifecycleGeneration') !== context.lifecycleGeneration)) return;
+      if (!isCurrent() || controller.signal.aborted || remaining() === 0) return;
+      await txn.put(FINAL_SYNC_AUDIT_KEY, { ...context, ...event });
+    }), remaining());
+  };
   try {
     // Raw port.fetch bypasses the DO's public fetch override (the only place
     // the auth header is injected) and the in-container host 401s /internal/*
@@ -306,6 +311,7 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number,
       } catch { logger.warn('drainFinalSync: credential-refusal audit unavailable', { ...context, errorClass: 'audit_unavailable' }); }
       return;
     }
+    if (mayDispatch && (!await mayDispatch() || controller.signal.aborted)) return;
     const port = ctx.container.getTcpPort(8080);
     const res = await port.fetch('http://localhost/internal/final-sync', {
       method: 'POST',
@@ -1098,6 +1104,15 @@ export async function collectMetrics(
   };
   const sameGeneration = (session: D1Session | null): session is D1Session =>
     execution.isCurrent() && session?.lifecycleGeneration === generation;
+  const readIdleCandidate = async () => {
+    const current = await readCurrent().catch(() => null);
+    if (!sameGeneration(current) || current.terminationIntentId) return null;
+    const job = current.shutdown;
+    // A failed save no longer owns a live attempt. Preserve existing idle
+    // limits there, but never race an accepted shutdown waiting or in flight.
+    return !job || (job.phase !== 'queued' && (job.phase === 'save-failed' || !terminalFenced(job))) ? current : null;
+  };
+  const mayStopForIdle = async () => (await readIdleCandidate()) !== null;
   const schedule = async (delay: number) => {
     if (!execution.isCurrent()) return;
     try { await callbacks.schedule(delay, 'collectMetrics'); }
@@ -1274,7 +1289,7 @@ export async function collectMetrics(
     } else {
       const snapshot = await raceBudget(response.json(), CONTAINER_POLL_BUDGET_MS) as {
         lastInputAt: number | null; cpu?: string; memory?: string; disk?: string;
-        syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; workspaceInventoryReady?: boolean; observedAt: string;
+        syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; workspaceInventoryReady?: boolean; hermesRestoredSnapshot?: unknown; observedAt: string;
       };
       // REQ-SESSION-020 AC4: reject malformed readiness before state or projection uses it.
       if (!isRecord(snapshot)
@@ -1342,14 +1357,25 @@ export async function collectMetrics(
         });
       }
       if (canEnforceIdle && idleMs > sleepMs && execution.isCurrent()) {
-        logger.info('collectMetrics: idle exceeded threshold, stopping', { ...finalSyncLogContext(), reason: 'idle', idleMs, sleepMs, idleTimeoutPref, referenceTime });
-        await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
-        if (!execution.isCurrent()) return;
-        await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent);
-        if (!execution.isCurrent()) return;
-        requiredStopInProgress = true;
-        await callbacks.stop('SIGTERM');
-        return;
+        const candidate = await readIdleCandidate();
+        if (execution.queueIdleStop) {
+          if (candidate?.lifecycleState === 'running' && !candidate.shutdown) {
+            // The bucket queue owns acceptance, final save, merge, and exit.
+            // An unavailable acknowledgement never authorizes a direct stop.
+            const result = await raceBudget(execution.queueIdleStop(), CONTAINER_POLL_BUDGET_MS).catch(() => null);
+            if (result === null) logger.warn('collectMetrics: idle Stop acceptance unavailable', { ...finalSyncLogContext() });
+          }
+        } else if (candidate && execution.isCurrent()) {
+          logger.info('collectMetrics: idle exceeded threshold, stopping', { ...finalSyncLogContext(), reason: 'idle', idleMs, sleepMs, idleTimeoutPref, referenceTime });
+          await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
+          if (!execution.isCurrent()) return;
+          await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent, mayStopForIdle);
+          if (await mayStopForIdle() && execution.isCurrent()) {
+            requiredStopInProgress = true;
+            await callbacks.stop('SIGTERM');
+            return;
+          }
+        }
       }
       if (snapshot.syncStatus === 'failed' || snapshot.syncStatus === 'timeout') {
         logger.warn('collectMetrics: container R2 sync unhealthy', { ...finalSyncLogContext(), syncStatus: snapshot.syncStatus });
@@ -1387,6 +1413,8 @@ export async function collectMetrics(
             lastInputAt: observedInputAt === null ? undefined : new Date(observedInputAt).toISOString(),
             cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
             editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
+            hermesRestoredSnapshot: typeof snapshot.hermesRestoredSnapshot === 'string'
+              && /^[a-f0-9]{64}$/.test(snapshot.hermesRestoredSnapshot) ? snapshot.hermesRestoredSnapshot : undefined,
           }), CONTAINER_POLL_BUDGET_MS);
           if (accepted === null) throw new Error('D1 metrics projection deadline exceeded');
           projectionAccepted = accepted;

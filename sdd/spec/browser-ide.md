@@ -1509,22 +1509,24 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. A new session snapshots the user's entitled default workspace; missing, invalid, or no-longer-entitled values resolve to Terminal. <!-- @impl: src/routes/preferences.ts::app --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-IDE-048 AC1: resets VS Code default atomically when switching to Standard) --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-048 AC1: immutable session workspace snapshot) -->
+1. Without an explicit eligible Pi surface choice, a new session snapshots the user's entitled default workspace; missing, invalid, or no-longer-entitled values resolve to Terminal. <!-- @impl: src/routes/preferences.ts::app --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-IDE-048 AC1: resets VS Code default atomically when switching to Standard) --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-048 AC1: immutable session workspace snapshot) -->
 2. A VS Code session remains dashboard-owned during creation, startup, selection, cloning, and deep links; it does not enter terminal routes, open terminal WebSockets, or join terminal MultiView. <!-- @impl: web-ui/src/components/Layout.tsx::openSessionWorkspace --> <!-- @impl: web-ui/src/stores/terminal-workspace.ts::isTerminalSession --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-048 AC2: dashboard selection keeps a running VS Code session dashboard-owned) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-048 AC2: creating a VS Code session leaves terminal view and starts on dashboard) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (normalizes a VS Code session deep link to the dashboard without terminal or popup ownership) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-048 AC2: starts a cloned VS Code session without activating terminal ownership) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (does not give a VS Code active session terminal workspace or WebSocket ownership) --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (keeps missing workspace terminal-compatible but excludes VS Code during validation and creation) -->
 3. After container initialization, a VS Code session creates no host terminal or Herdr runtime; a Terminal session prewarms its immutable classic primary PTY or sole outer Herdr client. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: host/src/workspace-readiness.ts::startWorkspaceServices --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-IDE-048 AC3: emits the immutable session workspace) --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-048 AC3: host startup composition) -->
 4. Whenever workspace selection is available, its settings header displays a visible file-tree marker. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (default workspace selection) -->
+5. With VS Code selected, Dashboard **New Session** starts Pi directly if the loaded allowlist permits it. Otherwise, it keeps the filtered picker. Existing creation limits still apply. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-048: New Session starts Pi directly in VS Code unless at the session limit (%s)) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-048: keeps the filtered VS Code picker without verified Pi (%j)) -->
 
 **Constraints:**
 
 - Historical sessions and absent workspace fields resolve to Terminal.
 - New complete D1 session records persist an explicit `terminal` or `vscode` workspace snapshot; historical missing fields normalize to Terminal. [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type) AC4 owns existing-session immutability.
-- Workspace selection is server-owned and cannot be injected through the session-create body.
+- A caller cannot supply a workspace stamp.
+- The server resolves eligible Pi surface choices under [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) without altering an existing VS Code workspace.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-047](#req-ide-047-bash-first-browser-ide-terminals), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Automated: [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts), [session-workspace.test.ts](../../src/__tests__/routes/session-workspace.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [workspace-readiness.test.js](../../host/__tests__/workspace-readiness.test.js), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx)
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts), [session-workspace.test.ts](../../src/__tests__/routes/session-workspace.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [workspace-readiness.test.js](../../host/__tests__/workspace-readiness.test.js), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx)
 
 **Status:** Implemented
 
@@ -1617,10 +1619,10 @@ A full code-server browser editor for an advanced running session. The editor op
 **Acceptance Criteria:**
 
 1. Activating a stopped VS Code card starts that session. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card) -->
-2. A preparing or stopping card without an editor-readiness error has no parent button semantics or tab stop; its child controls remain enabled. A card with an editor-readiness error can offer Retry without bypassing Start admission. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a preparing VS Code card without disabling its child controls) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a stopping VS Code card without disabling its child controls) -->
+2. A preparing or stopping card without an editor-readiness error has no parent button semantics or tab stop; its menu and timer retain their own availability. Vault remains subject to [REQ-VAULT-037](vault.md#req-vault-037-vault-on-vs-code-dashboard-cards). A card with an editor-readiness error can offer Retry without bypassing Start admission. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a preparing VS Code card without disabling its child controls) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a stopping VS Code card without disabling its child controls) -->
 3. Activating a ready VS Code card opens the editor. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-054 AC3: opens from the whole card only after editor readiness) -->
-4. A whole-card selection control is the sole Open surface and remains separate from menu and timer buttons. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC4: keeps whole-card Open control separate from child buttons) -->
-5. Keyboard actions handled by child controls do not activate the card. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the kebab handles %p) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the timer handles %p) -->
+4. A whole-card selection control is the sole surface for opening the editor and remains separate from Vault, menu, and timer buttons. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC4: keeps whole-card Open control separate from child buttons) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the renamed card selector and Vault, status, and menu in order (REQ-IDE-054)) -->
+5. Keyboard actions handled by child controls do not activate the card. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the kebab handles %p) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the timer handles %p) --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
 6. A stopped card blocked by a preseed upgrade or managed reconciliation has no parent button semantics or tab stop; the blocked card may also disable pointer interaction with descendant controls. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (applies reduced opacity and blocks clicks during %s) -->
 
 **Constraints:**
@@ -1632,11 +1634,33 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](#req-ide-050-browser-ide-status-and-ownership)
 
-**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx)
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vault control presentation](../../documentation/lanes/vault.md#vault-control-presentation)
 
 **Status:** Implemented
 
 ---
+
+### REQ-IDE-064: VS Code Dashboard card presentation
+
+**Intent:** Keep the card title and actions distinct at narrow widths.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When present, Vault precedes the status dot and menu, about 34 CSS pixels center-to-center from the dot at default scale. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the renamed card selector and Vault, status, and menu in order (REQ-IDE-054)) --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
+2. A long renamed title ends in an ellipsis without shifting or overlapping the controls. <!-- @impl: web-ui/src/styles/session-stat-card.css::.session-stat-card__name --> <!-- @manual: documentation/lanes/vault.md#vault-control-presentation -->
+3. The card selector exposes the complete accessible session name. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (keeps the renamed card selector and Vault, status, and menu in order (REQ-IDE-054)) -->
+
+**Constraints:** None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-IDE-054](#req-ide-054-browser-ide-card-activation)
+
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Vault control presentation](../../documentation/lanes/vault.md#vault-control-presentation)
+
+**Status:** Planned
 
 ---
 

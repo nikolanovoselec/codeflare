@@ -20,8 +20,12 @@ const REVIEWED_IMPECCABLE_BUNDLES = Object.freeze({
     url: 'https://github.com/pbakaus/impeccable/releases/download/skill-v4.9.1/universal.zip' },
 });
 
+export function isReviewedImpeccableBundle(version) {
+  return Object.hasOwn(REVIEWED_IMPECCABLE_BUNDLES, version);
+}
+
 export function verifyReviewedImpeccableBundle(bundle, version) {
-  if (!Object.hasOwn(REVIEWED_IMPECCABLE_BUNDLES, version)) throw new Error(`Impeccable ${version} bundle is not reviewed`);
+  if (!isReviewedImpeccableBundle(version)) throw new Error(`Impeccable ${version} bundle is not reviewed`);
   const reviewed = REVIEWED_IMPECCABLE_BUNDLES[version];
   if (createHash('sha256').update(bundle).digest('hex') !== reviewed.sha256) {
     throw new Error(`Impeccable ${version} bundle differs from the reviewed release`);
@@ -329,7 +333,7 @@ export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = 
 }
 
 export async function updateImpeccableSkill(expectedVersion = process.env.LAT) {
-  if (!Object.hasOwn(REVIEWED_IMPECCABLE_BUNDLES, expectedVersion)) {
+  if (!isReviewedImpeccableBundle(expectedVersion)) {
     throw new Error(`Impeccable ${expectedVersion ?? 'missing version'} bundle is not reviewed`);
   }
   const reviewedCandidate = REVIEWED_IMPECCABLE_BUNDLES[expectedVersion];

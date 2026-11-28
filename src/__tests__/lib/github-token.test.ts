@@ -136,7 +136,6 @@ describe('getValidGithubToken', () => {
     mockKV._set(KEY, {
       githubToken: 'gho_fresh',
       githubTokenSource: 'app',
-      githubRefreshToken: 'ghr',
       githubTokenExpiresAt: Date.now() + 3_600_000,
     } satisfies DeployKeys);
     expect(await getValidGithubToken(env(APP_ENV), BUCKET)).toBe('gho_fresh');
@@ -192,6 +191,37 @@ describe('getValidGithubToken', () => {
     } satisfies DeployKeys);
     mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: 'bad_refresh' }) });
     expect(await getValidGithubToken(env(APP_ENV), BUCKET)).toBeNull();
+  });
+
+  it.each<[string, Partial<DeployKeys> | null, string | null, boolean?]>([
+    ['provider rejected the stale refresh', {}, 'gho_winner'],
+    ['provider also returned a token', {}, 'gho_winner', true],
+    ['same login with different casing', { githubLogin: 'Octo' }, 'gho_winner'],
+    ['different account', { githubLogin: 'different-account' }, null],
+    ['disconnected', null, null],
+    ['different provider', { githubTokenSource: 'oauth' }, null],
+    ['unchanged access token', { githubToken: 'gho_stale' }, null],
+    ['unchanged refresh token', { githubRefreshToken: 'ghr_stale' }, null],
+    ['no recorded expiry', { githubTokenExpiresAt: null }, null],
+    ['competing grant already due for renewal', { githubTokenExpiresAt: Date.now() + 60_000 }, null, true],
+  ])('REQ-GITHUB-001: reconciles a lost App renewal (%s)', async (_scenario, grant, expected, providerAlsoReturnedToken) => {
+    mockKV._set(KEY, {
+      githubToken: 'gho_stale', githubTokenSource: 'app', githubRefreshToken: 'ghr_stale',
+      githubTokenExpiresAt: Date.now() - 1000, githubLogin: 'octo',
+    } satisfies DeployKeys);
+    const stored = grant === null ? null : {
+      githubToken: 'gho_winner', githubTokenSource: 'app', githubRefreshToken: 'ghr_winner',
+      githubTokenExpiresAt: Date.now() + 3_600_000, githubLogin: 'octo', ...grant,
+    } satisfies DeployKeys;
+    mockFetch.mockImplementationOnce(async () => {
+      if (stored) mockKV._set(KEY, stored);
+      else await mockKV.delete(KEY);
+      return providerAlsoReturnedToken
+        ? ok({ access_token: 'gho_loser', refresh_token: 'ghr_loser', expires_in: 28_800 })
+        : { ok: false, status: 401, json: async () => ({ error: 'bad_refresh' }) };
+    });
+    expect(await getValidGithubToken(env(APP_ENV), BUCKET)).toBe(expected);
+    expect(await mockKV.get(KEY, 'json')).toEqual(stored);
   });
 
   it('returns null when not connected', async () => {
@@ -330,7 +360,7 @@ describe('authorizeUrl', () => {
     const url = new URL(
       (await getGithubProvider(env(OAUTH_ENV)))!.authorizeUrl({ state: 's', redirectUri: 'https://cf/cb' }),
     );
-    expect(url.searchParams.get('scope')).toBe('repo gist read:org workflow');
+    expect(url.searchParams.get('scope')).toBe('repo gist read:org workflow read:user');
   });
 
   it('honours the GITHUB_HOST override for data-residency tenants', async () => {

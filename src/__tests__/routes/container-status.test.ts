@@ -147,14 +147,35 @@ describe('Container Status Routes', () => {
         error: startupPolicyError === 'failed' ? 'Managed file policy could not be verified.' : 'Managed file policy verification timed out.' });
     });
 
-    it('REQ-GITHUB-320: Ready carries a nonblocking repository restore state', async () => {
+    it('does not publish Ready after the running workspace starts its graceful save', async () => {
+      const key = 'session:test-bucket:abcdef1234567890abcdef12';
+      const running = { id: 'abcdef1234567890abcdef12', name: 'Session', status: 'running', lifecycleGeneration: 1 };
+      mockKV._set(key, running);
+      const app = createStatusApp();
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      testState.container!.fetch.mockImplementation(async (request: Request) => {
+        if (request.url.endsWith('/sessions')) return new Response('[]');
+        mockKV._set(key, { ...running, shutdown: { intent: 'stop-fixture', phase: 'saving', delete: false } });
+        return Response.json({ syncStatus: 'success', prewarmReady: true });
+      });
+      const response = await app.request(`/container/startup-status${sessionQuery}`);
+      expect(await response.json()).not.toMatchObject({ stage: 'ready' });
+    });
+
+    it.each(['restoring', 'issues'] as const)('REQ-GITHUB-320: Ready carries a nonblocking repository restore state and repository names (%s)', async repositoryRestore => {
+      mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12', name: 'Session', status: 'running', lifecycleGeneration: 1,
+        responseRevision: 12, clone: { repo: 'octocat/primary', ref: 'main' }, clones: [{ repo: 'octocat/primary' }],
+      });
       const app = createStatusApp();
       testState.container!.getState.mockResolvedValue({ status: 'running' });
       testState.container!.fetch.mockImplementation(async (request: Request) => new Response(JSON.stringify(
-        request.url.endsWith('/sessions') ? [] : { syncStatus: 'success', prewarmReady: true, repositoryRestore: 'restoring' },
+        request.url.endsWith('/sessions') ? [] : { syncStatus: 'success', prewarmReady: true, repositoryRestore,
+          repositoryRestoreRepos: ['octocat/primary', 'octocat/second'] },
       )));
       const response = await app.request(`/container/startup-status${sessionQuery}`);
-      expect(await response.json()).toMatchObject({ stage: 'ready', details: { repositoryRestore: 'restoring' } });
+      expect(await response.json()).toMatchObject({ stage: 'ready', generation: 1, revision: 12, details: { repositoryRestore,
+        repositoryRestoreRepos: ['octocat/primary', 'octocat/second'] } });
     });
 
     it('REQ-SESSION-017 AC3: reports a D1-confirmed stop even if the SDK still reports running', async () => {

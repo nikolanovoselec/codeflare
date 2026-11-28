@@ -4,6 +4,138 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-28: Bulk package and Vibe updates
+
+- Interactive Pi 1.7.0 and Smart Compact 10.9.0 replace the prior pair. [Codex prompt caching](agents.md#req-agent-238-native-codex-prompt-prefix-compatibility) now uses the upstream fix without the temporary patch.
+- [Vibe attachments](agents.md#req-agent-274-stock-pi-chat-controls) share a 50 MB decoded limit across workspace saves and inline images. [Open Chat](agents.md#req-agent-277-retained-chat-on-dashboard-return) stays steady through an isolated transient status failure.
+- [Shadow Pins](operations.md#req-ops-020-shadow-pin-version-bump-automation) defers [unqualified SilverBullet major upgrades](operations.md#req-ops-032-silverbullet-coupled-release-automation) and unreviewed Impeccable skill/engine pairs without changing their installed pins.
+
+## 2026-11-28: Pi terminal copy and links
+
+- [Pi defaults to Regular](terminal.md#req-term-040-stable-herdr-pane-scrollback) unless a renderer is saved. In Classic Pi Fullscreen, dragging [copies the displayed text](terminal.md#req-term-032-herdr-clipboard-compatibility-boundary).
+- [Plain-text terminal links](terminal.md#req-term-042-browser-terminal-link-activation) leave unmatched prose wrappers out of the browser destination.
+
+## 2026-11-28: Vibe navigation and startup
+
+- Vibe always exposes [Chat and Files](agents.md#req-agent-289-embedded-chat-chrome) without the stock menu. [MultiView](terminal.md#req-term-012-multiview-virtual-session-workspace) remains available in Code only.
+- The [Vibe startup screen](agents.md#req-agent-275-classic-pi-chat-startup) waits for Open, even when document preload finishes while the browser is away; recovery stays in the same conversation, with up to two retries for a failed writer start and up to two for each separate frame outage. During a switch, [Code stays visible until Vibe is ready](agents.md#req-agent-280-attachment-gated-workspace-reveal), except for a native startup question or exhausted frame retries after confirmed writer transfer. An unconfirmed startup switch waits for fresh Host status before retrying.
+
+## 2026-11-28: Graceful shutdown and repository recovery
+
+- For eligible sessions, idle timeout requests the same [graceful Stop](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) as the Stop button, including Hermes consolidation. A [verified no-op](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) does not need a model; a missing snapshot disables Retry without disabling Resume.
+
+- [Optional GitHub counts](github.md#req-github-324-dashboard-repository-loading-during-github-app-renewal) do not start credential renewal; repository listing retains its request-bound refresh and transient-error recovery.
+
+- If a [Chat conversation change](agents.md#req-agent-286-classic-chat-conversation-selection) cannot prepare the next transcript after releasing the current writer, Chat tells you to stop and reopen the session instead of offering an unusable retry.
+
+- [Delete](session-lifecycle.md#req-session-006-user-can-start-stop-restart-and-delete-sessions) can finish after a concurrent Stop confirms the same session generation. If a restart wins before deletion, Delete reports a conflict and leaves the replacement intact.
+
+## 2026-11-27: Chat chrome and Dashboard recovery
+
+- [Recent Sessions](github.md#req-github-334-recent-sessions-in-the-vibe-summary) gets up to three full cards and a partial fourth in the scrolling Vibe summary.
+- [Tablet Chat](agents.md#req-agent-292-tablet-chat-keyboard-fit) fits more history above the keyboard, and the [focused prompt outline](agents.md#req-agent-288-codeflare-chat-theme) follows the Codeflare accent. Invalid empty-Chat measurements do not collapse the composer.
+
+- On phones, [the Codeflare header stays at the top](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) and [Chat refits after a viewport change or return](agents.md#req-agent-287-empty-and-restored-vibe-layout).
+- [Embedded Chat trims redundant controls and empty titles](agents.md#req-agent-289-embedded-chat-chrome), keeps navigation for unpinned Chat or Files, and [hides redundant mobile workspace context](agents.md#req-agent-290-embedded-mobile-workspace-context).
+- On phones, tapping [**Open** for a new, empty Chat](agents.md#req-agent-291-mobile-focus-on-new-chat-open) focuses its prompt so the keyboard can open immediately.
+- [Vibe GitHub Details](github.md#req-github-327-vibe-repository-shortcuts) keeps the confirmed empty message on return and shows a two-line connection message while [automatically retrying a transient initial-list failure](github.md#req-github-332-vibe-repository-list-recovery).
+- In the [VS Code workspace](browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), **New Session** starts Pi directly when Pi is allowed.
+- Advanced mode [VS Code session cards](browser-ide.md#req-ide-064-vs-code-dashboard-card-presentation) show Vault before the status dot and menu, with a mouse-hover highlight and long titles truncated. [Click an available control to request preparation or an armed control to open Vault in a new tab when no other card is preparing](vault.md#req-vault-037-vault-on-vs-code-dashboard-cards).
+- [Long Profile emails](authentication.md#req-auth-016-header-user-dropdown) ellipsize at 90% of the viewport without widening the action panel.
+- On desktop and tablet, the [Vibe drawer](github.md#req-github-331-vibe-drawer-motion) opens and closes without moving New Session vertically. An [unusable GitHub connection](github.md#req-github-002-github-panel-and-repository-listing) does not restart Codeflare sign-in.
+
+## 2026-11-27: Pi Chat conversation history and Todo Loop
+
+- [Classic Pi Chat](agents.md#req-agent-286-classic-chat-conversation-selection) can create and select conversations in one workspace. Code opens the active conversation. After confirmed final persistence, [Resume](session-lifecycle.md#req-session-044-managed-pi-transcript-persistence-on-stop) reopens the exact conversation and branch when retained.
+- [Standalone Classic Pi](agents.md#req-agent-211-classic-agent-transcript-resume) remembers eligible native forks selected with `/resume`. A saved transcript already missing at launch validation is reported unavailable.
+- [Pi transcript retention](storage.md#req-stor-012-main-session-transcript-cleanup) keeps up to thirty main transcripts.
+- [Todo Loop](agents.md#req-agent-111-native-todo-loop-workflow-in-pi-sessions) starts paused until `/todoloop resume`.
+- [Chat’s Codeflare theme](agents.md#req-agent-288-codeflare-chat-theme) is selected and active on first open, including a one-time return to the default for browsers with a saved theme. Later theme choices in that browser survive reloads.
+
+## 2026-11-27: Repository shortcuts and local review recovery
+
+- [Vibe repository shortcuts](github.md#req-github-327-vibe-repository-shortcuts) show short names with owner-qualified tooltips and accessible labels. The age pill highlights on hover and shows a keyboard focus outline.
+- [Vibe clones](github.md#req-github-330-workspace-mode-clone-destinations) offer only Pi destinations and open new sessions directly in Chat at their session URL. Code retains its enabled agents, and [saved retries](github.md#req-github-322-clone-launch-recovery) retain their original surface across modes.
+- [Codeflare Graphite](agents.md#req-agent-288-codeflare-chat-theme) lets the workspace gradient show through and distinguishes user messages from agent replies. New workspaces use a cyan accent unless you saved another color.
+- [Two already-open Chats](agents.md#req-agent-277-retained-chat-on-dashboard-return) stay loaded when you switch between their running sessions.
+- The [Profile menu](authentication.md#req-auth-016-header-user-dropdown) shows the full account email above the action panel without widening it.
+- [Local Pi review](agents.md#req-agent-121-checked-out-branch-boundary-synchronization) reports failed verification and preserves exact-head CI when recovering an undelivered review. [Blocked FIX](agents.md#req-agent-244-exact-round-review-completion) reports why it could not continue.
+
+## 2026-11-26: Chat startup and Dashboard refinements
+
+- [Loading Chat](terminal.md#req-term-049-shared-workspace-startup-progress) keeps its label and final duration when Open appears.
+- [Open Vibe Chat](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) centers the existing session header directly above the same-width outer Chat frame. Both use the full available width on phones.
+- [Vibe GitHub Details](github.md#req-github-321-vibe-dashboard-browser-disclosure) links the account profile and, when owned counts are unavailable, offers up to three [recently updated repo shortcuts](github.md#req-github-327-vibe-repository-shortcuts) with an age control for cloning into a session. A confirmed empty list uses a two-line notice.
+- The shared [Clone picker](github.md#req-github-328-clone-picker-focus-and-dismissal) keeps keyboard focus inside and offers Close during startup. [Retry Start](github.md#req-github-322-clone-launch-recovery) reuses the saved session after reopening the picker and waits for an active Stop to be confirmed.
+- [Chat slash commands](agents.md#req-agent-285-scoped-slash-commands-in-pi-chat) run in the active conversation without allowing a second writer. Successful commands refresh the idle timer; `/tree` does not.
+- [Clone recovery](github.md#req-github-322-clone-launch-recovery) clears once the saved session is running or deleted. A superseded Stop cannot block [stopping its replacement](session-lifecycle.md#req-session-041-stop-recovery-controls-and-local-attempt-fencing).
+- [Stock Chat](agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults) hides SYSTEM transcript rows without changing saved history.
+- [Background extraction](memory.md#req-mem-045-hide-background-extraction-requests) keeps launch payloads out of the visible conversation without changing model delivery.
+- [GitHub and Storage](github.md#req-github-010-mobile-github-and-storage-face-switching) flip only on mobile. [New Session padding](github.md#req-github-323-responsive-vibe-dashboard-layout) is half the button height in both modes.
+
+## 2026-11-26: Chat startup with restored profiles
+
+- [Pi Chat](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) dismisses the exact restored bundled Workflows registration instead of failing startup. Git and worktree controls remain unavailable in Chat.
+
+- The [Vibe drawer](github.md#req-github-321-vibe-dashboard-browser-disclosure) uses transparent double chevrons with vertical motion on mobile and horizontal motion on wider screens. Reduced motion disables the bounce.
+
+- The [resume notice](github.md#req-github-326-repository-names-in-resume-notices) lists available restore-target names and falls back to the session name when unavailable.
+
+## 2026-11-26: Restore managed Goal alongside Todo Loop
+
+- **Release:** [Managed Goal](agents.md#req-agent-293-managed-goal-alongside-todo-loop) restores `/goal` in both Pi modes alongside managed `/todoloop`, which starts paused. Goal has a compact footer and bounded automatic continuation. Goal cannot take over an active Plan.
+- **Follow-up:** [Goal startup](agents.md#req-agent-293-managed-goal-alongside-todo-loop) preserves valid intervals above five minutes; [stall expiry](agents.md#req-agent-294-managed-goal-continuation-safety) aborts only matching in-flight Goal work, and the blocker requires runtime-verified attempts. [Plan](agents.md#req-agent-158-bounded-initial-pi-tool-exposure) excludes Goal tools and falls back to bootstrap tools if its restored policy is missing or malformed.
+
+## 2026-11-25: Vibe and Code workspace modes
+
+- [Workspace modes](agents.md#req-agent-276-vibe-and-code-workspace-preference) persist the surface choice. [Chat preload](agents.md#req-agent-275-classic-pi-chat-startup) and [warm return](agents.md#req-agent-277-retained-chat-on-dashboard-return) reveal the already-mounted surface.
+- [Direct Vibe launch](agents.md#req-agent-279-direct-vibe-session-launch) prevents repeat Dashboard launches until the pending Start settles or is stopped.
+- The [Vibe drawer](github.md#req-github-321-vibe-dashboard-browser-disclosure) keeps browsers behind one control and shows account-owned repository counts when GitHub supplies them, including for App connections. [Repository loading](github.md#req-github-324-dashboard-repository-loading-during-github-app-renewal) can continue after a concurrent counts request is canceled.
+- The [mode dropdown](agents.md#req-agent-278-narrow-workspace-header-fallback) marks the current choice and closes when the new mode activates. Profile is icon-only, with the email at the top of its menu.
+- [Profile actions](authentication.md#req-auth-016-header-user-dropdown) remain reachable by scrolling on short screens. The menu opens as a bottom sheet when there is too little room below the Profile icon.
+- On desktop and tablet, the [Vibe drawer grip](github.md#req-github-321-vibe-dashboard-browser-disclosure) alone protrudes from the outer edge. On phones, [a white breathing chevron and edge pulls](github.md#req-github-325-mobile-vibe-browser-disclosure-gestures) toggle the drawer.
+- The open [browser split](github.md#req-github-012-responsive-github-and-storage-panel-allocation) sizes GitHub and Storage to their content. The [mobile flip](github.md#req-github-323-responsive-vibe-dashboard-layout) moves focus to the newly visible panel.
+- The [session menu](agents.md#req-agent-276-vibe-and-code-workspace-preference) keeps lifecycle actions but leaves mode choice to the header. [Handoffs](agents.md#req-agent-280-attachment-gated-workspace-reveal) prepare the destination before revealing it. Switching to tiled Code keeps the prepared terminal connection open through reveal.
+- [Stock Chat](agents.md#req-agent-274-stock-pi-chat-controls) defaults to Pi Web Classic without overriding saved themes. [Chat navigation and footer](agents.md#req-agent-282-stock-pi-chat-navigation-and-footer-defaults) default to Chat and Files in a fresh browser and hide the USD cost.
+- [Loading Chat](terminal.md#req-term-049-shared-workspace-startup-progress) uses the standard elapsed timer and respects reduced motion. Its label and icon use the theme accent until Ready to open, then switch to success styling.
+- [Mode switches](agents.md#req-agent-273-pi-handoff-continuity) animate the destination label without extra visible status text. The Code agent picker no longer offers separate Pi surface buttons.
+- Chat stays mounted across [Usage visits](agents.md#req-agent-277-retained-chat-on-dashboard-return) and fills the available area on phones. GitHub Details shows the public count when private totals are unavailable.
+- [Pi Web image prewarm](agents.md#req-agent-284-pi-web-image-prewarm) bakes a Node compile cache without starting a conversation.
+- [Classic Pi starts in Terminal](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) when no mode is selected, including when settings hide the mode picker.
+- [Managed Pi startup](mcp.md#req-agent-281-bundled-mcp-manager-registration-retirement) retires the bundled Pi Web MCP Manager registration on restore so the managed adapter can own MCP.
+
+## 2026-11-25: Keep session shutdown cards live
+
+- [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) returns to the Dashboard immediately on Stop or Delete from the in-session dropdown. [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) keeps available metrics on both disabled cards and replaces the Dashboard’s sweeping light with two centered, uppercase subtitle labels, one word per padded black row, with reflow for enlarged text.
+- [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) returns to the regular metrics layout during final teardown, without a visible subtitle or [metrics notice](session-lifecycle.md#req-session-243-ordered-lifecycle-presentation-and-read-availability).
+- [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) shows a single Retry button on a failed memory consolidation card; select the card to resume. Delete is unavailable on recovery cards. Missing readings keep their original `...` placeholders.
+- [REQ-SESSION-244](session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling) refreshes an open session dropdown more frequently so observers see shutdown progress without reloading.
+- If a session card disappears, the Dashboard and dropdown discard its pending [Delete confirmation](session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling).
+
+## 2026-11-24: Open Pi Chat during repository restore
+
+- [Classic Pi Chat startup](agents.md#req-agent-275-classic-pi-chat-startup) keeps the standard Ready → Open screen. Classic Chat, Terminal, and switching stay available while repositories clone, with the restore notification visible.
+- [Stock Pi Chat controls](agents.md#req-agent-274-stock-pi-chat-controls) support workspace attachments up to 10 MB per batch and default to Graphite under the Codeflare machine name.
+
+## 2026-11-24: Rotate Hermes stores by last content change
+
+- [REQ-MEM-042](memory.md#req-mem-042-retain-ten-recent-session-memory-stores) evicts the oldest changed session memory prefix at capacity without requiring a final-save receipt, confirmed exit, or completed merge.
+
+## 2026-11-24: Keep dedicated outbound handlers on Resume
+
+- [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress) attempts GitHub, Cloudflare API, and other hostname-specific registrations before the strict catch-all when resuming a stopped session. [Live credential refresh](security.md#req-enterprise-311-strict-r2-credential-replacement) still replaces only the catch-all.
+
+## 2026-11-23: Continue Pi conversations in Chat or Terminal
+
+- [REQ-AGENT-272](agents.md#req-agent-272-pi-chat-and-terminal-transcript-handoff) specifies Dashboard-selected Pi Start and Resume in Chat or Terminal for Classic sessions while Herdr still starts and resumes natively. A switch stops current execution and opens the same saved transcript after the outgoing writer releases it; Browser VS Code remains independent.
+
+## 2026-11-23: Consolidate Hermes at graceful shutdown
+
+- [REQ-SESSION-043](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) orders eligible Enterprise Stop and Delete requests per owner regardless of workspace sync, leaves Kill outside the queue, and waits for sync readiness before final save. Pre-rollout generations not enrolled keep ordinary teardown until relaunched; a queued generation uses ordinary teardown only on confirmed startup disable, and [Retry Stop](session-lifecycle.md#req-session-042-same-generation-stop-retry-authority) can repeat a definitive failure or a confirmed refusal before sync dispatch, but not a disk blocker observed after dispatch or an unconfirmed timeout.
+- [REQ-STOR-044](storage.md#req-stor-044-disk-space-failure-visibility) reports persisted disk blockers. Hermes final save rechecks after Pi drain and refuses to dispatch if blocked; a blocker reported after dispatch does not establish the run's outcome.
+- [REQ-MEM-044](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) compares saved entries to their original baseline and uses scoped rclone to sync and verify the same four fixed masters under `Vault/Memory`, without a pointer or versioned folders. Old versioned results do not authorize Delete or reseeding from fixed masters. A matching fixed-master receipt can reseed on Resume; a partial restore or upload does not consume the receipt. Strict egress preserves [verified empty Hermes files](memory.md#req-mem-041-session-isolated-hermes-markdown) during SSE-C reads without admitting nonempty default-encrypted objects.
+- [REQ-ENTERPRISE-100](models-and-routing.md#req-enterprise-100-exact-inference-route-for-hermes-shutdown-merge) uses the owner's current authorized native or Gateway model after the final save, without model substitution or additional access grants.
+
 ## 2026-11-22: Recover halted storage migrations
 
 - [REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine) preserves verified empty objects without SSE-C conversion. The [dashboard offers an icon-only retry beside the halted status](storage.md#req-enterprise-304-dashboard-migration-affordance-and-refresh), including for mixed recovery with a matching recorded key identity; [older halts without that record](storage.md#req-enterprise-322-owner-authorized-migration-retry) require administrator review.

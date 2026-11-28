@@ -4,7 +4,7 @@ import RepoRow from './RepoRow';
 
 // Renders the filtered repo list with loading / empty states and a
 // "Load more" affordance gated on hasMore. Pure composition over RepoRow.
-const RepoList: Component = () => {
+const RepoList: Component<{ vibeOnly?: boolean }> = (props) => {
   return (
     <div class="github-repo-list" data-testid="github-repo-list">
       <Show when={githubStore.loading}>
@@ -43,7 +43,7 @@ const RepoList: Component = () => {
       <Show when={!githubStore.loading && !githubStore.error && githubStore.filteredRepos.length > 0}>
         <div class="github-repo-rows" data-testid="github-repo-rows">
           <For each={githubStore.filteredRepos}>
-            {(repo) => <RepoRow repo={repo} />}
+            {(repo) => <RepoRow repo={repo} vibeOnly={props.vibeOnly} />}
           </For>
         </div>
 

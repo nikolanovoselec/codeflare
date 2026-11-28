@@ -1,9 +1,10 @@
-import { Component, Show, createSignal, createMemo } from 'solid-js';
+import { Component, Show, createSignal, createMemo, createEffect, onCleanup } from 'solid-js';
 import { mdiChevronDown, mdiLayersTripleOutline } from '@mdi/js';
 import Icon from './Icon';
 import SessionDropdown from './SessionDropdown';
 import type { SessionWithStatus, SessionStatus, AgentType, TabConfig } from '../types';
 import { createTerminalViewportClass, isMobile } from '../lib/mobile';
+import { setSessionDropdownPolling } from '../stores/session-polling';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import '../styles/session-switcher.css';
 
@@ -24,18 +25,25 @@ interface SessionSwitcherProps {
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
+  disableMultiView?: boolean;
   onOpenMultiView?: () => void;
   onCloseMultiView?: () => void;
 }
 
 const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
   const [isOpen, setIsOpen] = createSignal(false);
+  createEffect(() => {
+    if (!isOpen()) return;
+    setSessionDropdownPolling(true);
+    onCleanup(() => setSessionDropdownPolling(false));
+  });
 
   const viewport = createTerminalViewportClass();
   const activeSession = createMemo(() =>
     props.sessions.find(s => s.id === props.activeSessionId)
   );
-  const existingMultiView = createMemo(() => terminalWorkspaceStore.reconcileMultiView(props.sessions, viewport()));
+  const existingMultiView = createMemo(() => props.disableMultiView ? null
+    : terminalWorkspaceStore.reconcileMultiView(props.sessions, viewport()));
   const activeMultiView = createMemo(() =>
     terminalWorkspaceStore.getActiveWorkspace().kind === 'multiview'
       ? existingMultiView()
@@ -54,12 +62,9 @@ const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
 
   const multiViewCapacity = createMemo(() => terminalWorkspaceStore.getMultiViewCapacity(viewport()));
   const handleLaunchMultiView = (sessionIds: string[]) => {
+    if (props.disableMultiView) return;
     const created = terminalWorkspaceStore.createOrUpdateMultiView(sessionIds, props.sessions, viewport());
     if (!created) return;
-    props.onOpenMultiView?.();
-  };
-
-  const handleOpenMultiView = () => {
     props.onOpenMultiView?.();
   };
 
@@ -97,11 +102,11 @@ const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
         onCreateSession={props.onCreateSession}
         onClose={handleClose}
         isMobileView={isMobile()}
-        multiView={{
+        multiView={props.disableMultiView ? undefined : {
           capacity: multiViewCapacity(),
           existing: existingMultiView(),
           onLaunch: handleLaunchMultiView,
-          onOpen: handleOpenMultiView,
+          onOpen: () => { if (!props.disableMultiView) props.onOpenMultiView?.(); },
           onClose: () => props.onCloseMultiView?.(),
         }}
       />

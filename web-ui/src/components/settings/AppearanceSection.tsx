@@ -6,7 +6,7 @@ import { applyAccentColor, isValidHex } from '../../lib/settings';
 import type { Settings } from '../../lib/settings';
 import { isTouchDevice, isSamsungBrowser } from '../../lib/mobile';
 
-const DEFAULT_ACCENT_HEX = '#ff5c3c';
+const DEFAULT_ACCENT_HEX = '#00BAFF';
 
 interface AppearanceSectionProps {
   accentHexInput: Accessor<string>;

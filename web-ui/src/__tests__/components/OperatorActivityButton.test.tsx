@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createSignal } from 'solid-js';
 import OperatorActivityButton from '../../components/OperatorActivityButton';
 import { piLoginRecoveryCopy, type OperatorActivityDetail } from '../../api/operator-activities';
 import { sessionStore } from '../../stores/session';
@@ -71,6 +72,33 @@ describe('REQ-OPERATOR-086: regional run timestamps', () => {
 
 // REQ-OPERATOR-105: Dispatcher inference context.
 describe('REQ-OPERATOR-027: operator activity header control', () => {
+  it('opens the existing activity dialog from a labeled Profile action', async () => {
+    listMock.mockResolvedValue({ items: [] });
+    render(() => <OperatorActivityButton enabled inProfile />);
+    const action = screen.getByRole('button', { name: 'Operator activity' });
+    expect(action).toHaveTextContent('Operators');
+    await fireEvent.click(action);
+    const dialog = await screen.findByRole('dialog', { name: 'Operator activity' });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Close operators' }));
+    expect(screen.queryByRole('dialog', { name: 'Operator activity' })).not.toBeInTheDocument();
+  });
+  it('retains the open activity dialog when its trigger moves to Profile', async () => {
+    listMock.mockResolvedValue({ items: [] });
+    const [overflowed, setOverflowed] = createSignal(false);
+    let profile!: HTMLDivElement;
+    render(() => <>
+      <div ref={profile} role="group" aria-label="Profile actions" />
+      <OperatorActivityButton enabled inProfile={overflowed()} profileMount={() => profile} />
+    </>);
+    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Operator activity' });
+    setOverflowed(true);
+    const trigger = within(screen.getByRole('group', { name: 'Profile actions' })).getByRole('button', { name: 'Operator activity' });
+    expect(screen.getByRole('dialog', { name: 'Operator activity' })).toBe(dialog);
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Close operators' }));
+    expect(trigger).toHaveFocus();
+  });
+
   it('REQ-OPERATOR-007: shows provider-default in the existing run dropdown without Off or Medium', async () => {
     listMock.mockResolvedValue({ items: [active] });
     detailMock.mockResolvedValue({ ...active, checkpoint: null, result: null,

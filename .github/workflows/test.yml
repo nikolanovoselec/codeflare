@@ -175,6 +175,21 @@ jobs:
               - 'landing/**'
               - 'src/lib/design-ready.ts'
             pi:
+              - 'Dockerfile'
+              # Chat and Terminal share Host startup, routing, and lifecycle ownership.
+              - 'host/package.json'
+              - 'host/package-lock.json'
+              - 'host/tsconfig.json'
+              - 'host/src/**'
+              - 'src/container/**'
+              - 'src/routes/container/lifecycle.ts'
+              - 'src/routes/session/crud.ts'
+              - 'src/routes/session/lifecycle.ts'
+              - 'src/routes/session/shutdown.ts'
+              - 'image/pi-web/**'
+              - 'image/herdr/**'
+              - 'scripts/ci/smoke-pi-web-*.mjs'
+              - 'preseed/npm-tools/package.json'
               - 'scripts/qualify-pi-mcp.mjs'
               - 'host/__tests__/pi-mcp-stock.test.js'
               - 'scripts/patch-rpiv-question-timeout.mjs'
@@ -185,10 +200,14 @@ jobs:
               - 'src/lib/bedrock-anthropic-native-adapter.ts'
               - 'src/lib/reasoning-profiles.ts'
               - 'src/lib/ai-capability-discovery/**'
+              - 'scripts/patch-pi-goal-review-control.mjs'
+              - 'scripts/patch-pi-plan-mode-tool-policy.mjs'
+              - 'scripts/patch-pi-todo-loop-default-pause.mjs'
               - 'scripts/patch-pi-native-model-display.mjs'
-              - 'scripts/patch-pi-codex-prompt-cache.mjs'
+              - 'scripts/verify-pi-lockstep.mjs'
               - 'scripts/update-pi-runtime-artifacts.mjs'
               - 'entrypoint.sh'
+              - 'transcript-retention.mjs'
               - 'host/__fixtures__/enterprise-pi-startup.mjs'
               - '.github/workflows/test.yml'
               - '.github/actions/install-deps/**'
@@ -222,9 +241,10 @@ jobs:
               - 'scripts/patch-impeccable-engine.py'
               - 'scripts/impeccable-launcher.mjs'
               - 'scripts/update-impeccable-skill.mjs'
+              - 'scripts/patch-pi-goal-review-control.mjs'
               - 'scripts/patch-pi-plan-mode-tool-policy.mjs'
+              - 'scripts/patch-pi-todo-loop-default-pause.mjs'
               - 'scripts/patch-pi-native-model-display.mjs'
-              - 'scripts/patch-pi-codex-prompt-cache.mjs'
               - 'scripts/update-pi-runtime-artifacts.mjs'
               - 'scripts/patch-chrome-devtools-timeouts.mjs'
               - 'scripts/patch-rclone-bisync.py'
@@ -240,6 +260,7 @@ jobs:
               - '.github/**'
               - 'host/**'
               - 'preseed/**'
+              - 'transcript-retention.mjs'
               - 'scripts/ci/resolve-kv-namespace.sh'
               - 'scripts/browser-ide-ui-state.py'
               # browser-ide-extensions.py is guarded by
@@ -260,6 +281,7 @@ jobs:
               - 'scripts/ci/actionlint-input.mjs'
               - 'host/__tests__/actionlint-input.test.js'
             dependencies:
+              - 'image/pi-web/package-lock.json'
               - 'package-lock.json'
               - 'web-ui/package-lock.json'
               - 'openvscode/agent-sidebar/package-lock.json'
@@ -426,29 +448,27 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 13
+      max-parallel: 11
       matrix:
-        # The twelve completed Workers artifacts from run 41877010056 supply
-        # collection and execution costs for thirteen longest-first groups.
+        # Recorded Worker file timings in backend-test-weights.json supply
+        # collection and execution costs for eleven longest-first groups.
         # The Node runtime remains separate from this Workers-only population.
         include:
           # Generated seed files are committed and drift-checked in Quality. Running
-          # npm's `test` lifecycle here would regenerate them in all thirteen isolated
+          # npm's `test` lifecycle here would regenerate them in all eleven isolated
           # runners before every weighted group, adding duplicated startup work but
           # no coverage. `test:worker` runs the same Workers suite without that hook.
-          - { balance-group: '1/13', slug: shard-1, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '2/13', slug: shard-2, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '3/13', slug: shard-3, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '4/13', slug: shard-4, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '5/13', slug: shard-5, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '6/13', slug: shard-6, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '7/13', slug: shard-7, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '8/13', slug: shard-8, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '9/13', slug: shard-9, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '10/13', slug: shard-10, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '11/13', slug: shard-11, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '12/13', slug: shard-12, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '13/13', slug: shard-13, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '1/11', slug: shard-1, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '2/11', slug: shard-2, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '3/11', slug: shard-3, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '4/11', slug: shard-4, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '5/11', slug: shard-5, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '6/11', slug: shard-6, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '7/11', slug: shard-7, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '8/11', slug: shard-8, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '9/11', slug: shard-9, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '10/11', slug: shard-10, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '11/11', slug: shard-11, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -787,7 +807,7 @@ jobs:
       - uses: $/.github/actions/merge-coverage
         with:
           artifact-prefix: 'backend-shard'
-          expected-shards: '13'
+          expected-shards: '11'
           slug: backend
           package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -978,7 +998,7 @@ jobs:
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.pi == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
-    timeout-minutes: 5
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -992,20 +1012,13 @@ jobs:
         with:
           key-prefix: root
 
-      # This lane patches its runtime after the necessity check. Restoring cached
-      # node_modules could feed last run's patched bytes into a pristine-only gate.
+      # Test upstream Codex behavior on a fresh install of the exact lock.
       - name: Install pristine lock-matched Pi dependencies
         working-directory: preseed/agents/pi
         run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
 
-      - name: Qualify the real stock MCP extension and public client
-        run: node scripts/qualify-pi-mcp.mjs
-
-      - name: Verify pristine Codex backport necessity and request behavior
-        run: node --test preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs
-
-      - name: Apply pinned Codex prompt-cache backport
-        run: node scripts/patch-pi-codex-prompt-cache.mjs preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
+      - name: Verify upstream Codex prompt-cache request behavior
+        run: node --test preseed/agents/pi/test/codex-prompt-cache.test.mjs
 
       - name: Apply pinned Pi native display patch
         run: node scripts/patch-pi-native-model-display.mjs preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
@@ -1073,6 +1086,127 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  pi-web:
+    name: Pi Web qualification (${{ matrix.lane }})
+    needs: changes
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.pi == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [services, handoff, handoff-retry]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - uses: $/.github/actions/install-deps
+        with:
+          key-prefix: root
+
+      - name: Install pristine lock-matched Pi dependencies
+        working-directory: preseed/agents/pi
+        run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
+
+      - name: Install the locked stock pi-web artifact
+        working-directory: image/pi-web
+        run: npm ci --omit=dev --omit=peer --no-audit --no-fund
+
+      - name: Qualify the locked Pi Web artifacts
+        env:
+          PI_WEB_LANE: ${{ matrix.lane }}
+        run: |
+          set -euo pipefail
+          node_image=$(awk '$1 == "FROM" && NF == 2 && $2 ~ /^mirror[.]gcr[.]io\/library\/node:/ { print $2 }' Dockerfile)
+          [[ "$node_image" =~ ^mirror\.gcr\.io/library/node:[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]
+          # Transpile, do not bundle: production relative .js imports remain usable by other smoke modules.
+          host_dist=$(mktemp -d "$RUNNER_TEMP/pi-web-host.XXXXXXXX")
+          chmod 0755 "$host_dist" # Readable by the container without DAC override.
+          node_modules/.bin/esbuild host/src/activity-tracker.ts host/src/pi-web-handoff.ts host/src/pi-web-proxy.ts \
+            host/src/pi-web-runtime.ts host/src/pi-web-services.ts \
+            --format=esm --target=es2022 --outdir="$host_dist"
+          docker run --rm --init --network=none --cap-drop=ALL --security-opt=no-new-privileges \
+            --env PI_OFFLINE=1 --env PI_SKIP_VERSION_CHECK=1 --env PI_WEB_LANE \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web,dst=/qualification/pi-web,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/node_modules,dst=/opt/codeflare/npm-tools/node_modules,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/npm-tools/package.json,dst=/opt/codeflare/npm-tools/package.json,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci,dst=/qualification/scripts/ci,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/entrypoint.sh,dst=/qualification/entrypoint.sh,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/extensions/00-mcp-adapter-config.ts,dst=/qualification/00-mcp-adapter-config.ts,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/host/__fixtures__/pi-mcp-extension-server.mjs,dst=/qualification/pi-mcp-extension-server.mjs,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/node_modules/ws,dst=/qualification/host/node_modules/ws,readonly" \
+            --mount "type=bind,src=$host_dist,dst=/qualification/host/dist,readonly" \
+            "$node_image" sh -euc '
+              # Exercise file preservation on the disposable container filesystem.
+              mkdir -p /opt/codeflare/pi-web
+              cp -R /qualification/pi-web/. /opt/codeflare/pi-web/
+              ln -s "$(readlink -f /opt/codeflare/npm-tools/node_modules/.bin/pi)" /usr/local/bin/pi
+              case "$PI_WEB_LANE" in
+                services) exec node /qualification/scripts/ci/smoke-pi-web-services.mjs ;;
+                handoff|handoff-retry) exec node /qualification/scripts/ci/smoke-pi-web-host-handoff.mjs "$PI_WEB_LANE" ;;
+                *) exit 1 ;;
+              esac
+            '
+
+      - name: Verify SYSTEM row visibility in stock Pi Web
+        if: matrix.lane == 'services'
+        run: |
+          set -euo pipefail
+          CI_CHROMIUM_EXECUTABLE="$(command -v google-chrome)" \
+            node scripts/ci/smoke-pi-web-system-rows.mjs
+
+      - name: Verify native Pi and stock pi-web transcript interoperability
+        if: matrix.lane == 'services'
+        env:
+          CODEFLARE_PI_WEB_SMOKE_ROOT: ${{ github.workspace }}/image/pi-web
+          CODEFLARE_PI_WEB_SMOKE_PI_PACKAGE: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
+          CODEFLARE_PI_WEB_SMOKE_CLI: ${{ github.workspace }}/preseed/agents/pi/node_modules/.bin/pi
+        run: node scripts/ci/smoke-pi-web-handoff.mjs
+
+      - name: Qualify the shipped Classic Pi launcher
+        if: matrix.lane == 'services'
+        run: |
+          set -euo pipefail
+          node_image=$(awk '$1 == "FROM" && NF == 2 && $2 ~ /^mirror[.]gcr[.]io\/library\/node:/ { print $2 }' Dockerfile)
+          [[ "$node_image" =~ ^mirror\.gcr\.io/library/node:[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]
+          # A disposable test image adds just the shipped launcher's jq dependency.
+          fixture="pi-web-launcher-ci:$GITHUB_RUN_ID"
+          trap 'docker image rm "$fixture" >/dev/null 2>&1 || true' EXIT
+          docker build --build-arg "BASE=$node_image" -t "$fixture" - <<'DOCKERFILE'
+          ARG BASE
+          FROM $BASE
+          RUN apt-get update && apt-get install -y --no-install-recommends jq && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          host_dist=$(mktemp -d "$RUNNER_TEMP/pi-web-launchers.XXXXXXXX")
+          chmod 0755 "$host_dist"
+          node_modules/.bin/esbuild host/src/prewarm-readiness.ts host/src/terminal-mode.ts \
+            host/src/pi-web-handoff.ts host/src/pi-web-runtime.ts host/src/pi-web-services.ts \
+            --format=esm --target=es2022 --outdir="$host_dist"
+          docker run --rm --init --network=none --cap-drop=ALL --security-opt=no-new-privileges \
+            --env PI_OFFLINE=1 --env PI_SKIP_VERSION_CHECK=1 \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/codeflare-pi,dst=/usr/local/bin/codeflare-terminal-writer,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/handoff-extension.ts,dst=/opt/codeflare/pi-web/handoff-extension.ts,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/classic-session-state.mjs,dst=/opt/codeflare/pi-web/classic-session-state.mjs,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/image/pi-web/native-preflight.mjs,dst=/opt/codeflare/pi-web/native-preflight.mjs,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/preseed/agents/pi/node_modules,dst=/opt/codeflare/npm-tools/node_modules,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci,dst=/qualification/scripts/ci,readonly" \
+            --mount "type=bind,src=$host_dist,dst=/qualification/host/dist,readonly" \
+            "$fixture" sh -euc '
+              ln -s "$(readlink -f /opt/codeflare/npm-tools/node_modules/.bin/pi)" /usr/local/bin/pi
+              exec node /qualification/scripts/ci/smoke-pi-web-launchers.mjs classic
+            '
+
+      - name: Qualify the real stock MCP extension and public client
+        if: matrix.lane == 'handoff-retry'
+        run: node scripts/qualify-pi-mcp.mjs
+
   host-tests:
     name: Host tests (${{ matrix.slug }})
     needs: changes
@@ -1083,17 +1217,18 @@ jobs:
     timeout-minutes: 5
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 6
       matrix:
-        # Run every native partition once in parallel without reducing coverage.
+        # Keep five native-baseline partitions and isolate the persistence file.
         # Overlap independent host setup below to target roughly 200-second CI
         # completion; runner and suite timings still determine actual completion.
         include:
-          - { shards: '1/5', slug: shard-1 }
-          - { shards: '2/5', slug: shard-2 }
-          - { shards: '3/5', slug: shard-3 }
-          - { shards: '4/5', slug: shard-4 }
-          - { shards: '5/5', slug: shard-5 }
+          - { shards: '1/6', slug: shard-1 }
+          - { shards: '2/6', slug: shard-2 }
+          - { shards: '3/6', slug: shard-3 }
+          - { shards: '4/6', slug: shard-4 }
+          - { shards: '5/6', slug: shard-5 }
+          - { shards: '6/6', slug: shard-6 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1335,9 +1470,9 @@ jobs:
           rclone version
 
       - name: Select host tests
-        # Preserve the native baseline with two measured whole-file moves.
+        # Preserve the native baseline except for measured whole-file moves.
         # The selector rejects empty groups; host-test-inventory.test.js checks
-        # exact coverage, exclusions and unique ownership across all five groups.
+        # exact coverage, exclusions and unique ownership across all six groups.
         env:
           HOST_GROUP: ${{ matrix.shards }}
         run: |
@@ -1357,11 +1492,16 @@ jobs:
           # Keep the test owner outside worker limits, inside its delegated subtree.
           sudo sh -c 'printf "%s\n" "$1" > "$2/cgroup.procs"' sh "$$" "/sys/fs/cgroup/codeflare-trim-workers/ci-owner"
           persistence='host/__tests__/entrypoint-rclone-filters.test.js'
-          grep -Fxv "$persistence" "$RUNNER_TEMP/host-tests.txt" > "$RUNNER_TEMP/host-tests-regular.txt"
-          xargs -a "$RUNNER_TEMP/host-tests-regular.txt" \
-            node --experimental-test-module-mocks --test --test-force-exit --test-timeout=60000 \
-              --test-reporter=spec --test-reporter-destination=stdout \
-              --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report-1.xml"
+          awk -v persistence="$persistence" '$0 != persistence' "$RUNNER_TEMP/host-tests.txt" > "$RUNNER_TEMP/host-tests-regular.txt"
+          if [ -s "$RUNNER_TEMP/host-tests-regular.txt" ]; then
+            xargs -a "$RUNNER_TEMP/host-tests-regular.txt" \
+              node --experimental-test-module-mocks --test --test-force-exit --test-timeout=60000 \
+                --test-reporter=spec --test-reporter-destination=stdout \
+                --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report-1.xml"
+          elif [ "$(cat "$RUNNER_TEMP/host-tests.txt")" != "$persistence" ]; then
+            echo '::error::No regular Host tests selected outside the persistence-only file list.'
+            exit 1
+          fi
 
           # Run the persistence file once, without forced exit. A successful
           # Node exit alone has not guaranteed a complete matrix report.
@@ -1522,7 +1662,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+      - uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
         with:
           license-check: 'true'
           vulnerability-check: 'true'
@@ -1590,6 +1730,7 @@ jobs:
       - frontend-build
       - landing-tests
       - pi-prompt
+      - pi-web
       - host-tests
       - browser-run-timeouts
       - browser-ide

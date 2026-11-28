@@ -12,6 +12,7 @@ interface SessionContextMenuProps {
   stopLabel?: string;
   sessionName: string;
   onStop: () => void;
+  canDelete?: boolean;
   onDelete: () => void;
   /** REQ-SESSION-027 AC1: rename the session this menu was opened for. */
   onRename: (name: string) => void;
@@ -20,13 +21,11 @@ interface SessionContextMenuProps {
 
 const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
   const [confirmingDelete, setConfirmingDelete] = createSignal(false);
+  createEffect(() => { if (props.canDelete === false) setConfirmingDelete(false); });
   const [renaming, setRenaming] = createSignal(false);
   const [draftName, setDraftName] = createSignal('');
 
-  // The menu stays mounted across opens (only `isOpen`/`position` change), so
-  // any per-open transient state must be reset explicitly on every path that
-  // closes the menu; otherwise a stale draft can carry over to the next
-  // session this menu is opened for.
+  // Discard the draft and confirmation when the user closes or completes a menu action.
   const resetTransient = () => {
     setConfirmingDelete(false);
     setRenaming(false);
@@ -94,7 +93,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
   };
 
   const handleDeleteConfirm = () => {
-    props.onDelete();
+    if (props.canDelete !== false) props.onDelete();
     resetTransient();
     props.onClose();
   };
@@ -158,7 +157,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             Kill
           </button>
         </Show>
-        <Show when={!confirmingDelete()}>
+        <Show when={props.canDelete !== false && !confirmingDelete()}>
           <button
             type="button"
             class="session-context-menu__item session-context-menu__item--danger"
@@ -169,7 +168,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             Delete
           </button>
         </Show>
-        <Show when={confirmingDelete()}>
+        <Show when={props.canDelete !== false && confirmingDelete()}>
           <button
             type="button"
             class="session-context-menu__item session-context-menu__item--danger"

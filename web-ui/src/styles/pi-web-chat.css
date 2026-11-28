@@ -1,0 +1,190 @@
+.pi-web-chat {
+  display: flex;
+  flex: 1;
+  min-block-size: 0;
+  min-inline-size: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pi-web-chat__space {
+  container-type: size;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  flex: 1;
+  min-block-size: 0;
+  min-inline-size: 0;
+}
+
+.pi-web-chat__frame,
+.layout-workspace--chat > :is(header, .layout-middle) {
+  box-sizing: border-box;
+  inline-size: min(80%, 800px);
+}
+
+.pi-web-chat__frame {
+  display: block;
+  block-size: min(80%, 1200px);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: transparent;
+}
+
+@container (max-width: 760px) or (max-height: 480px) {
+  .pi-web-chat__frame,
+  .layout-workspace--chat > :is(header, .layout-middle) {
+    inline-size: min(800px, max(0px, calc(100% - 24px - 2 * max(env(safe-area-inset-left), env(safe-area-inset-right)))));
+  }
+
+  .pi-web-chat__frame {
+    block-size: min(1200px, max(0px, calc(100% - 24px - 2 * max(env(safe-area-inset-top), env(safe-area-inset-bottom)))));
+  }
+}
+
+@media (max-width: 640px) {
+  .pi-web-chat__frame,
+  .layout-workspace--chat > :is(header, .layout-middle) {
+    inline-size: 100%;
+  }
+
+  .pi-web-chat__frame {
+    block-size: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+}
+
+/* Keep the original header and content boxes in place outside open Chat. */
+.layout-workspace {
+  display: contents;
+}
+
+.layout-workspace--chat {
+  container: chat-workspace / size;
+  display: flex;
+  flex: 1;
+  min-block-size: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.layout-workspace--chat > header {
+  flex: none;
+}
+
+/* Split the height left after the header 1:8:1, centering the pair even
+   when the content reaches its height cap. Leave menus outside the clip. */
+.layout-workspace--chat::before,
+.layout-workspace--chat::after {
+  content: '';
+  flex: 1 1 0;
+}
+
+.layout-workspace--chat > .layout-middle {
+  flex: 8 1 0;
+  max-block-size: var(--chat-compact-height, min(1200px, 80cqb));
+}
+
+.layout-workspace--chat .pi-web-chat__frame {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+@container chat-workspace (max-width: 760px) or (max-height: 480px) {
+  .layout-workspace--chat::before,
+  .layout-workspace--chat::after {
+    flex: 0 1 calc(12px + max(env(safe-area-inset-top), env(safe-area-inset-bottom)));
+  }
+
+  .layout-workspace--chat > .layout-middle {
+    max-block-size: var(--chat-compact-height, min(1200px, 100cqb));
+  }
+}
+
+/* Follow the visual viewport without easing past the keyboard edge. The
+   gutters release space progressively as the browser reports keyboard motion. */
+.layout-workspace--chat[data-chat-keyboard='open'] {
+  --chat-keyboard-available: max(0px, calc(100cqb - var(--header-height)));
+  --chat-keyboard-gutter: calc((var(--chat-keyboard-available) - min(1200px, var(--chat-keyboard-available) * 0.8)) / 2);
+  --chat-keyboard-safe-area: max(env(safe-area-inset-top), env(safe-area-inset-bottom));
+  justify-content: flex-start;
+}
+
+.layout-workspace--chat[data-chat-keyboard='open']::before {
+  flex: 0 0 calc(var(--chat-keyboard-safe-area) + max(var(--chat-keyboard-gutter) / 2,
+    var(--chat-keyboard-gutter) - var(--chat-keyboard-inset) / 2));
+}
+
+.layout-workspace--chat[data-chat-keyboard='open']::after {
+  flex: 0 0 max(var(--chat-keyboard-inset), calc(var(--chat-keyboard-gutter) + var(--chat-keyboard-safe-area)));
+}
+
+.layout-workspace--chat[data-chat-keyboard='open'] > .layout-middle {
+  flex: 1 1 0;
+  max-block-size: var(--chat-compact-height, min(1200px, 100cqb));
+}
+
+@container chat-workspace (max-width: 760px) or (max-height: 480px) {
+  .layout-workspace--chat[data-chat-keyboard='open']::before,
+  .layout-workspace--chat[data-chat-keyboard='open']::after {
+    --chat-keyboard-gutter: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .layout-workspace--chat {
+    justify-content: flex-start;
+  }
+
+  .layout-workspace--chat > header {
+    min-block-size: calc(var(--header-height) + env(safe-area-inset-top));
+    padding-block-start: env(safe-area-inset-top);
+  }
+
+  .layout-workspace--chat::before,
+  .layout-workspace--chat::after {
+    content: none;
+  }
+
+  .layout-workspace--chat > .layout-middle {
+    /* Only the compact frame centers in the space below the header. */
+    margin-block: auto;
+    max-block-size: var(--chat-compact-height, 100cqb);
+  }
+}
+
+.pi-web-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.pi-web-action {
+  font: inherit;
+  padding: var(--space-1) var(--space-2);
+  min-block-size: 32px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  background: var(--color-bg-elevated);
+  cursor: pointer;
+}
+
+.pi-web-action:hover:not(:disabled) { background: var(--color-bg-muted); }
+.pi-web-action:disabled { opacity: 0.55; cursor: default; }
+
+@media (pointer: coarse) {
+  .pi-web-action { min-block-size: 44px; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .layout-workspace--chat > .layout-middle--chat-expanding {
+    transition: max-block-size 240ms ease-out;
+  }
+}

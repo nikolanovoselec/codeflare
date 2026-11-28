@@ -11,6 +11,19 @@ describe('VaultButton', () => {
 
   const btn = () => screen.getByTestId('header-vault-button');
 
+  it('preserves guarded Vault feedback and activation as a labeled Profile action', () => {
+    const [status, setStatus] = createSignal<VaultButtonStatus>('prewarming');
+    const onOpen = vi.fn();
+    render(() => <VaultButton status={status()} onOpen={onOpen} inProfile />);
+    expect(btn()).toHaveTextContent('Vault');
+    fireEvent.click(btn());
+    expect(screen.getByRole('status')).toHaveTextContent('Preparing Vault on this device');
+    expect(onOpen).not.toHaveBeenCalled();
+    setStatus('ready');
+    fireEvent.click(btn());
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
   it.each([
     { status: 'idle' as const, feedback: 'Vault is waiting for the session to be ready.' },
     { status: 'prewarming' as const, feedback: 'Preparing Vault on this device. First use in a browser can take a few minutes.' },
@@ -101,7 +114,7 @@ describe('VaultButton', () => {
     render(() => <VaultButton status="preparing" onOpen={vi.fn()} />);
     // The focus-loss warning appears on its own the moment the button breathes.
     expect(screen.getByTestId('header-vault-status')).toBeInTheDocument();
-    expect(btn().getAttribute('aria-describedby')).toBe('header-vault-button-status');
+    expect(btn()).toHaveAccessibleDescription(/The terminal may briefly stop accepting input/);
   });
 
   it('armed auto-surfaces the ready region on the genuine preparing->armed transition, then auto-hides after 5s while the breathing class stays', () => {
@@ -111,8 +124,10 @@ describe('VaultButton', () => {
       render(() => <VaultButton status={status()} onOpen={vi.fn()} />);
       // Transition preparing -> armed: the ready confirmation surfaces.
       setStatus('armed');
+      expect(screen.getByTestId('header-vault-status')).toHaveTextContent('Your Vault is ready.');
+      vi.advanceTimersByTime(4999);
       expect(screen.getByTestId('header-vault-status')).toBeInTheDocument();
-      vi.advanceTimersByTime(5000);
+      vi.advanceTimersByTime(1);
       expect(screen.queryByTestId('header-vault-status')).not.toBeInTheDocument();
       // The green breathing class is independent of the tooltip and remains.
       expect(btn().classList.contains('header-vault-button--armed')).toBe(true);

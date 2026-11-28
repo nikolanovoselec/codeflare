@@ -14,8 +14,8 @@ describe('REQ-OPS-011 AC5: approved immutable Node base source', () => {
   it('resolves every build and runtime stage to the approved compiler, dependency-install and runtime indices', () => {
     const stages = [...dockerfile.matchAll(/^FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$/gm)]
       .map(([, reference, stage]) => [stage ?? 'runtime', reference]);
-    const node26 = 'mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1';
-    const sidebarTooling = 'mirror.gcr.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1';
+    const node26 = 'mirror.gcr.io/library/node:26-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9';
+    const sidebarTooling = 'mirror.gcr.io/library/node:26.13.1-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9';
     const node22 = 'mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c';
 
     assert.deepEqual(stages, [

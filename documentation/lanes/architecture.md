@@ -132,7 +132,7 @@ Authorized native Bedrock dispatch has a 120-second first-byte allowance; Dynami
 
 ### EgressController (Strict Gateway Egress, Enterprise Mode)
 
-**Responsibility:** Otherwise-unclaimed direct-internet traffic crosses customer Cloudflare Gateway through the required `EGRESS` binding. DO props bind strict state, account, exact user bucket and memory-only bucket-scoped credentials. The controller owns R2 re-signing and WebSocket bridging, not customer policy or general non-R2 platform authorization. Missing binding or another bucket fails closed.
+**Responsibility:** Otherwise-unclaimed direct-internet traffic crosses customer Cloudflare Gateway through the required `EGRESS` binding. DO props bind strict state, account, exact user bucket and memory-only bucket-scoped credentials. The controller owns R2 re-signing and WebSocket bridging, not customer policy or general non-R2 platform authorization. Missing binding or another bucket fails closed. Scoped [Hermes uploads](../../sdd/spec/memory.md#req-mem-042-retain-ten-recent-session-memory-stores) use the same signing boundary even with strict egress off. This path does not require Gateway or intercept general traffic.
 
 **Inputs:** Intercepted requests, strict-egress state, account/bucket identity, scoped credentials and `EGRESS` binding.
 
@@ -253,7 +253,7 @@ The prerendered Astro package emits `/landing` assets into the web asset tree. R
 **Contracts:** [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow), [REQ-TERM-015](../../sdd/spec/terminal.md#req-term-015-focused-pane-owns-url-detection), [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual), [AD105](../decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input).
 
 <a id="visible-terminal-workspace-and-multiview"></a>
-Visible panes own terminal sockets/resize; hidden running sessions mount neither. MultiView is never sent to lifecycle, quota, storage or terminal APIs. [Terminal & IDE](terminal-and-ide.md) owns desktop/tablet/mobile composition.
+Visible panes open terminal sockets and own resize. Dashboard may retain one previously connected inert pane, but opens no new sockets. MultiView is never sent to lifecycle, quota, storage or terminal APIs. [Terminal & IDE](terminal-and-ide.md) owns desktop/tablet/mobile composition.
 
 ### KV
 
@@ -495,7 +495,7 @@ Worker caches are per-isolate optimizations with bounded staleness; exact invent
 
 | Assumption | Bound / consequence | Owner |
 |---|---|---|
-| Visible dashboard polling | Transitions five seconds; stable 60 seconds; hidden cancellation; the next poll is scheduled after the current one settles; D1 projection stays separate from ancillary state | Container/Terminal & IDE; [REQ-SESSION-244](../../sdd/spec/session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling), [REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope) AC1 <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_TRANSITION_MS --> <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_STABLE_MS --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus --> |
+| Session status polling | Five seconds during transitions or while the session dropdown is open; otherwise 60 seconds when stable; hidden cancellation; the next poll is scheduled after the current one settles; D1 projection stays separate from ancillary state | Container/Terminal & IDE; [REQ-SESSION-244](../../sdd/spec/session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling), [REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope) AC1 <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_TRANSITION_MS --> <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_STABLE_MS --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus --> |
 | Metrics | Normally 60 seconds; bounded 10-second host polls | Container <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-metrics.ts::CONTAINER_POLL_BUDGET_MS --> |
 | Coordinator reconstruction | At most two resets; preserve possible workload, never infer exit from transport | Container/Troubleshooting <!-- @impl: src/container/container-metrics.ts::TRANSPORT_RECOVERY_MAX_ATTEMPTS --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> |
 | Bisync | 15 minutes plus manual triggers; local files may lead R2 | Storage & Sync; [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) <!-- @impl: entrypoint.sh::start_sync_daemon --> |

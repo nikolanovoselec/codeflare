@@ -118,7 +118,7 @@ app.put('/', mutationRateLimiter, async (c) => {
   const cryptoKey = await getOrImportKey(c.env);
   const existing = await getAndDecrypt<DeployKeys>(c.env.KV, kvKey, cryptoKey) || {};
   const updated: DeployKeys = { ...existing };
-  let cloudflareAccounts: CloudflareAccount[] | undefined;
+  let validatedCloudflareAccounts: CloudflareAccount[] | undefined;
 
   // GitHub token: null = delete, undefined = no change, string = validate + set.
   // A manually-pasted token is marked source 'pat'; clearing also drops the
@@ -142,17 +142,19 @@ app.put('/', mutationRateLimiter, async (c) => {
   }
 
   // Cloudflare token: null = delete, undefined = no change, string = validate + set
+  if (body.cloudflareApiToken !== undefined) {
+    delete updated.cloudflareTokenSource;
+    delete updated.cloudflareRefreshToken;
+    delete updated.cloudflareTokenExpiresAt;
+  }
   if (body.cloudflareApiToken === null) {
     delete updated.cloudflareApiToken;
     delete updated.cloudflareAccountId;
   } else if (typeof body.cloudflareApiToken === 'string') {
-    const accounts = await validateCloudflareToken(body.cloudflareApiToken);
+    validatedCloudflareAccounts = await validateCloudflareToken(body.cloudflareApiToken);
     updated.cloudflareApiToken = body.cloudflareApiToken;
-    if (accounts.length === 1) {
-      updated.cloudflareAccountId = accounts[0].id;
-    } else if (accounts.length > 1) {
-      cloudflareAccounts = accounts;
-      // Don't auto-set account ID - frontend will send it via cloudflareAccountId field
+    if (validatedCloudflareAccounts.length === 1) {
+      updated.cloudflareAccountId = validatedCloudflareAccounts[0].id;
     }
   }
 
@@ -168,7 +170,7 @@ app.put('/', mutationRateLimiter, async (c) => {
     }
     // Reuse the validation already performed above when the token was
     // co-submitted this request; otherwise validate the stored token now.
-    const accounts = cloudflareAccounts ?? await validateCloudflareToken(updated.cloudflareApiToken);
+    const accounts = validatedCloudflareAccounts ?? await validateCloudflareToken(updated.cloudflareApiToken);
     if (!accounts.some((account) => account.id === body.cloudflareAccountId)) {
       throw new ValidationError('Cloudflare account ID is not accessible with the stored token');
     }
@@ -188,7 +190,8 @@ app.put('/', mutationRateLimiter, async (c) => {
     // Emit explicit null on clear so the absence of a value is unambiguous to
     // the client rather than dropped by JSON serialization (REQ-AGENT-029 AC2).
     cloudflareAccountId: updated.cloudflareAccountId ?? null,
-    ...(cloudflareAccounts && { cloudflareAccounts }),
+    ...(validatedCloudflareAccounts && validatedCloudflareAccounts.length > 1
+      && { cloudflareAccounts: validatedCloudflareAccounts }),
   });
 });
 

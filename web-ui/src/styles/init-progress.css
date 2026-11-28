@@ -336,12 +336,12 @@
   font-weight: var(--font-medium);
 }
 
-/* Ready stage styling - show as completed (green) */
-.init-progress-stage--active[data-stage="ready"] {
+/* Loading Chat uses the same accent as other active stages. */
+.init-progress-stage--active[data-stage="ready"]:not([data-loading-chat]) {
   color: var(--color-success);
 }
 
-.init-progress-stage--active[data-stage="ready"] .init-progress-stage-icon {
+.init-progress-stage--active[data-stage="ready"]:not([data-loading-chat]) .init-progress-stage-icon {
   background: var(--color-success-muted);
 }
 

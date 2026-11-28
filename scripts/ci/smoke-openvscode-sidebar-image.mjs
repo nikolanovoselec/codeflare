@@ -18,6 +18,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = '/opt/codeflare/openvscode';
@@ -130,41 +131,50 @@ export async function verifyRpivExtensionStartup(nodeModulesRoot, sdkNodeModules
 export async function verifyPiClassicSessionStartup({
   piPath = '/usr/local/bin/pi',
   temporaryRoot = tmpdir(),
+  stateScript = '/opt/codeflare/pi-web/classic-session-state.mjs',
   run = spawnSync,
 } = {}) {
   const home = await mkdtemp(join(temporaryRoot, 'pi-classic-session-'));
   const cwd = join(home, 'workspace');
-  const sessionId = '00000000-0000-4000-8000-000000000211';
-  const timestamp = new Date().toISOString();
-  const encodedCwd = `--${cwd.slice(1).replaceAll('/', '-').replaceAll(':', '-')}--`;
-  const sessionDir = join(home, '.pi', 'agent', 'sessions', encodedCwd);
-  const sessionFile = join(sessionDir, `${timestamp.replaceAll(':', '-').replaceAll('.', '-')}_${sessionId}.jsonl`);
+  const sessionId = 'classic211';
   try {
     await mkdir(cwd, { recursive: true });
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(sessionFile, `${JSON.stringify({ type: 'session', version: 3, id: sessionId, timestamp, cwd })}\n`);
+    execFileSync(process.execPath, [stateScript, 'prepare', home, sessionId], { timeout: 10_000 });
+    const sessionFile = execFileSync(process.execPath, [stateScript, 'resume', home, sessionId], {
+      encoding: 'utf8', timeout: 10_000,
+    });
+    const { id } = JSON.parse(await readFile(sessionFile, 'utf8'));
+    const agentDir = join(home, '.pi', 'agent');
+    const provider = 'classic-smoke';
+    const model = 'offline-fixture';
+    // RPC startup needs a model, but get_state does not call it.
+    await writeFile(join(agentDir, 'settings.json'), JSON.stringify({ defaultProvider: provider, defaultModel: model }));
+    await writeFile(join(agentDir, 'models.json'), JSON.stringify({ providers: {
+      [provider]: { api: 'openai-completions', baseUrl: 'http://127.0.0.1:1/v1',
+        apiKey: 'local-fixture-not-a-secret', models: [{ id: model }] },
+    } }));
 
-    const result = run(piPath, ['--session-id', sessionId, '--print'], {
+    const result = run(piPath, ['--session', sessionFile, '--mode', 'rpc'], {
       cwd,
       encoding: 'utf8',
       env: {
         ...process.env,
         HOME: home,
-        PI_CODING_AGENT_DIR: join(home, '.pi', 'agent'),
+        PI_CODING_AGENT_DIR: agentDir,
         PI_OFFLINE: '1',
         PI_SKIP_VERSION_CHECK: '1',
       },
-      input: '',
+      input: '{"type":"get_state"}\n',
       timeout: 10_000,
     });
     assert.equal(result.error, undefined, `Pi Classic session smoke must start: ${result.error?.message ?? ''}`);
     assert.equal(result.signal, null, 'Pi Classic session smoke must terminate without a signal');
-    assert.doesNotMatch(
-      result.stderr ?? '',
-      /Warning: No project session found with id .*; creating a new session with that id\./,
-      'Pi must discover the seeded Classic session without a missing-session warning',
-    );
-    return sessionId;
+    assert.equal(result.status, 0, 'Pi Classic session smoke must exit successfully');
+    const response = (result.stdout ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+      .find(event => event.type === 'response' && event.command === 'get_state' && event.success === true);
+    assert.ok(response?.data?.sessionId === id && response.data.sessionFile === sessionFile,
+      'Pi must open the seeded Classic transcript with the expected ID and path');
+    return id;
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -172,7 +182,7 @@ export async function verifyPiClassicSessionStartup({
 
 export function verifyOxlintRuntime({
   path = '/usr/local/bin/oxlint',
-  expectedVersion = '1.93.0',
+  expectedVersion = '1.94.0',
   run = execFileSync,
 } = {}) {
   const output = run(path, ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
@@ -496,11 +506,14 @@ async function main() {
   });
   const claudeVersion = agentVersions['claude-code'];
   const piVersion = agentVersions.pi;
-  const piClassicSessionId = piVersion
-    ? await verifyPiClassicSessionStartup({ piPath: CODING_AGENT_COMMANDS.pi.path })
-    : null;
+  let piClassicSessionId = null;
   const rpivExtensionStartup = piVersion ? [] : null;
   if (piVersion) {
+    await test('packaged Pi opens the exact seeded Classic transcript', async () => {
+      piClassicSessionId = await verifyPiClassicSessionStartup({ piPath: CODING_AGENT_COMMANDS.pi.path });
+    });
+    // node:test reports failures without rejecting the awaited test promise.
+    assert.ok(piClassicSessionId, 'Packaged Classic Pi startup check failed');
     for (const root of [NPM_TOOLS_NODE_MODULES, PI_NPM_NODE_MODULES]) {
       rpivExtensionStartup.push(await verifyRpivExtensionStartup(PI_NPM_NODE_MODULES, root));
     }

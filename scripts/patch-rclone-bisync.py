@@ -226,6 +226,8 @@ func (o *Object) completedObject('''),
         changes.extend([
             ("backend/s3/s3.go", '\t"net/url"\n', '\t"net/url"\n\t"os"\n'),
             ("backend/s3/s3.go", 'func (f *Fs) headObject(ctx context.Context, req *s3.HeadObjectInput)', '''// Only the exact-path Hermes transfer opts in to reading plain empty objects.
+const codeflareHermesEmptyRead = "X-Codeflare-Hermes-Empty-Read"
+
 func (f *Fs) hermesEmptyReadAllowed(err error, key *string) bool {
 	if err == nil || key == nil || f.opt.Provider != "Cloudflare" || os.Getenv("CODEFLARE_RCLONE_HERMES_EMPTY_READ") != "1" {
 		return false
@@ -241,10 +243,10 @@ func (f *Fs) headObject(ctx context.Context, req *s3.HeadObjectInput)'''),
 	if err != nil {''', '''		resp, err = f.c.HeadObject(ctx, req)
 		return f.shouldRetry(ctx, err)
 	})
-	if f.hermesEmptyReadAllowed(err, req.SSECustomerKey) {
+	if req.Range == nil && f.hermesEmptyReadAllowed(err, req.SSECustomerKey) {
 		plain := *req
 		plain.SSECustomerAlgorithm, plain.SSECustomerKey, plain.SSECustomerKeyMD5 = nil, nil, nil
-		if empty, probeErr := f.c.HeadObject(ctx, &plain); probeErr == nil && empty.ContentLength != nil && *empty.ContentLength == 0 {
+		if empty, probeErr := f.c.HeadObject(ctx, &plain, s3.WithAPIOptions(smithyhttp.AddHeaderValue(codeflareHermesEmptyRead, "1"))); probeErr == nil && empty.ContentLength != nil && *empty.ContentLength == 0 {
 			resp, err = empty, nil
 		}
 	}
@@ -258,7 +260,8 @@ func (f *Fs) headObject(ctx context.Context, req *s3.HeadObjectInput)'''),
 	if o.bytes == 0 && req.Range == nil && o.fs.hermesEmptyReadAllowed(err, req.SSECustomerKey) {
 		plain := req
 		plain.SSECustomerAlgorithm, plain.SSECustomerKey, plain.SSECustomerKeyMD5 = nil, nil, nil
-		if empty, probeErr := o.fs.c.GetObject(ctx, &plain, s3.WithAPIOptions(APIOptions...)); probeErr == nil {
+		emptyOptions := append(APIOptions, smithyhttp.AddHeaderValue(codeflareHermesEmptyRead, "1"))
+		if empty, probeErr := o.fs.c.GetObject(ctx, &plain, s3.WithAPIOptions(emptyOptions...)); probeErr == nil {
 			if empty.ContentLength != nil && *empty.ContentLength == 0 && empty.ContentRange == nil {
 				resp, err = empty, nil
 			} else {

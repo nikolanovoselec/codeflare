@@ -13,6 +13,7 @@ import {
 } from './shared';
 import { getContainerHealthCB, getContainerSessionsCB } from '../../lib/circuit-breakers';
 import { D1SessionRepository } from '../../lib/session-repository';
+import { terminalFenced } from '../../lib/session-shutdown';
 
 /** Copy cpu/mem/hdd metrics from health data into the response details object */
 function populateMetrics(
@@ -167,6 +168,7 @@ app.get('/startup-status', async (c) => {
   const response: {
     stage: StartupStage;
     generation?: number;
+    revision?: number;
     progress: number;
     message: string;
     details: {
@@ -181,6 +183,7 @@ app.get('/startup-status', async (c) => {
       terminalServerOk?: boolean;
       editorReady?: boolean;
       repositoryRestore?: HealthData['repositoryRestore'];
+      repositoryRestoreRepos?: string[];
       cpu?: string;
       mem?: string;
       hdd?: string;
@@ -199,10 +202,11 @@ app.get('/startup-status', async (c) => {
     const sessionWorkspace = resolveSessionWorkspace(session?.workspace);
     response.generation = session?.lifecycleGeneration;
     const ownsReady = async () => {
-      if (session?.lifecycleState !== 'running') return false;
+      if (session?.lifecycleState !== 'running' || terminalFenced(session.shutdown)) return undefined;
       const current = await repository.getSession(bucketName, sessionId);
-      return current?.lifecycleGeneration === session.lifecycleGeneration
-        && current.lifecycleState === 'running' && !current.terminationIntentId;
+      if (current?.lifecycleGeneration !== session.lifecycleGeneration
+        || current.lifecycleState !== 'running' || current.terminationIntentId || terminalFenced(current.shutdown)) return undefined;
+      return current;
     };
     const awaitStartClaim = () => c.json({ ...response, stage: 'starting' as const, progress: 20,
       message: 'Waiting for the current start...', details: { ...response.details, editorReady: false } });
@@ -282,7 +286,14 @@ app.get('/startup-status', async (c) => {
       return c.json(response);
     }
     if (healthData.repositoryRestore === 'pending' || healthData.repositoryRestore === 'restoring' || healthData.repositoryRestore === 'complete'
-      || healthData.repositoryRestore === 'issues') response.details.repositoryRestore = healthData.repositoryRestore;
+      || healthData.repositoryRestore === 'issues') {
+      response.details.repositoryRestore = healthData.repositoryRestore;
+      const repos = healthData.repositoryRestoreRepos;
+      if (Array.isArray(repos) && repos.length > 0 && repos.length <= 21 && repos.every(repo =>
+        typeof repo === 'string' && /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(repo) && !/\/\.{1,2}$/.test(repo))) {
+        response.details.repositoryRestoreRepos = repos;
+      }
+    }
 
     // Step 3: Check R2 sync status
     // syncStatus values: "pending", "syncing", "success", "failed", "skipped"
@@ -347,7 +358,9 @@ app.get('/startup-status', async (c) => {
     if (terminalServerReady) {
       if (healthData.prewarmReady !== false) {
         // A healthy port isn't evidence that it belongs to this Start claim.
-        if (!await ownsReady()) return awaitStartClaim();
+        const confirmed = await ownsReady();
+        if (!confirmed) return awaitStartClaim();
+        response.revision = confirmed.responseRevision;
         return c.json(buildReadyResponse(response, syncStatus, healthData, cStatus));
       }
 

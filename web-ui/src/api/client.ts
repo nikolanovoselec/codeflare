@@ -1,5 +1,5 @@
 import type {
-  Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, McpPortal,
+  Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, McpPortal, PiSurface,
   AuthStatus, AuthProvider, AdminConfigurationResponse, ConfigurationSection, ReasoningCatalog,
   NativeAiTargetDraft, NativeTargetCheckResult, ReasoningDiscoveryRequest, ReasoningDiscoveryResult, ReasoningRouteInventory, ReasoningGatewayDraft, ReasoningManagementContext,
 } from '../types';
@@ -353,11 +353,13 @@ export async function createSession(
   agentType?: AgentType,
   tabConfig?: TabConfig[],
   clone?: CreateSessionClone,
+  surface?: PiSurface,
 ): Promise<Session> {
   const body: Record<string, unknown> = { name };
   if (agentType) body.agentType = agentType;
   if (tabConfig) body.tabConfig = tabConfig;
   if (clone) body.clone = clone;
+  if (surface) body.surface = surface;
 
   const response = await fetchApi('/sessions', {
     method: 'POST',
@@ -386,13 +388,21 @@ export async function updateSession(
   return response.session;
 }
 
-export async function deleteSession(id: string): Promise<void> {
+/** A 202 acknowledges durable work, not a completed Stop or Delete. */
+async function requestGracefulShutdown(endpoint: string, method: 'POST' | 'DELETE'): Promise<true | void> {
+  let accepted = false;
+  await baseFetch(`${BASE_URL}${endpoint}`, { method }, {
+    credentials: 'same-origin',
+    onSuccessStatus: (status) => { accepted = status === 202; },
+  });
+  if (accepted) return true;
+}
+
+export async function deleteSession(id: string): Promise<true | void> {
   if (!SESSION_ID_RE.test(id)) {
     throw new ApiError('Invalid session ID format', 400, 'Bad Request');
   }
-  await fetchApi(`/sessions/${id}`, {
-    method: 'DELETE',
-  });
+  return requestGracefulShutdown(`/sessions/${id}`, 'DELETE');
 }
 
 export interface ManagedReleaseProgress {
@@ -402,7 +412,7 @@ export interface ManagedReleaseProgress {
 }
 
 /** Get authoritative lifecycle projections for all sessions. */
-export async function getBatchSessionStatus(_legacyOptions?: unknown): Promise<{ statuses: Record<string, { status: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping'; lifecycle?: 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping'; generation?: number; revision?: number; unreachableDeadlineMs?: number; ptyActive?: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }> }> {
+export async function getBatchSessionStatus(_legacyOptions?: unknown): Promise<z.infer<typeof BatchSessionStatusResponseSchema>> {
   return fetchApi('/sessions/batch-status', {}, BatchSessionStatusResponseSchema);
 }
 
@@ -441,9 +451,9 @@ export async function getStartupStatus(sessionId: string): Promise<StartupStatus
 export function startSession(
   id: string,
   onProgress: (progress: InitProgress) => void,
-  onComplete: (generation: number) => void,
+  onComplete: (generation: number, revision?: number, claimedStart?: boolean) => void,
   onError: (error: string, code?: string) => void,
-  options: { retryEditorTimeout?: boolean } = {},
+  options: { retryEditorTimeout?: boolean; surface?: PiSurface } = {},
 ): () => void {
   if (!SESSION_ID_RE.test(id)) {
     onError('Invalid session ID format');
@@ -468,6 +478,7 @@ export function startSession(
   const startPolling = async () => {
     unconfirmedTimer = setTimeout(releaseUnconfirmed, MAX_STARTUP_POLL_ERRORS * STARTUP_POLL_INTERVAL_MS);
     let generation: number | undefined;
+    let claimedStart = false;
     try {
       // Send initial creating stage
       onProgress({
@@ -478,10 +489,14 @@ export function startSession(
         startedAt,
       });
 
-      const claim = await fetchApi(`/container/start?sessionId=${id}`, { method: 'POST', signal: claimRequest.signal },
-        z.object({ generation: z.number().int().nonnegative() }));
+      const claim = await fetchApi(`/container/start?sessionId=${id}`, {
+        method: 'POST', signal: claimRequest.signal,
+        ...(options.surface && { body: JSON.stringify({ surface: options.surface }) }),
+      }, z.object({ generation: z.number().int().nonnegative(), status: z.unknown().optional() }));
       if (cancelled) return;
       generation = claim.generation;
+      // `already_running` can reach Ready without this request owning Start.
+      claimedStart = claim.status === 'starting';
       clearTimeout(unconfirmedTimer);
     } catch (err) {
       if (cancelled) return;
@@ -540,7 +555,7 @@ export function startSession(
 
         if (status.stage === 'ready' && generation !== undefined) {
           cancel();
-          onComplete(generation);
+          onComplete(generation, status.revision, claimedStart);
         } else if (status.stage === 'error') {
           const isPriorEditorTimeout = ignorePriorEditorTimeout
             && status.error === 'VS Code did not become ready. Retry starting the session.';
@@ -578,13 +593,18 @@ export function startSession(
   return cancel;
 }
 
-export async function stopSession(id: string): Promise<void> {
+export async function stopSession(id: string): Promise<true | void> {
   if (!SESSION_ID_RE.test(id)) {
     throw new ApiError('Invalid session ID format', 400, 'Bad Request');
   }
-  await fetchApi(`/sessions/${id}/stop`, {
-    method: 'POST',
-  });
+  return requestGracefulShutdown(`/sessions/${id}/stop`, 'POST');
+}
+
+export async function retryMemoryConsolidation(id: string): Promise<void> {
+  if (!SESSION_ID_RE.test(id)) {
+    throw new ApiError('Invalid session ID format', 400, 'Bad Request');
+  }
+  await fetchApi(`/sessions/${id}/retry-memory-consolidation`, { method: 'POST' });
 }
 
 export async function killSession(id: string): Promise<void> {

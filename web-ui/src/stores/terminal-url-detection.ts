@@ -129,9 +129,8 @@ export function getLastUrlFromBuffer(term: Terminal): string | null {
       }
     }
 
-    const matches = fullText.match(urlRegex);
-    if (matches) {
-      lastUrl = trimTerminalUrlParentheses(matches[matches.length - 1]);
+    for (const match of fullText.matchAll(urlRegex)) {
+      lastUrl = trimTerminalUrlParentheses(match[0], fullText[match.index - 1] === '(');
     }
     i = j;
   }

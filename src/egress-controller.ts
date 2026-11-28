@@ -33,8 +33,8 @@
  * any send) precede the forward, which itself returns 503 EGRESS_UNAVAILABLE with no
  * global-fetch fallback when the binding is unbound.
  *
- * Dormant on non-enterprise deploys / when the toggle is OFF: the DO only wires the
- * catch-all when strict is true, so this class is otherwise unreached.
+ * When strict egress is off, only the exact Hermes upload host reaches this
+ * controller; general traffic is not intercepted here.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env, ManagedResourcePolicy } from './types';
@@ -50,6 +50,8 @@ import {
 import { createR2Client, getR2Url } from './lib/r2-client';
 import { getR2Config } from './lib/r2-config';
 import { getSseHeaders } from './lib/r2-sse';
+import { HERMES_MARKDOWN, HERMES_SESSION_ROOT, HERMES_UPLOAD_HOST, isHermesUploadKey, type HermesWriter } from './lib/hermes-retention';
+import { getBucketOwnerStub } from './lib/access';
 import {
   classifyManagedR2Request,
   MANAGED_R2_POLICY_KEY,
@@ -65,6 +67,15 @@ import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPo
 
 const logger = createLogger('egress-controller');
 const OPERATOR_SYNC_OPERATION_HEADER = 'x-codeflare-operator-sync-operation';
+const HERMES_EMPTY_READ_HEADER = 'x-codeflare-hermes-empty-read';
+const HERMES_SESSION_PREFIX = /^Sessions\/[a-z0-9]{8,24}\//;
+function isHermesMarkdown(key: string | null): boolean {
+  const root = 'Vault/Memory/';
+  if (!key?.startsWith(root)) return false;
+  const relative = key.slice(root.length);
+  const scoped = relative.replace(HERMES_SESSION_PREFIX, '');
+  return HERMES_MARKDOWN.some(file => scoped !== relative ? file === scoped : file.replace(/^global\//, '') === relative);
+}
 
 /** Trusted props the container DO or Activity passes when binding this entrypoint. */
 interface EgressProps extends PersonalPiProps {
@@ -81,6 +92,7 @@ interface EgressProps extends PersonalPiProps {
   releaseDigest?: string;
   pathsDigest?: string;
   r2SseDisabled?: boolean;
+  hermesUpload?: HermesWriter;
   /** Strict Gateway egress toggle, read once at wiring (the DO only wires when true). */
   strict?: boolean;
   /** Parent-bound narrowing profile. Absence preserves ordinary human behavior. */
@@ -187,11 +199,36 @@ export class EgressController extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     const props = (this.ctx as unknown as { props?: EgressProps }).props;
 
-    // Defense-in-depth: the DO only wires this catch-all when strict is ON and passes
-    // strict:true via props (read once at wiring — REQ-016 AC2, no per-request KV). A
-    // missing/false prop means a stale or misconfigured wiring: fail closed.
-    if (!props?.strict) {
+    const dest = new URL(request.url);
+    const hermesUpload = dest.hostname === HERMES_UPLOAD_HOST ? props?.hermesUpload : undefined;
+    if (!props || (!props.strict && !hermesUpload)) {
       return jsonError(503, 'EGRESS_NOT_CONFIGURED', 'Strict Gateway egress is not enabled');
+    }
+    let hermesTarget: URL | undefined;
+    if (dest.hostname === HERMES_UPLOAD_HOST) {
+      if (!hermesUpload || !props.accountId || !props.bucket || props.operatorPolicy || dest.protocol !== 'https:') {
+        return jsonError(403, 'HERMES_UPLOAD_DENIED', 'Hermes storage operation is not permitted');
+      }
+      dest.host = `${props.accountId}.r2.cloudflarestorage.com`;
+      const key = operatorR2Path(dest, props.accountId, props.bucket);
+      const operation = operatorR2Operation(request, dest);
+      const permitted = requestedR2Bucket(dest, props.accountId) === props.bucket && (
+        (operation === 'list' && request.method === 'GET'
+          && (dest.searchParams.get('prefix') ?? '').startsWith(`${HERMES_SESSION_ROOT}${hermesUpload.sessionId}/`))
+        || (key !== null && isHermesUploadKey(hermesUpload.sessionId, key)
+          && (operation === 'read' || (operation === 'write' && (dest.search === '' || dest.search === '?x-id=PutObject'))))
+      );
+      if (!permitted) return jsonError(403, 'HERMES_UPLOAD_DENIED', 'Hermes storage operation is not permitted');
+      try {
+        const config = await getR2Config(this.env);
+        if (config.accountId !== props.accountId) throw new Error('R2 account mismatch');
+        hermesTarget = new URL(getR2Url(config.endpoint, props.bucket, key || undefined));
+        if (hermesTarget.protocol !== 'https:' || hermesTarget.username || hermesTarget.password) throw new Error('Invalid R2 endpoint');
+        hermesTarget.search = dest.search;
+      } catch {
+        return jsonError(503, 'EGRESS_R2_NOT_CONFIGURED', 'Scoped R2 endpoint is unavailable');
+      }
+      request = new Request(dest, request);
     }
 
     const personal = await forwardPersonalPi(request, this.env, props);
@@ -368,13 +405,22 @@ export class EgressController extends WorkerEntrypoint<Env> {
     headers.delete('host');
     headers.delete('content-length');
     headers.delete(OPERATOR_SYNC_OPERATION_HEADER);
+    const head = effectiveRequest.method === 'HEAD';
+    // The restore retry is authenticated with the bound bucket key, but may
+    // read a default-encrypted Markdown object only after verifying it is empty.
+    const emptyHermesRead = ownR2 && !props.operatorPolicy && !!props.bucket
+      && (head || effectiveRequest.method === 'GET') && !headers.has('range')
+      && (!url.search || url.search === (head ? '?x-id=HeadObject' : '?x-id=GetObject'))
+      && headers.get(HERMES_EMPTY_READ_HEADER) === '1'
+      && isHermesMarkdown(operatorR2Path(url, accountId, props.bucket));
+    headers.delete(HERMES_EMPTY_READ_HEADER);
     if (ownR2) {
       for (const name of [
         'x-amz-server-side-encryption-customer-algorithm',
         'x-amz-server-side-encryption-customer-key',
         'x-amz-server-side-encryption-customer-key-md5',
       ]) headers.delete(name);
-      for (const [name, value] of Object.entries(getSseHeaders(this.env, props.r2SseDisabled === true))) {
+      for (const [name, value] of Object.entries(getSseHeaders(this.env, props.r2SseDisabled === true || emptyHermesRead))) {
         headers.set(name, value);
       }
     }
@@ -382,7 +428,8 @@ export class EgressController extends WorkerEntrypoint<Env> {
     // GET/HEAD carry no body; everything else streams through unbuffered. Do not
     // follow redirects to an arbitrary Location host — surface the 3xx to the caller.
     const hasBody = effectiveRequest.method !== 'GET' && effectiveRequest.method !== 'HEAD';
-    const forward = new Request(url.toString(), {
+    const upstreamUrl = (hermesTarget ?? url).toString();
+    const forward = new Request(upstreamUrl, {
       method: effectiveRequest.method,
       headers,
       body: hasBody ? effectiveRequest.body : undefined,
@@ -404,13 +451,25 @@ export class EgressController extends WorkerEntrypoint<Env> {
         const signed = await createR2Client({
           R2_ACCESS_KEY_ID: scopedR2Credentials.accessKeyId,
           R2_SECRET_ACCESS_KEY: scopedR2Credentials.secretAccessKey,
-        }).sign(url.toString(), {
+        }).sign(upstreamUrl, {
           method: forward.method,
           headers: signHeaders,
           body: hasBody ? forward.body : undefined,
           redirect: 'manual',
         });
-        upstream = await fetch(signed);
+        upstream = hermesUpload && props.bucket && request.method === 'PUT'
+          ? await getBucketOwnerStub(this.env, props.bucket).putHermesObject(props.bucket, hermesUpload, signed)
+          : await fetch(signed);
+        if (emptyHermesRead && upstream.ok) {
+          const reader = upstream.body?.getReader();
+          try {
+            if (upstream.status !== 200 || upstream.headers.get('content-length') !== '0' || upstream.headers.has('content-range')
+              || (reader && !(await reader.read()).done)) {
+              return jsonError(403, 'HERMES_EMPTY_READ_DENIED', 'Hermes empty object was not verified');
+            }
+          } finally { await reader?.cancel().catch(() => {}); }
+          upstream = new Response(head ? null : new Uint8Array(), { status: 200, headers: upstream.headers });
+        }
         resigned = true;
       } else {
         // Transparent: non-Browser account-scoped CF API → direct (caller auth preserved);

@@ -94,7 +94,7 @@ describe('REQ-OPS-033: lock-backed npm bump manifest updates', () => {
       });
 
       const fakeNpm = join(binDirectory, 'npm');
-      writeFileSync(join(prewarmDirectory, 'upstream-state'), 'needs-patch');
+      writeFileSync(join(prewarmDirectory, 'upstream-state'), 'reviewed-display');
       writeFileSync(fakeNpm, `#!/bin/sh
 set -eu
 case "$*" in
@@ -106,11 +106,10 @@ case "$*" in
   *) exit 64 ;;
 esac
 `);
-      writeFileSync(join(scriptsDirectory, 'patch-pi-codex-prompt-cache.mjs'), `import { readFileSync } from 'node:fs';
+      writeFileSync(join(scriptsDirectory, 'patch-pi-native-model-display.mjs'), `import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-if (process.argv[2] !== '--check-pristine') throw Error('Expected pristine candidate admission');
-const state = readFileSync(join(process.argv[3], 'upstream-state'), 'utf8');
-if (state !== 'needs-patch') throw Error('Upstream already fixed; remove the Codex backport');
+const state = readFileSync(join(process.argv[2], 'upstream-state'), 'utf8');
+if (state !== 'reviewed-display') throw Error('Unqualified native display artifacts');
 `);
       chmodSync(fakeNpm, 0o755);
       writeFileSync(join(scriptsDirectory, 'apply-npm-security-lock-pins.mjs'), `import { readFileSync, writeFileSync } from 'node:fs';\nconst path = process.argv[2];\nconst lock = JSON.parse(readFileSync(path, 'utf8'));\nwriteFileSync(path, JSON.stringify({ ...lock, securityPinned: true }) + '\\n');\n`);
@@ -131,12 +130,9 @@ if (state !== 'needs-patch') throw Error('Upstream already fixed; remove the Cod
       assert.deepEqual(readJson(prewarmLock), { generated: 'prewarm', securityPinned: true });
       assert.equal(readFileSync(seed, 'utf8'), 'export const generated = true;\n');
 
-      // REQ-AGENT-238: future upstream inclusion must stop the real bump
-      // operation before it generates publishable seed output. The package
-      // acquisition process supplies this candidate state; patch guard behavior
-      // against authentic provider bytes is covered by the backport suite.
+      // Refuse to generate publishable seed output for unqualified display bytes.
       writeFileSync(seed, 'retained seed before rejected candidate\n');
-      writeFileSync(join(prewarmDirectory, 'upstream-state'), 'already-fixed');
+      writeFileSync(join(prewarmDirectory, 'upstream-state'), 'unqualified-display');
       assert.throws(
         () => updatePiRuntimeArtifacts(directory, '0.82.0', '0.83.0', { npmCommand: fakeNpm }),
         /exited 1/,

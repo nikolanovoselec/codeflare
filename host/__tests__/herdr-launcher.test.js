@@ -71,9 +71,18 @@ describe('Codeflare Herdr launcher', () => {
       const { result, calls } = harness('pi', undefined, undefined, { SESSION_MODE: mode,
         CODEFLARE_MCP_PORTALS_JSON: JSON.stringify([{ name: 'fixture', url: 'https://portal.example/mcp' }]) });
       assert.equal(result.status, 0, result.stderr);
-      assert.equal(calls.find(call => call.startsWith('pane run ')), 'pane run w1:p1 pi --tui-mode fullscreen');
+      assert.equal(calls.find(call => call.startsWith('pane run ')), 'pane run w1:p1 pi');
     }
   });
+  it('REQ-AGENT-272 AC1: Chat-first prewarms Herdr without launching native Pi', () => {
+    const { result, calls, runtime } = harness('pi', undefined, undefined, {
+      CODEFLARE_PI_SURFACE: 'chat', CODEFLARE_PI_GENERATION: '7',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(join(runtime, 'herdr', 'abc12345', 'bootstrap.done')));
+    assert.equal(calls.some(call => call.startsWith('pane run ') && /\bpi\b/.test(call)), false);
+  });
+
   it('REQ-AGENT-012: Herdr Codex launch honors Fast Start without changing tab configuration', () => {
     for (const fastStart of [undefined, 'true', 'false']) {
       const { result, calls } = harness('codex', undefined, fastStart);
@@ -271,7 +280,7 @@ fi
     const calls = readFileSync(log, 'utf8').trim().split('\n');
     assert.equal(calls.filter((call) => call === 'agent list').length, 2);
     assert.equal(calls.filter((call) => call.startsWith('pane run ')).length, 1);
-    assert.equal(calls.includes('pane run w1:p1 pi --tui-mode fullscreen'), true);
+    assert.equal(calls.includes('pane run w1:p1 pi'), true);
     assert.equal(existsSync(join(runtime, 'herdr/abc12345/bootstrap.done')), true);
   });
 

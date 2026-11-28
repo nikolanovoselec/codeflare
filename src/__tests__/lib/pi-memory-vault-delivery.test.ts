@@ -778,7 +778,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     }
   });
 
-  it('creates work on the twentieth real prompt and emits a visible reminder without private spawn', async () => {
+  it('creates work on the twentieth real prompt and emits a model follow-up without private spawn', async () => {
     const harness = makeHarness();
     let privateSpawnCalls = 0;
     (globalThis as Record<symbol, unknown>)[Symbol.for('@gotgenes/pi-subagents:service')] = {
@@ -934,7 +934,11 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
       .filter((sent) => sent.message.customType === 'background-extraction-launch');
     expect(launchMessages.flatMap((sent) => sent.message.details?.items ?? []).map((item) => item.reminder))
       .toEqual([0, 1, 2, 3, 4, 5]);
-    for (const sent of launchMessages) expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
+    for (const sent of launchMessages) {
+      expect(sent.message.display).toBe(false);
+      expect(sent.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
+      expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
+    }
     expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup')).toHaveLength(1);
   });
 
@@ -948,6 +952,8 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     await failExactAttempts(harness, 'memory-capture');
     const giveups = harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup');
     expect(giveups).toHaveLength(1);
+    expect(giveups[0]?.message.display).toBe(true);
+    expect(giveups[0]?.options).toEqual({ deliverAs: 'followUp', triggerTurn: false });
     expect(markdownHeadings(giveups[0]?.message.content)).toEqual(['## Extraction delivery stopped']);
     expect(extractionJobLines(giveups[0]?.message.content)).toEqual([
       expect.stringMatching(/^- `memory-capture` · request `[^`]+` · 6\/6 failed calls$/),

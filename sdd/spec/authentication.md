@@ -479,10 +479,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. The visible account identity opens an account-action dropdown. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) -->
+1. The icon-only Profile control opens the account-action dropdown described in [REQ-AGENT-278](agents.md#req-agent-278-narrow-workspace-header-fallback). <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (shows the Profile email only at the top of the open workspace menu) -->
 2. The available account actions follow the deployment-mode contract in [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions). <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (opens a Usage-only dropdown in enterprise mode) -->
 3. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @manual -->
-4. Desktop positioned below avatar. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @manual -->
+4. At widths above 640 CSS px, Profile opens 8px below the control when one 44px action and any email label fit above the 8px viewport-bottom margin; otherwise it opens as a bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/lib/header-fit.ts::measureProfileMenu = max-width: 640px --> <!-- @impl: web-ui/src/lib/header-fit.ts::measureProfileMenu = rect.bottom + 8 --> <!-- @impl: web-ui/src/lib/header-fit.ts::measureProfileMenu --> <!-- @impl: web-ui/src/lib/header-fit.ts::HEADER_ICON_SLOT = 44 --> <!-- @test: web-ui/src/__tests__/lib/header-fit.test.ts (chooses Profile placement at viewport %s × %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
+5. In Dashboard and workspace headers, a Profile menu that exceeds the available viewport height scrolls internally so every action remains reachable. <!-- @impl: web-ui/src/styles/header.css::.header-user-dropdown--profile --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
+
+6. Selecting Usage from Dashboard Profile dismisses the menu so it cannot obstruct Usage. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (returns from %s Profile Usage to the same Chat without another writer request) -->
+7. The open Profile menu displays the account email on a black label above the actions without increasing the action panel’s width. An address exceeding 90% of the viewport width ends in an ellipsis, with the complete address still available to assistive technology. <!-- @impl: web-ui/src/styles/header.css::.header-user-email --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (shows the Profile email only at the top of the open workspace menu) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (shows the Profile email only at the top of the open Dashboard menu in %s) --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
 
 **Constraints:**
 
@@ -492,7 +496,29 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx); Manual: [Account dropdown layout acceptance](../../documentation/lanes/authentication.md#account-dropdown-layout-acceptance)
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Account dropdown layout acceptance](../../documentation/lanes/authentication.md#account-dropdown-layout-acceptance), [short-viewport Profile acceptance](../../documentation/lanes/terminal-and-ide.md#workspace-header-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-AUTH-027: Mobile Profile email typography
+
+**Intent:** Make the account email as legible as the mobile Profile actions.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On mobile, the Profile email badge uses the same text size as the account action labels. <!-- @impl: web-ui/src/styles/header.css::.header-user-email --> <!-- @manual: documentation/lanes/terminal-and-ide.md#workspace-header-acceptance -->
+
+**Constraints:** None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AUTH-016](#req-auth-016-header-user-dropdown)
+
+**Verification:** Manual: [Workspace header acceptance](../../documentation/lanes/terminal-and-ide.md#workspace-header-acceptance)
 
 **Status:** Implemented
 

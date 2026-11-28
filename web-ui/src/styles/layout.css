@@ -119,6 +119,12 @@ html, body {
   min-height: 0;
 }
 
+.layout-hidden-handoff-pane {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
 .layout-tiling-button-wrapper {
   position: absolute;
   top: var(--space-2);
@@ -168,6 +174,16 @@ html, body {
 
 .repository-restore-notice__session {
   color: var(--color-text-secondary);
+}
+
+.repository-restore-notice__repos {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-block-size: min(10rem, 20dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
 }
 
 .repository-restore-notice button {

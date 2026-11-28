@@ -43,6 +43,7 @@ describe('nightly PR Checks routing', () => {
     const filters = parseYaml(filter.with.filters);
 
     assert.deepEqual(filters.dependencies, [
+      'image/pi-web/package-lock.json',
       'package-lock.json',
       'web-ui/package-lock.json',
       'openvscode/agent-sidebar/package-lock.json',

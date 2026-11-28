@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createRoot, createSignal } from 'solid-js';
+import { createEffect, createRoot, createSignal } from 'solid-js';
 
 // Mock all heavy dependencies before importing the hook
 const mockFit = vi.fn();
@@ -58,6 +58,7 @@ const mockTerminalInstance = {
   cols: 80,
   rows: 24,
   options: { fontFamily: 'monospace', theme: {} },
+  modes: { mouseTrackingMode: 'none' },
   textarea: null,
   element: mockXtermElement,
   scrollLines: vi.fn(),
@@ -244,6 +245,102 @@ describe('useTerminal hook', () => {
   afterEach(() => {
     document.body.removeChild(containerEl);
     vi.restoreAllMocks();
+  });
+
+  it.each([true, false])('REQ-TERM-032 AC7: copies a tracked fullscreen drag only on a visible Classic Pi pane (visible=%s)', visible => {
+    const sessions = sessionState.sessions;
+    sessionState.sessions = [{ id: defaultProps.sessionId, name: 'Pi', agentType: 'pi' }];
+    vi.mocked(isTouchDevice).mockReturnValue(false);
+    const active = mockTerminalInstance.buffer.active;
+    const type = Object.getOwnPropertyDescriptor(active, 'type');
+    Object.defineProperty(active, 'type', { configurable: true, value: 'alternate' });
+    mockTerminalInstance.modes.mouseTrackingMode = 'drag';
+    active.getLine.mockReturnValue({ translateToString: () => 'copy-fixture', getCell: () => ({ getWidth: () => 1 }) } as never);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    vi.spyOn(mockXtermScreen, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 240));
+    const listeners = vi.spyOn(mockXtermScreen, 'addEventListener');
+    const dispose = createRoot(dispose => {
+      useTerminal({ ...defaultProps, terminalMode: 'classic', visible }).containerRef(containerEl);
+      return dispose;
+    });
+    try {
+      for (const [type, clientX] of [['pointerdown', 5], ['pointerup', 115]] as const) {
+        const listener = listeners.mock.calls.find(([name]) => name === type)?.[1] as EventListener | undefined;
+        const preventDefault = vi.fn();
+        listener?.({ isTrusted: true, isPrimary: true, pointerId: 1, pointerType: 'mouse',
+          button: 0, clientX, clientY: 5, preventDefault } as unknown as PointerEvent);
+        expect(preventDefault).not.toHaveBeenCalled();
+      }
+      if (visible) expect(writeText).toHaveBeenCalledExactlyOnceWith('copy-fixture');
+      else expect(writeText).not.toHaveBeenCalled();
+    } finally {
+      dispose();
+      if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+      active.getLine.mockReset().mockReturnValue(null);
+      if (type) Object.defineProperty(active, 'type', type);
+      else Reflect.deleteProperty(active, 'type');
+      mockTerminalInstance.modes.mouseTrackingMode = 'none';
+      sessionState.sessions = sessions;
+    }
+  });
+
+  it('reveals a prepared Code attachment without a hidden or duplicate initial resize', async () => {
+    const { terminalStore: transport, sendInputToTerminal } = await vi.importActual<typeof import('../../stores/terminal')>('../../stores/terminal');
+    const methods = ['connect', 'getConnectionState', 'claimResizeAuthority', 'clearPendingResizeAuthority',
+      'resize', 'disposeLocalTerminal'] as const;
+    const previous = Object.fromEntries(methods.map(key => [key, terminalStore[key]]));
+    Object.assign(terminalStore, Object.fromEntries(methods.map(key => [key, transport[key]])));
+    const OriginalWebSocket = globalThis.WebSocket;
+    const sent: string[] = [];
+    // Defer normal layout refits; inspect only the frames emitted by open and reveal.
+    vi.mocked(window.requestAnimationFrame).mockImplementation(() => 0);
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', class extends OriginalWebSocket {
+      send(data: string) { sent.push(data); }
+    });
+    const sessionId = 'abcdef0123456789';
+    const [revealed, reveal] = createSignal(false);
+    let acceptedHiddenInput: boolean | undefined;
+    let dispose: (() => void) | undefined;
+    try {
+      createRoot(cleanup => {
+        dispose = cleanup;
+        const props = {
+          ...defaultProps,
+          sessionId,
+          connect: true,
+          get active() { return revealed(); },
+          onHandoffAttached: () => reveal(true),
+        };
+        const pane = useTerminal(props);
+        pane.containerRef(containerEl);
+        createEffect(() => {
+          if (pane.connectionState() !== 'connected' || revealed()) return;
+          acceptedHiddenInput = sendInputToTerminal(props.sessionId, props.terminalId, 'hidden input');
+          transport.claimResizeAuthority(props.sessionId, props.terminalId);
+          transport.resize(props.sessionId, props.terminalId, 40, 12);
+          props.onHandoffAttached();
+        });
+      });
+      expect(sent).toEqual([]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(revealed()).toBe(true);
+      expect(acceptedHiddenInput).toBe(false);
+      expect(sent).toEqual([
+        JSON.stringify({ type: 'focus' }), JSON.stringify({ type: 'resize', cols: 80, rows: 24 }),
+      ]);
+      expect(sendInputToTerminal(sessionId, defaultProps.terminalId, 'visible input')).toBe(true);
+      expect(sent[sent.length - 1]).toBe('visible input');
+    } finally {
+      dispose?.();
+      transport.disposeAll();
+      Object.assign(terminalStore, previous);
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+      vi.useRealTimers();
+    }
   });
 
   describe('lifecycle', () => {
@@ -757,6 +854,35 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
+    it('keeps keyboard focus in the header when a handoff terminal becomes active', async () => {
+      vi.mocked(isTouchDevice).mockReturnValue(false);
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+      const trigger = document.createElement('button');
+      const input = document.createElement('textarea');
+      containerEl.append(trigger, input);
+      trigger.focus();
+      mockFocus.mockImplementation(() => input.focus());
+      const [focused, setFocused] = createSignal(false);
+      let keepHeaderFocus = true;
+      const dispose = createRoot(dispose => {
+        const result = useTerminal({ ...defaultProps, connect: true,
+          get focused() { return focused(); }, preserveDomFocus: () => keepHeaderFocus });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      try {
+        setFocused(true);
+        await vi.waitFor(() => expect(trigger).toHaveFocus());
+        setFocused(false);
+        keepHeaderFocus = false;
+        setFocused(true);
+        await vi.waitFor(() => expect(input).toHaveFocus());
+      } finally {
+        dispose();
+        mockFocus.mockReset();
+      }
+    });
+
     it('REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal', async () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
       const connectCleanup = vi.fn();
@@ -1184,6 +1310,26 @@ describe('useTerminal hook', () => {
         expect(navigator.clipboard.writeText).toHaveBeenCalledWith('copied from Herdr');
       });
       dispose();
+    });
+
+    it('consumes Herdr clipboard output without writing while the retained pane is hidden', async () => {
+      const [visible, setVisible] = createSignal(true);
+      const dispose = createRoot(dispose => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr', get visible() { return visible(); }, connect: true });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      try {
+        const copy = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 52)![1];
+        setVisible(false);
+        expect(copy('c;Y29waWVkIGZyb20gSGVyZHI=')).toBe(true);
+        expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+        setVisible(true);
+        expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+        expect(copy('c;Y29waWVkIGZyb20gSGVyZHI=')).toBe(true);
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith('copied from Herdr');
+        await Promise.resolve();
+      } finally { dispose(); }
     });
 
     it('retains a rejected OSC 52 write for the next Ctrl+V', async () => {

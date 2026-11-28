@@ -134,6 +134,7 @@ function writePi(root, index, nativeSecond, mtimeSecond, options = {}) {
     type: options.type ?? 'session',
     version: options.version ?? 3,
     id: options.sessionId ?? id,
+    cwd: options.cwd,
     timestamp: `2026-08-18T10:00:${String(nativeSecond).padStart(2, '0')}.000Z`,
   };
   if (options.parentSession) header.parentSession = options.parentSession;
@@ -405,6 +406,42 @@ bisync_with_r2 ''
       assert.deepEqual(piPaths.filter(existsSync).map((p) => Number(basename(p).match(/(\d{12})\.jsonl$/)[1])).sort((a, b) => a - b), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     } finally {
       scratch.cleanup();
+    }
+  });
+
+  test('REQ-STOR-012 AC3/AC4: production Pi cleanup keeps the thirty highest-ranked transcripts without reserving a Classic binding slot', () => {
+    for (const [count, fallback] of [[20, false], [35, false], [35, true]]) {
+      const scratch = makeScratch();
+      try {
+        const root = join(scratch.dir, '.pi', 'agent', 'sessions');
+        const sessionId = 'retention123';
+        const cwd = join(scratch.dir, 'workspace');
+        const sessionDir = join(root, `--${cwd.slice(1).replace(/[/:]/g, '-')}--`);
+        const bindingDir = join(scratch.dir, '.codeflare/classic/sessions', `cf-${sessionId}`);
+        const bound = fallback ? count - 1 : 0;
+        mkdirSync(bindingDir, { recursive: true });
+        writeFileSync(join(bindingDir, 'agent-session-id'), `${uuid(bound)}\n`);
+        const paths = Array.from({ length: count }, (_, i) => writePi(root, i, i, 20_000 + count - i, {
+          ...(i === bound && { cwd, sessionDir }),
+          ...(fallback && i === 0 && { version: 4 }),
+        }));
+        const shell = `set -e
+USER_HOME="$1"
+TRANSCRIPT_RETENTION_SCRIPT="$2"
+SESSION_ID="$3"
+CODEFLARE_TERMINAL_MODE=classic
+${extractShellFunction('cleanup_agent_transcripts')}
+${extractShellFunction('cleanup_old_pi_transcripts')}
+cleanup_old_pi_transcripts
+`;
+        execFileSync('bash', ['-c', shell, 'pi-retention-limit', scratch.dir, RETENTION_SCRIPT, sessionId], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: shellEnv(scratch.runtimeRoot),
+        });
+        assert.deepEqual(paths.filter(existsSync), fallback ? paths.slice(0, 30) : paths.slice(Math.max(0, count - 30)));
+      } finally {
+        scratch.cleanup();
+      }
     }
   });
 

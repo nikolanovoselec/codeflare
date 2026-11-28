@@ -1,7 +1,7 @@
 import { Component, For, Show, createSignal, createEffect } from 'solid-js';
 import '@xterm/xterm/css/xterm.css';
+import { terminalStore } from '../stores/terminal';
 import { useTerminal } from '../hooks/useTerminal';
-import { sessionStore } from '../stores/session';
 import InitProgress from './InitProgress';
 import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
 import { focusMobileTerminal } from '../lib/terminal-mobile-input';
@@ -24,6 +24,8 @@ interface TerminalProps {
   onActivate?: () => void;
   onError?: (error: string) => void;
   onInitComplete?: () => void;
+  onHandoffAttached?: () => void;
+  preserveDomFocus?: () => boolean;
 }
 
 const TerminalInstance: Component<TerminalProps> = (props) => {
@@ -37,11 +39,25 @@ const TerminalInstance: Component<TerminalProps> = (props) => {
     initProgress,
   } = useTerminal(props);
 
+  // Host prewarm may finish before this browser has attached to the PTY.
+  const connectingTerminal = () => {
+    if (initProgress()?.stage !== 'ready' || connectionState() === 'connected') return undefined;
+    const message = retryMessage();
+    return !message || message === 'Connecting...' ? 'Connecting Terminal' : message;
+  };
+
   // Once connected the first time, never show the overlay again.
   // This enables transparent reconnection without a flash of "Connecting...".
   const [hasConnected, setHasConnected] = createSignal(false);
   createEffect(() => {
     if (connectionState() === 'connected') setHasConnected(true);
+  });
+
+  createEffect(() => {
+    const report = props.onHandoffAttached;
+    const instance = terminal();
+    if (report && instance && connectionState() === 'connected'
+      && terminalStore.getTerminal(props.sessionId, props.terminalId) === instance) report();
   });
 
   let _containerEl: HTMLDivElement | undefined;
@@ -67,6 +83,7 @@ const TerminalInstance: Component<TerminalProps> = (props) => {
           <InitProgress
             sessionName={props.sessionName || 'Terminal'}
             progress={initProgress()}
+            connectingTerminal={connectingTerminal()}
             onOpen={props.onInitComplete}
           />
         </div>
@@ -113,7 +130,7 @@ const TerminalInstance: Component<TerminalProps> = (props) => {
 };
 
 const Terminal: Component<TerminalProps> = (props) => {
-  const instanceKey = () => `${props.sessionId}:${sessionStore.isSessionInitializing(props.sessionId) ? 'startup' : 'open'}`;
+  const instanceKey = () => `${props.sessionId}:${props.terminalId}`;
 
   return (
     <For each={[instanceKey()]}>

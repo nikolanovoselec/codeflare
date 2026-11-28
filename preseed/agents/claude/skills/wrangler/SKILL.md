@@ -36,6 +36,14 @@ Check the installed version before applying these notes; they do not describe 4.
 - **4.159 profiles:** `CLOUDFLARE_AUTH_PROFILE` carries profile selection to child processes. Explicit profile arguments take precedence, then the variable, directory bindings and default profile. Preserve the intended account and managed access path.
 - **4.160 headers:** `CLOUDFLARE_API_HEADERS` accepts a JSON object and overrides unprotected request headers; body/transport headers remain protected. Diagnostics redact header values outside the safe allowlist even when log sanitization is disabled. Do not bypass these protections or use custom headers to replace managed authentication.
 
+## Wrangler 4.163–4.165 compatibility (upgrade guidance)
+
+Check the version on the actual execution path. The [4.165 changelog](https://github.com/cloudflare/workers-sdk/blob/wrangler%404.165.0/packages/wrangler/CHANGELOG.md) covers these changes; they do not apply to older pinned workflow binaries.
+
+- `.cloudflare/output/v<N>/` is `cf` Build Output. Wrangler deploy, upload, and preview reject it; use the repository’s owning deployment tool rather than deleting the output to bypass that check.
+- Invalid UTF-8 in `.dev.vars` stops `wrangler dev`; invalid `.env` is skipped with a warning. Correct the encoding without exposing values.
+- D1 `--force` skips confirmation, not authorization.
+
 ## FIRST: Check if Wrangler is installed, and if not, install it
 
 Check if Wrangler is installed by running:

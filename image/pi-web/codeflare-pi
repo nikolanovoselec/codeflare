@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+# Foreground supervisor for the configured primary only. The shell/PTY remains
+# mounted while Chat owns Pi; only a Host ticket can start another CLI child.
+set -euo pipefail
+
+case "${CODEFLARE_PI_SURFACE:-}" in chat|terminal) ;; *) exit 1 ;; esac
+[[ "${CODEFLARE_PI_GENERATION:-}" =~ ^[1-9][0-9]*$ ]] || exit 1
+[[ "${SESSION_ID:-}" =~ ^[a-z0-9]{8,24}$ ]] || exit 1
+
+if [ "$#" -eq 0 ] && [ "${TERMINAL_ID:-1}" = 1 ] && [ -z "${MANUAL_TAB:-}" ] \
+    && [ "${HERDR_ENV:-}" != 1 ]; then
+    mode=classic
+elif [ "$#" -eq 2 ] && [ "$1" = --tui-mode ] && [ "$2" = fullscreen ] \
+    && [ "${HERDR_ENV:-}" = 1 ] && [[ "${HERDR_PANE_ID:-}" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
+    mode=herdr
+else
+    exit 1
+fi
+
+runtime="${CODEFLARE_RUNTIME_ROOT:-/run/codeflare}/pi-web"
+owner="$runtime/owner.json"
+tickets="$runtime/terminal-tickets/$CODEFLARE_PI_GENERATION"
+binding="$HOME/.codeflare/$mode/sessions/cf-$SESSION_ID/agent-session-id"
+workspace=$(realpath -e -- "$HOME/workspace")
+workspace_slug=${workspace#/}
+workspace_slug=${workspace_slug//[\/:]/-}
+export PI_CODING_AGENT_DIR="$HOME/.pi/agent"
+session_dir="$PI_CODING_AGENT_DIR/sessions/--${workspace_slug}--"
+(umask 077; mkdir -p -- "$tickets")
+exec 9> "$runtime/terminal-wrapper.lock"
+if [ "$mode" = herdr ] && jq -e --argjson generation "$CODEFLARE_PI_GENERATION" '
+    .generation == $generation and .quit == true
+' "$runtime/terminal.json" >/dev/null 2>&1; then
+    # A post-quit park may still hold the lock while the same pane's shell
+    # has already returned. Let an explicit re-entry wait for that park.
+    flock -w 18 9 || exit 1
+else
+    flock -n 9 || exit 1
+fi
+# Host must not issue a ticket to an ordinary shell after a deliberate quit.
+# A manually restarted wrapper must still be in the generation's original pane.
+pane=classic
+[ "$mode" != herdr ] || pane=$HERDR_PANE_ID
+if [ -f "$runtime/wrapper.json" ] && ! jq -e --arg pane "$pane" --argjson generation "$CODEFLARE_PI_GENERATION" '
+    .generation != $generation or .pane == $pane
+' "$runtime/wrapper.json" >/dev/null; then
+    printf 'Codeflare: run the managed writer in its original terminal pane.\n' >&2
+    exit 1
+fi
+register_waiting_wrapper() {
+    local stat rearm_ticket fields
+    stat=$(cat "/proc/$$/stat")
+    read -ra fields <<< "${stat##*) }"
+    # The old wrapper had the lock until exit. This field can only be
+    # published by a new invocation, never by the wrapper retiring Pi.
+    rearm_ticket=$(jq -er --argjson generation "$CODEFLARE_PI_GENERATION" '
+        select(.generation == $generation and .quit == true and .idle == true)
+        | .ticket | select(type == "string" and test("^[A-Za-z0-9_-]{1,128}$"))
+    ' "$runtime/terminal.json" 2>/dev/null) || rearm_ticket=""
+    (umask 077; printf '{"generation":%s,"pid":%s,"startTime":"%s","pane":"%s","rearmTicket":"%s"}\n' \
+        "$CODEFLARE_PI_GENERATION" "$$" "${fields[19]}" "$pane" "$rearm_ticket" > "$runtime/wrapper.$$")
+    mv -f -- "$runtime/wrapper.$$" "$runtime/wrapper.json"
+}
+
+native_quit() {
+    local pid
+    IFS= read -r pid < "$tickets/$1" || return 1
+    jq -e --arg generation "$CODEFLARE_PI_GENERATION" --arg ticket "$1" --arg pid "$pid" '
+        .generation == ($generation | tonumber) and .ticket == $ticket and .pid == ($pid | tonumber)
+        and .quit == true and .idle == true
+    ' "$runtime/terminal.json" >/dev/null 2>&1
+}
+
+retired_native_path() {
+    local retired_ticket="$1" pid
+    IFS= read -r pid < "$tickets/$retired_ticket" || return 1
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+    jq -er --arg generation "$CODEFLARE_PI_GENERATION" --arg ticket "$retired_ticket" --arg pid "$pid" \
+        --arg cwd "$workspace" --arg root "$session_dir/" --slurpfile owner "$owner" '
+        select(.generation == ($generation | tonumber) and .ticket == $ticket and .pid == ($pid | tonumber)
+            and .idle == true and .cwd == $cwd and (.path | startswith($root)))
+        | select($owner[0].generation == .generation and $owner[0].terminalTicket == .ticket)
+        | select(.quit == true or (.released == true and (.releaseReady | type == "string")
+            and $owner[0].requestId == .releaseReady and $owner[0].binding.path == .path))
+        | .path
+    ' "$runtime/terminal.json" 2>/dev/null
+}
+
+clear_retired_pi_authority() {
+    # Herdr 0.9.5's release-agent deliberately ignores official reporters.
+    # Its local clear-authority method can relinquish this exact source.
+    /usr/local/bin/node - "$HERDR_PANE_ID" "$(date +%s%6N)" <<'NODE'
+const socket = require('node:net').createConnection(process.env.HERDR_SOCKET_PATH);
+socket.setEncoding('utf8');
+socket.setTimeout(800, () => socket.destroy());
+socket.on('error', () => { process.exitCode = 1; });
+socket.on('connect', () => socket.write(JSON.stringify({ id: 'codeflare-pi-quit', method: 'pane.clear_agent_authority',
+  params: { pane_id: process.argv[2], source: 'herdr:pi', seq: Number(process.argv[3]) } }) + '\n'));
+let reply = '';
+process.exitCode = 1;
+socket.on('data', chunk => {
+  reply += chunk;
+  if (reply.length > 4096) { socket.destroy(); return; }
+  if (!reply.includes('\n')) return;
+  const response = JSON.parse(reply.slice(0, reply.indexOf('\n')));
+  if (response.id === 'codeflare-pi-quit' && response.result?.type === 'ok') process.exitCode = 0;
+  socket.destroy();
+});
+NODE
+}
+
+report_waiting_pane() {
+    [ "$mode" = herdr ] || return 0
+    # Herdr requires a reporter to hold the pane before storing its resume argv.
+    # This is a wrapper role, not a report that a native Pi session is open.
+    local status retired_path="" disposition="${2:-}" deadline=$((SECONDS + 12))
+    if [ "$#" -gt 0 ]; then
+        # Only the foreground wrapper that has joined its exact child may
+        # attach resume argv to that dead child's remaining Herdr registration.
+        retired_path=$(retired_native_path "$1") || retired_path=""
+    fi
+    local reason="pane lookup failed"
+    while (( SECONDS < deadline )); do
+        if [ "$disposition" = quit ] && ! {
+            status=$(timeout 1 /usr/local/bin/herdr pane process-info --pane "$HERDR_PANE_ID" 2>/dev/null) &&
+                jq -e --arg pane "$HERDR_PANE_ID" --argjson retired "$$" '.result.process_info
+                    | .pane_id == $pane and .shell_pid > 1 and .shell_pid != $retired' <<< "$status" >/dev/null 2>&1
+        }; then
+            # A restored wrapper can be the pane's initial process. Herdr
+            # clears its old reporter when replacing it with the new shell.
+            reason="the pane has not replaced the retired wrapper"
+            sleep 0.25
+            continue
+        fi
+        if ! status=$(timeout 1 /usr/local/bin/herdr pane get "$HERDR_PANE_ID" 2>/dev/null); then
+            reason="pane lookup failed"
+            sleep 0.25
+            continue
+        fi
+        reason="pane reporter was not ready"
+        if [ -n "$retired_path" ] && jq -e --arg pane "$HERDR_PANE_ID" --arg path "$retired_path" --arg disposition "$disposition" '
+            .result.pane | .pane_id == $pane and (.agent == "pi" or ($disposition == "quit" and .agent == null))
+                and .agent_session == {source:"herdr:pi", agent:"pi", kind:"path", value:$path}
+        ' <<< "$status" >/dev/null; then
+            if [ "$disposition" = quit ]; then
+                # Persist the shell's role independently of the retired Pi.
+                reason="retired Pi authority has not settled"
+                clear_retired_pi_authority >/dev/null 2>&1 || reason="retired Pi authority clear failed"
+                sleep 0.25
+                continue
+            fi
+            # Herdr ignores release-agent for official reporters. Retain
+            # this exact session registration and give it gated resume argv.
+            # No stock Pi reporter is still live for the joined process.
+            if timeout 1 /usr/local/bin/herdr pane report-agent-session "$HERDR_PANE_ID" \
+                --source herdr:pi --agent pi --seq "$(date +%s%6N)" --agent-session-path "$retired_path" \
+                -- codeflare-terminal-writer --tui-mode fullscreen >/dev/null; then
+                # Host separately checks Herdr's saved argv; exit 0 alone
+                # is not a persisted role receipt.
+                return 0
+            fi
+            sleep 0.25
+            continue
+        fi
+        if jq -e --arg pane "$HERDR_PANE_ID" '.result.pane | .pane_id == $pane
+                and .agent_session == null and (.agent == null or .agent == "codeflare-terminal-writer")' \
+                <<< "$status" >/dev/null; then
+            reason="parked role report failed"
+            if timeout 1 /usr/local/bin/herdr pane report-agent "$HERDR_PANE_ID" \
+                    --source codeflare:terminal-writer --agent codeflare-terminal-writer --state idle \
+                    -- codeflare-terminal-writer --tui-mode fullscreen >/dev/null; then
+                reason="parked role report was not applied"
+                if status=$(timeout 1 /usr/local/bin/herdr pane get "$HERDR_PANE_ID" 2>/dev/null) \
+                    && jq -e --arg pane "$HERDR_PANE_ID" '.result.pane | .pane_id == $pane
+                        and .agent == "codeflare-terminal-writer" and .agent_session == null' <<< "$status" >/dev/null; then
+                    return 0
+                fi
+            fi
+        fi
+        sleep 0.25
+    done
+    printf 'Codeflare: Herdr did not confirm the parked terminal role (%s).\n' "$reason" >&2
+    [ "$disposition" != quit ]
+}
+
+park_after_shell_return() {
+    local retired_ticket="$1" wrapper_start="$2" stat fields deadline=$((SECONDS + 3))
+    # The old wrapper has joined Pi. Wait for that wrapper to exit, not for
+    # the shell to become idle: immediate re-entry may already be foreground.
+    while { IFS= read -r stat <"/proc/$$/stat"; } 2>/dev/null; do
+        read -ra fields <<< "${stat##*) }"
+        [[ "${fields[0]}" != Z && "${fields[19]}" == "$wrapper_start" ]] || break
+        if (( SECONDS >= deadline )); then
+            printf 'Codeflare: Herdr retiring wrapper did not exit.\n' >&2
+            return 1
+        fi
+        sleep 0.1
+    done
+    report_waiting_pane "$retired_ticket" quit || return 1
+    (umask 077; jq -ce --arg pane "$pane" --arg ticket "$retired_ticket" --argjson generation "$CODEFLARE_PI_GENERATION" '
+        select(.generation == $generation and .ticket == $ticket and .quit == true and .idle == true)
+        | {generation, ticket, pid, startTime, instance, path, pane: $pane}
+    ' "$runtime/terminal.json" > "$runtime/herdr-parked.$$") || return 1
+    mv -f -- "$runtime/herdr-parked.$$" "$runtime/herdr-parked.json"
+}
+
+read_ticket() {
+    # Absent state is distinct from malformed, stale or inaccessible state.
+    if [ ! -e "$owner" ] && [ ! -L "$owner" ]; then
+        [ "$CODEFLARE_PI_SURFACE" = terminal ] && [ ! -e "$binding" ] && [ ! -L "$binding" ] || return 1
+        ticket=initial
+        path=
+        return 0
+    fi
+
+    local grant id cwd canonical header
+    grant=$(jq -ce --arg generation "$CODEFLARE_PI_GENERATION" '
+        select(.generation == ($generation | tonumber) and has("surface"))
+        | select((.surface == "terminal" and .phase == "active")
+            or (.phase == "opening" and .target == "terminal" and (.surface == null or .surface == "terminal")))
+        | select(.terminalTicket | type == "string" and test("^[A-Za-z0-9_-]{1,128}$"))
+        | select((has("target") | not) or .target == "terminal" or .target == "chat")
+        | select((has("requestId") | not) or (.requestId | type == "string" and length > 0))
+        | select((has("binding") | not) or (.binding | type == "object"
+            and ([.id, .cwd, .path] | all(type == "string" and length > 0 and (test("[[:cntrl:]]") | not)))))
+    ' "$owner" 2>/dev/null) || return 1
+    ticket=$(jq -r '.terminalTicket' <<< "$grant")
+    path=$(jq -r '.binding.path // ""' <<< "$grant")
+    if [ -z "$path" ]; then
+        [ "$CODEFLARE_PI_SURFACE" = terminal ] && [ "$ticket" = initial ] \
+            && [ ! -e "$binding" ] && [ ! -L "$binding" ] \
+            && jq -e '.phase == "active" and .requestId == null' <<< "$grant" >/dev/null
+        return
+    fi
+
+    id=$(jq -r '.binding.id' <<< "$grant")
+    cwd=$(jq -r '.binding.cwd' <<< "$grant")
+    [ "$cwd" = "$workspace" ] || return 1
+    [[ "$id" =~ ^[A-Za-z0-9]([A-Za-z0-9_.-]{0,126}[A-Za-z0-9])?$ ]] || return 1
+    canonical=$(realpath -e -- "$path") || return 1
+    [[ "$path" = "$canonical" && "${path%/*}" = "$session_dir" && "$path" = *_"$id".jsonl && -f "$path" ]] || return 1
+    IFS= read -r header < "$path" || return 1
+    jq -e --arg id "$id" --arg cwd "$cwd" \
+        '.type == "session" and .id == $id and .cwd == $cwd' <<< "$header" >/dev/null 2>&1
+}
+
+cd -- "$workspace"
+# Classic prewarm observes PTY output even when the first ticket is for Chat.
+printf '\r'
+report_waiting_pane
+register_waiting_wrapper
+while true; do
+    if read_ticket && (umask 077; set -o noclobber; : > "$tickets/$ticket") 2>/dev/null; then
+        # Herdr's saved wrapper argv is an identity marker, not a renderer override.
+        args=(--extension /opt/codeflare/pi-web/handoff-extension.ts)
+        [ -z "$path" ] || args+=(--session "$path")
+        (
+            # This is the exact PID that execs Pi and that the wrapper waits on.
+            printf '%s\n' "$BASHPID" > "$tickets/$ticket" || exit 1
+            export CODEFLARE_PI_TERMINAL_PID="$BASHPID" CODEFLARE_PI_TERMINAL_TICKET="$ticket"
+            export CODEFLARE_PI_TERMINAL_SESSION_PATH="$path"
+            exec /usr/local/bin/node --import /opt/codeflare/pi-web/native-preflight.mjs /usr/local/bin/pi "${args[@]}"
+        ) || printf 'Codeflare: the managed Pi process exited unsuccessfully.\n' >&2
+        if native_quit "$ticket"; then
+            if [ "$mode" = herdr ]; then
+                wrapper_start=$(jq -er '.startTime' "$runtime/wrapper.json")
+                (trap '' HUP; umask 077; park_after_shell_return "$ticket" "$wrapper_start") \
+                    </dev/null >"$runtime/herdr-park.log" 2>&1 &
+            fi
+            printf 'Pi exited. To re-enable managed Terminal Pi, run: codeflare-terminal-writer'
+            [ "$#" -eq 0 ] || printf ' %s' "$@"
+            printf '\n'
+            exit 0
+        fi
+        report_waiting_pane "$ticket"
+    fi
+    sleep 0.25
+done

@@ -50,8 +50,8 @@ export function isValidHex(hex: string): boolean {
 }
 
 /**
- * Pick a readable foreground to place ON the accent. Bright accents (the coral
- * default, yellows, light greens) read better with a warm near-black; dark or
+ * Pick a readable foreground to place ON the accent. Bright accents (cyan,
+ * yellows, light greens) read better with a warm near-black; dark or
  * deeply saturated accents need white. Uses the classic YIQ brightness threshold
  * (>= 128 = light background -> dark text). Expects a valid hex.
  */

@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { closeSync, existsSync, openSync, readSync, unlinkSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI, TurnEndEvent, TurnEndEventResult } from "@earendil-works/pi-coding-agent";
@@ -75,7 +76,7 @@ type ReviewContext = {
   };
 };
 
-type ReviewPi = ToolActivationPi & {
+type ReviewPi = ToolActivationPi & Pick<ExtensionAPI, "appendEntry"> & {
   on(event: "input" | "session_start" | "tool_call" | "tool_execution_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
   on(event: "turn_end", handler: (event: TurnEndEvent, ctx: ReviewContext) => Promise<TurnEndEventResult | undefined>): void;
   sendMessage(
@@ -166,27 +167,46 @@ async function currentReview(
   ciEvent?: ReviewBoundaryEvent,
   command?: string,
   createdPr?: CreatedPrTarget,
-): Promise<CurrentReview | undefined> {
+  onCheckout?: (branch: string, head: string) => void,
+): Promise<CurrentReview | typeof PR_LOOKUP_FAILED | undefined> {
   const file = rootSessionFile(ctx);
   const root = findGitRoot(repo);
   if (!file || !root || !reviewEnabled(root)) return undefined;
   const branch = await (dependencies.queryBranch ?? queryBranch)(root);
+  if (!branch) return undefined;
   const head = await (dependencies.queryHead ?? queryHead)(root, "HEAD");
-  const repositoryIdentity = await (dependencies.queryRepository ?? queryRepository)(root);
-  if (!branch || !head || !repositoryIdentity) return undefined;
+  if (!head || !fullSha(head)) return PR_LOOKUP_FAILED;
+  onCheckout?.(branch, head);
+  const sleep = dependencies.sleep ?? defaultSleep;
+  const lookupRepository = dependencies.queryRepository ?? queryRepository;
+  let repositoryIdentity = await lookupRepository(root);
+  if (!repositoryIdentity && ciEvent) {
+    await sleep(250);
+    repositoryIdentity = await lookupRepository(root);
+  }
+  const unrelated = ciEvent && command && !exposureTargetsCheckedOutBranch(command, {
+    branch, repository: repositoryIdentity?.repository,
+  });
+  if (!repositoryIdentity) return unrelated ? undefined : PR_LOOKUP_FAILED;
   if (createdPr && (repositoryIdentity.gitHost !== createdPr.gitHost
     || repositoryIdentity.repository !== createdPr.repository)) return undefined;
   const delays = ciEvent
     ? dependencies.headRetryDelaysMs ?? [0, 1_000, 3_000, 5_000, 10_000, 15_000]
     : [0];
-  const sleep = dependencies.sleep ?? defaultSleep;
+  let lookupFailed = false;
   for (const delay of delays) {
     if (delay > 0) await sleep(delay);
     const pr = await dependencies.queryPr(root, createdPr?.url ?? branch);
-    if (pr === PR_LOOKUP_FAILED) return undefined;
+    if (pr === PR_LOOKUP_FAILED) {
+      if (unrelated) return undefined;
+      if (!ciEvent || lookupFailed) return PR_LOOKUP_FAILED;
+      lookupFailed = true;
+      continue;
+    }
+    lookupFailed = false;
     if (!isEnforcedPr(pr) || pr.headRefName !== branch) return undefined;
     if (createdPr && pr.number !== createdPr.number) return undefined;
-    if (ciEvent && command && !exposureTargetsCheckedOutBranch(command, {
+    if (command && !exposureTargetsCheckedOutBranch(command, {
       branch: pr.headRefName,
       pr: pr.number,
       repository: repositoryIdentity.repository,
@@ -210,7 +230,7 @@ async function currentReview(
       },
     };
   }
-  return undefined;
+  return lookupFailed ? PR_LOOKUP_FAILED : undefined;
 }
 
 type ClassifiedBoundary = {
@@ -507,6 +527,7 @@ type ActiveRound = {
   ciEvent?: ReviewBoundaryEvent;
   ignoreAgentEnds: number;
   triageCorrectionDelivered: boolean;
+  fixBlockedReason?: string;
   launchRejectionsDelivered: Set<string>;
 };
 
@@ -579,14 +600,55 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const epoch = generation;
     const current = () => isCurrent() && generation === epoch;
     if (!current()) return;
-    const review = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr);
-    if (!current() || !review) return;
-    if (readCompletion(review.identity).status === "complete") return;
+    let deliveryCheckout: { branch: string; head: string } | undefined;
+    const reportLaunchBlocked = () => {
+      if (!ciEvent) return;
+      const targetCaptured = command && (classifyReviewBoundaryCommand(command).kind !== "pr-create" || createdPr);
+      const recoverable = deliveryCheckout && targetCaptured;
+      if (recoverable) {
+        pi.appendEntry("pr-boundary-launch-blocked", { repo, ...deliveryCheckout, boundaryToolUseId,
+          event: ciEvent, command, createdPrUrl: createdPr?.url });
+      }
+      ctx.ui?.notify(recoverable
+        ? "PR review plan not sent: PR verification unavailable. When GitHub is reachable, reopen the same checkout and choose Launch review to recover review and CI."
+        : "PR review plan not sent: PR verification unavailable.", "warning");
+    };
+    const discovered = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr,
+      (branch, head) => { deliveryCheckout = { branch, head }; });
+    if (!current()) return;
+    if (discovered === PR_LOOKUP_FAILED && ciEvent) return reportLaunchBlocked();
+    let review = discovered === PR_LOOKUP_FAILED ? undefined : discovered;
+    let entries: Record<string, any>[] | undefined;
+    if (!ciEvent && !consentedLaunch && deliveryCheckout) {
+      try { entries = ctx.sessionManager.getBranch?.() ?? liveEntries(ctx); }
+      catch { return; }
+    }
+    let recovery: { event: ReviewBoundaryEvent; command: string; createdPr?: CreatedPrTarget } | undefined;
+    for (const entry of [...(entries ?? [])].reverse()) {
+      const saved = entry.data;
+      if (entry.type !== "custom" || entry.customType !== "pr-boundary-launch-blocked"
+        || saved?.repo !== repo || saved.head !== deliveryCheckout?.head || saved.branch !== deliveryCheckout?.branch
+        || (saved.event !== "push" && saved.event !== "pr-create") || typeof saved.command !== "string") continue;
+      let target: CreatedPrTarget | undefined;
+      if (classifyReviewBoundaryCommand(saved.command).kind === "pr-create") {
+        target = typeof saved.createdPrUrl === "string" ? createdPrTarget(saved.createdPrUrl) : undefined;
+        if (!target) continue;
+        const exact = await currentReview(ctx, dependencies, repo, undefined, saved.command, target);
+        if (!current()) return;
+        if (!exact || exact === PR_LOOKUP_FAILED || exact.identity.head !== saved.head
+          || exact.identity.branch !== saved.branch) continue;
+        review = exact;
+      } else if (!review || !exposureTargetsCheckedOutBranch(saved.command, review.identity)) continue;
+      recovery = { event: saved.event, command: saved.command, createdPr: target };
+      break;
+    }
+    if (!review || readCompletion(review.identity).status === "complete") return;
     if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
     const key = JSON.stringify([review.file, review.identity.gitHost, review.identity.repository, review.identity.pr,
       review.identity.branch, review.identity.base, review.identity.head]);
     if (!ciEvent && dialogsInFlight.has(key)) return;
-    if (!ciEvent) dialogsInFlight.add(key);
+    const consentRequired = !ciEvent;
+    if (consentRequired) dialogsInFlight.add(key);
     try {
       let decision: string | undefined;
       if (ciEvent) {
@@ -596,13 +658,20 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         const initial = readCompletion(review.identity);
         decision = await ctx.ui.select(
           `Review completion is missing for ${review.repository.split("/").at(-1)}:${review.pr.headRefName}.\nReason: ${statusReason(initial.status)}.`,
-          [MARK_COMPLETE, LAUNCH_REVIEW],
+          recovery ? [LAUNCH_REVIEW] : [MARK_COMPLETE, LAUNCH_REVIEW],
         );
-        if (decision !== MARK_COMPLETE && decision !== LAUNCH_REVIEW) return;
+        if (decision !== LAUNCH_REVIEW && (recovery || decision !== MARK_COMPLETE)) return;
       }
       if (!current()) return;
-      const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent, command, review.createdPr);
-      if (!current() || !refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
+      const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent,
+        recovery?.command ?? command, recovery?.createdPr ?? review.createdPr);
+      if (!current()) return;
+      if (refreshed === PR_LOOKUP_FAILED) {
+        if (recovery) ctx.ui?.notify("PR review plan not sent: PR verification unavailable. Try Launch review again once GitHub is reachable.", "warning");
+        else reportLaunchBlocked();
+        return;
+      }
+      if (!refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
       if (readCompletion(refreshed.identity).status === "complete") return;
       if (decision === MARK_COMPLETE) {
         writeCompletion(refreshed.identity);
@@ -616,6 +685,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       if (!ciEvent && consentedLaunch) {
         await consentedLaunch(refreshed, ctx);
         return;
+      }
+      if (recovery) {
+        ciEvent = recovery.event;
+        boundaryToolUseId = `recovery:${randomUUID()}`;
       }
       const ancestor = latestAncestorCompletion(refreshed.identity, refreshed.repo);
       const ackHead = ancestor?.head;
@@ -667,7 +740,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       });
       activeRound = round;
     } finally {
-      if (generation === epoch) dialogsInFlight.delete(key);
+      if (consentRequired && generation === epoch) dialogsInFlight.delete(key);
     }
   };
 
@@ -805,16 +878,38 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       }
       return;
     }
-    const refreshed = await currentReview(ctx, dependencies, round.repo, undefined, undefined, round.createdPr);
+    const reportFixBlocked = (reason: string) => {
+      if (round.fixBlockedReason === reason) return;
+      round.fixBlockedReason = reason;
+      pi.appendEntry("pr-boundary-fix-blocked", { head: round.identity.head, boundaryToolUseId: round.boundaryToolUseId, reason });
+      ctx.ui?.notify(`PR #${round.pr.number} FIX not sent: ${reason}.`, "warning");
+    };
+    const refresh = () => currentReview(ctx, dependencies, round.repo, undefined, undefined, round.createdPr);
+    let refreshed = await refresh();
     if (activeRound !== round) return;
+    if (refreshed === PR_LOOKUP_FAILED) {
+      await (dependencies.sleep ?? defaultSleep)(250);
+      if (activeRound !== round) return;
+      refreshed = await refresh();
+      if (activeRound !== round) return;
+      if (refreshed === PR_LOOKUP_FAILED) {
+        reportFixBlocked("PR identity verification unavailable");
+        return;
+      }
+    }
     if (!refreshed || !sameIdentity(refreshed.identity, round.identity)) {
       clearRound();
+      reportFixBlocked("PR identity changed or is no longer eligible");
       return;
     }
     try {
       writeCompletion(round.identity);
-      if (readCompletion(round.identity).status !== "complete") return;
+      if (readCompletion(round.identity).status !== "complete") {
+        reportFixBlocked("could not save and verify review completion");
+        return;
+      }
     } catch {
+      reportFixBlocked("could not save and verify review completion");
       return;
     }
     activeRound = undefined;

@@ -44,6 +44,16 @@ updates:
       default-days: 7
       semver-major-days: 30
 
+  # The image prewarms the installed locked Pi Web package; there is no separate cache pin.
+  - package-ecosystem: npm
+    directory: /image/pi-web
+    target-branch: develop
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+
   - package-ecosystem: npm
     directory: /image/oxlint
     target-branch: develop

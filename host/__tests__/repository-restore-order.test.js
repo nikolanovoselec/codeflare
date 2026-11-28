@@ -95,6 +95,7 @@ fs.renameSync(destination + '.tmp', destination);
 setTimeout(() => process.exit(0), 15_000);
 `);
 
+  const token = 'isolated-restore-order-fixture';
   child = spawn(process.execPath, [fileURLToPath(new URL('../dist/server.js', import.meta.url))], {
     cwd: workspace,
     detached: true,
@@ -114,11 +115,14 @@ setTimeout(() => process.exit(0), 15_000);
       CODEFLARE_INIT_FLAG_FILE: flag,
       CODEFLARE_SESSION_WORKSPACE: 'terminal',
       CODEFLARE_TERMINAL_MODE: 'herdr',
+      CODEFLARE_PI_SURFACE: 'chat',
+      CODEFLARE_PI_GENERATION: '7',
+      CODEFLARE_CLONE_RESTORE_FLAG_FILE: flag,
       SESSION_ID: sessionId,
       TERMINAL_PORT: '0',
       TERMINAL_COMMAND: process.execPath,
       TERMINAL_ARGS: peer,
-      CONTAINER_AUTH_TOKEN: 'isolated-restore-order-fixture',
+      CONTAINER_AUTH_TOKEN: token,
     },
   });
   closed = new Promise(resolve => child.once('close', resolve));
@@ -150,9 +154,20 @@ setTimeout(() => process.exit(0), 15_000);
     } while (Date.now() < deadline);
   }
 
-  // This diagnostic is emitted by the actual server.listen callback. No HTTP,
-  // provider, Container, or R2 call is needed to observe early port binding.
-  await waitFor(() => diagnostics.includes('Terminal server listening'), 'Host never reported listening');
+  let port;
+  await waitFor(() => {
+    port = Number(diagnostics.match(/Terminal server listening \{"port":([1-9]\d*)\}/)?.[1]);
+    return Number.isInteger(port) && port <= 65535;
+  }, 'Host never reported its bound port');
+  // REQ-AGENT-272: exercise the real Host composition root with otherwise
+  // eligible handoff settings. The routed control would return 200 if mounted.
+  const chat = await fetch(`http://127.0.0.1:${port}/api/pi-web/${sessionId}/_switch?generation=7`, {
+    headers: { Authorization: `Bearer ${token}`, 'x-codeflare-pi-generation': '7',
+      'x-forwarded-host': 'localhost', 'x-forwarded-proto': 'https' },
+    signal: t.signal,
+  });
+  assert.equal(chat.status, 404, 'Herdr Host must not mount Pi Chat');
+  assert.deepEqual(await chat.json(), { error: 'Not found' });
   await assertGated(750);
 
   const restoredBytes = Buffer.from('{"version":3}\n');

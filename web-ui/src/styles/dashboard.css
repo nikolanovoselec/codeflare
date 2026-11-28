@@ -34,10 +34,6 @@
 
 .dashboard-panel {
   width: 100%;
-  /* Positioning context for the KittScanner, which sits absolutely at the panel's
-     top edge (on the header). It used to live in the full-height wrapper, but once
-     the panel became a centered card the wrapper-anchored scanner floated in the
-     empty space ABOVE the panel — anchoring it to the panel keeps it on the header. */
   position: relative;
   flex: 1;
   min-height: 0;
@@ -138,8 +134,7 @@
    height) so a short panel shrinks to its content and the taller one absorbs the
    freed space; both-full → 50/50; the column's `justify-content: space-between` drops
    remaining slack between them when both are short (GitHub anchored top, Storage
-   bottom). FLIP (mobile width, or a too-short window via `[data-layout="flip"]`):
-   one face at a time with a flip control. */
+   bottom). FLIP (mobile only): one face at a time with a flip control. */
 .panel-flip-face {
   display: flex;
   flex-direction: column;
@@ -155,7 +150,7 @@
   min-height: 0;
 }
 
-/* JS-driven flip on a too-short (but wide) window: collapse to a single face. */
+/* Use the mobile workspace classification for the browser faces and controls. */
 .dashboard-panel-right[data-layout="flip"] .panel-flip-face {
   display: none;
 }
@@ -164,6 +159,67 @@
   display: flex;
   flex: 1;
   min-height: 0;
+}
+
+.dashboard-github-card__link,
+.dashboard-github-card__repo,
+.dashboard-github-card__repo > span {
+  min-width: 0;
+}
+
+.dashboard-github-card__link,
+.dashboard-github-card__repo > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-github-card__link,
+.dashboard-github-card__repo {
+  text-decoration: none;
+}
+
+.dashboard-github-card__link:hover,
+.dashboard-github-card__repo:hover > span {
+  text-decoration: underline;
+}
+
+.dashboard-github-card__age {
+  flex-shrink: 0;
+  border: 0;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.dashboard-github-card__age:not(:disabled) { cursor: pointer; }
+.dashboard-github-card__age:not(:disabled):is(:hover, :focus-visible) {
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+}
+.dashboard-github-card__age:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.dashboard-github-card__age:disabled { opacity: 0.5; }
+
+.dashboard-github-card__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  line-height: 1.125;
+  color: var(--color-text-primary);
+}
+
+.dashboard-github-card__empty > span {
+  background: #000;
+  padding: var(--space-1) var(--space-2);
+  text-align: center;
 }
 
 .dashboard-panel-right[data-layout="flip"] .panel-flip-back-btn,
@@ -238,6 +294,14 @@
 @keyframes dashboard-multiview-breathe {
   0%, 100% { opacity: 0.72; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes dashboard-pull-bounce-x {
+  50% { transform: translateX(-4px); }
+}
+
+@keyframes dashboard-pull-bounce-y {
+  50% { transform: translateY(-4px); }
 }
 
 /* New Session Button */
@@ -399,5 +463,136 @@
   .panel-flip-face[data-active="true"],
   .dashboard-multiview-action {
     animation: none;
+  }
+}
+
+/* In-flow disclosure layout shared by the Dashboard's browser faces. */
+.dashboard-panel-body--disclosure > .dashboard-panel-left { flex-shrink: 0; }
+.dashboard-panel-body--disclosure > .dashboard-panel-right { --disclosure-offset: var(--space-4) 0; }
+.dashboard-panel-body--disclosure > .dashboard-panel-right[hidden] { display: none; }
+.dashboard-panel-body--disclosure .dashboard-stats-section + .dashboard-stats-section { margin-block-start: 0; }
+
+/* Scroll the summary column before taking any space from Recent Sessions. */
+.dashboard-panel-wrapper--summary .dashboard-panel-left > :is(.dashboard-sessions-section, .dashboard-stats-section) {
+  flex: none;
+}
+
+.dashboard-panel-wrapper--summary .dashboard-session-list {
+  flex: 0 0 auto;
+  max-block-size: var(--dashboard-session-limit, none);
+}
+
+.dashboard-panel-wrapper--summary .dashboard-session-list > * {
+  flex-shrink: 0;
+}
+
+@supports (transition-behavior: allow-discrete) {
+  .dashboard-panel-body--disclosure > .dashboard-panel-right {
+    transition: translate var(--transition-base), opacity var(--transition-base), display var(--transition-base) allow-discrete;
+  }
+  .dashboard-panel-body--disclosure > .dashboard-panel-right[hidden] {
+    opacity: 0;
+    translate: var(--disclosure-offset);
+  }
+  @starting-style {
+    .dashboard-panel-body--disclosure > .dashboard-panel-right:not([hidden]) {
+      opacity: 0;
+      translate: var(--disclosure-offset);
+    }
+  }
+}
+.dashboard-panel-body--disclosure > .dashboard-panel-pull {
+  --dashboard-pull-bounce: dashboard-pull-bounce-x;
+  inline-size: 44px;
+  block-size: 44px;
+  border: 0;
+  background: transparent;
+}
+.dashboard-panel-body--disclosure > .dashboard-panel-pull:hover:not(:disabled) { background: transparent; }
+@media (prefers-reduced-motion: no-preference) {
+  .dashboard-panel-body--disclosure > .dashboard-panel-pull > svg {
+    animation: var(--dashboard-pull-bounce) 2.8s ease-in-out infinite;
+  }
+}
+.dashboard-panel-wrapper--summary .header-actions > .session-switcher-wrapper + .header-user-wrapper {
+  margin-inline-start: calc(-1 * var(--space-1));
+}
+@media (width > 640px) {
+  .dashboard-panel-wrapper--summary {
+    max-inline-size: 390px;
+  }
+  .dashboard-panel-wrapper--disclosure .dashboard-panel-left { max-inline-size: 100%; }
+  .dashboard-panel-wrapper--summary .dashboard-panel-left { inline-size: 390px; }
+  /* Keep the card above New Session the same height when its copy reflows. */
+  .dashboard-panel-body--disclosure > .dashboard-panel-left > :is(.tips-card, .welcome-card) { flex: none; }
+  .dashboard-panel-body--disclosure .dashboard-card__text { min-block-size: 2lh; }
+  .dashboard-panel-wrapper--disclosure > .dashboard-panel,
+  .dashboard-panel-wrapper--disclosure .dashboard-panel-body--disclosure { overflow: visible; }
+  .dashboard-panel-wrapper--disclosure .dashboard-panel-body--disclosure {
+    position: relative;
+    border-radius: 0 0 calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px);
+  }
+  .dashboard-panel-body--disclosure > .dashboard-panel-left { border-end-start-radius: inherit; }
+  .dashboard-panel-body--disclosure > .dashboard-panel-right,
+  .dashboard-panel-wrapper--summary .dashboard-panel-left { border-end-end-radius: inherit; }
+  .dashboard-panel-wrapper--disclosure .dashboard-panel-header > .header-logo { flex-shrink: 1; min-inline-size: 0; }
+  .dashboard-panel-wrapper--disclosure .header-logo-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dashboard-panel-wrapper--disclosure .dashboard-panel-body--disclosure > .dashboard-panel-pull {
+    position: absolute;
+    inset-inline-start: 100%;
+    inset-block-start: 50%;
+    block-size: 150px;
+    translate: 0 -50%;
+  }
+}
+@media (width > 640px) and (prefers-reduced-motion: no-preference) {
+  .dashboard-panel-wrapper--disclosure { transition: max-inline-size 150ms ease-in-out; }
+  .dashboard-panel-wrapper--disclosure .dashboard-panel-left { transition: inline-size 150ms ease-in-out; }
+  .dashboard-panel-body--disclosure > .dashboard-panel-right { transition-timing-function: ease-in-out; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-panel-body--disclosure > .dashboard-panel-right { transition: none; }
+}
+@media (max-width: 640px) {
+  .dashboard-panel-wrapper--disclosure { padding-block-end: calc(44px + var(--space-2)); }
+  .dashboard-panel-wrapper--disclosure > .dashboard-panel:not(.dashboard-panel--expanded) {
+    height: auto;
+    overflow: visible;
+  }
+  .dashboard-panel-body--disclosure { flex-direction: column; overflow-y: auto; }
+  .dashboard-panel-body--disclosure > .dashboard-panel-left {
+    inline-size: 100%;
+    border-inline-end: 0;
+  }
+  .dashboard-panel-body--disclosure > .dashboard-panel-pull {
+    --dashboard-pull-bounce: dashboard-pull-bounce-y;
+    position: absolute;
+    inset-block-end: calc(-44px - var(--space-2));
+    inset-inline: 0;
+    margin-inline: auto;
+    inline-size: 64px;
+    block-size: 44px;
+    max-block-size: none;
+    justify-content: center;
+    align-items: center;
+    padding: 0;
+    background: transparent;
+    color: #fff;
+  }
+  .dashboard-panel-body--disclosure > .dashboard-panel-pull:hover:not(:disabled) {
+    color: #fff;
+  }
+  .dashboard-panel-body--disclosure > .dashboard-panel-right {
+    --disclosure-offset: 0 var(--space-4);
+    flex: 0 0 auto;
+    max-block-size: 75vh;
+  }
+}
+
+/* Through 599px the existing mobile browser rule already animates the flip. */
+@media (599px < width <= 640px) and (prefers-reduced-motion: no-preference) {
+  .dashboard-panel-right[data-layout="flip"] .panel-flip-face[data-active="true"] {
+    transform-origin: top center;
+    animation: panel-flip-in 260ms ease;
   }
 }

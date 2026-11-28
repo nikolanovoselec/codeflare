@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { createSignal } from 'solid-js';
 import { mdiViewCompactOutline } from '@mdi/js';
 import SessionDropdown from '../../components/SessionDropdown';
+import SessionSwitcher from '../../components/SessionSwitcher';
+import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import { sessionStore } from '../../stores/session';
 import type { SessionWithStatus } from '../../types';
 
@@ -215,6 +218,16 @@ describe('SessionDropdown', () => {
     },
   );
 
+  it.each([['stopping', 'consolidating'], ['stopped', 'queued']] as const)(
+    'REQ-SESSION-043: keeps Kill without Retry Stop while %s with phase %s', (status, shutdownPhase) => {
+      render(() => <SessionDropdown {...defaultProps}
+        sessions={[createSession({ id: 'recover', status, shutdownPhase })]} />);
+      fireEvent.click(screen.getByTestId('card-menu-recover'));
+      expect(screen.getByRole('button', { name: 'Kill' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Retry Stop' })).not.toBeInTheDocument();
+    },
+  );
+
   describe('REQ-SESSION-038: KILL in the existing session menu', () => {
     it.each(['starting', 'running', 'unreachable', 'stopping'] as const)(
       'AC1/AC3 and inherited-behavior constraints: offers one KILL for %s, targets only the selected session and closes its menu', status => {
@@ -400,6 +413,27 @@ describe('SessionDropdown', () => {
   });
 
   describe('MultiView selection', () => {
+    it('REQ-TERM-012: selects sessions in Vibe and reopens the same saved members in Code', () => {
+      const onSelectSession = vi.fn();
+      const [vibe, setVibe] = createSignal(true);
+      const members = ['s1', 's3'];
+      const { sessions } = defaultProps;
+      expect(terminalWorkspaceStore.createOrUpdateMultiView(members, sessions, 'desktop')).toBe(true);
+      try {
+        render(() => <SessionSwitcher {...defaultProps} onSelectSession={onSelectSession} disableMultiView={vibe()}
+          onOpenMultiView={() => terminalWorkspaceStore.openMultiView(sessions)} />);
+        fireEvent.click(screen.getByTestId('session-switcher'));
+        expect(screen.queryByRole('button', { name: 'Launch MultiView' })).not.toBeInTheDocument();
+        fireEvent.click(screen.getByTestId('session-card-s3'));
+        expect(onSelectSession).toHaveBeenCalledWith('s3');
+        expect(screen.queryByTestId('session-dropdown')).not.toBeInTheDocument();
+        setVibe(false);
+        fireEvent.click(screen.getByTestId('session-switcher'));
+        fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
+        expect(terminalWorkspaceStore.getVisiblePanes().map(pane => pane.sessionId)).toEqual(members);
+      } finally { terminalWorkspaceStore.closeMultiView(); }
+    });
+
     it('REQ-TERM-013: keeps the dropdown open while toggling MultiView member sessions', () => {
       const onLaunchMultiView = vi.fn();
       render(() => (
@@ -498,6 +532,41 @@ describe('SessionDropdown', () => {
       expect(screen.getByTestId('session-card-s4')).toHaveAttribute('data-selected', 'true');
       expect(screen.getByTestId('session-card-s5')).toHaveAttribute('data-selected', 'false');
       expect(screen.getByTestId('session-dropdown-multiview-limit')).toHaveAttribute('data-visible', 'true');
+    });
+
+    it('REQ-TERM-013: queued shutdown frees a selected slot and leaves Cancel available', () => {
+      const a = createSession({ id: 's1', status: 'running' });
+      const b = createSession({ id: 's2', status: 'running' });
+      const c = createSession({ id: 's3', status: 'running' });
+      const [sessions, setSessions] = createSignal([a, b, c]);
+      render(() => <SessionDropdown {...defaultProps} sessions={sessions()} multiView={{ capacity: 2, existing: null,
+        onLaunch: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() }} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
+      fireEvent.click(screen.getByTestId('session-card-s2'));
+      const queued = { ...a, shutdownPhase: 'queued' as const };
+      setSessions([queued, b, c]);
+      expect(screen.getByTestId('session-card-s1')).toHaveAttribute('data-selected', 'false');
+      fireEvent.click(screen.getByTestId('session-card-s3'));
+      expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selected', 'true');
+      setSessions([queued, { ...b, shutdownPhase: 'consolidating' }, c]);
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel MultiView' }));
+      expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selecting', 'false');
+    });
+
+    it('REQ-TERM-013: resizing to phone exits selection without launching', () => {
+      const [capacity, setCapacity] = createSignal(2);
+      const launch = vi.fn();
+      render(() => <SessionDropdown {...defaultProps} multiView={{ capacity: capacity(), existing: null,
+        onLaunch: launch, onOpen: vi.fn(), onClose: vi.fn() }} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Launch MultiView' }));
+      fireEvent.click(screen.getByTestId('session-card-s3'));
+      expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selected', 'true');
+      setCapacity(0);
+      expect(screen.queryByRole('button', { name: /MultiView/ })).not.toBeInTheDocument();
+      setCapacity(2);
+      expect(screen.getByRole('button', { name: 'Launch MultiView' })).toBeEnabled();
+      expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selected', 'false');
+      expect(launch).not.toHaveBeenCalled();
     });
 
     it('REQ-TERM-013: hides the MultiView action on mobile', () => {

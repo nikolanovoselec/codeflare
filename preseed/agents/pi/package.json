@@ -3,29 +3,30 @@
   "dependencies": {
     "@calesennett/pi-codex-fast": "0.1.14",
     "@dumbmice/pi-todo-loop": "0.4.0",
-    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@earendil-works/pi-coding-agent": "1.7.0",
     "@gotgenes/pi-subagents": "25.0.5",
     "@juicesharp/rpiv-advisor": "2.15.0",
     "@juicesharp/rpiv-ask-user-question": "2.15.0",
     "@juicesharp/rpiv-todo": "2.15.0",
+    "@narumitw/pi-goal": "0.55.5",
     "@narumitw/pi-plan-mode": "0.60.1",
-    "context-mode": "2.2.0",
+    "context-mode": "2.2.1",
     "pi-evaluate": "0.1.5",
     "pi-hermes-memory": "0.11.0",
     "pi-mcp-adapter": "7.0.1",
-    "pi-open-tui": "0.4.6",
-    "pi-smart-compact": "10.8.1",
+    "pi-open-tui": "0.4.7",
+    "pi-smart-compact": "10.9.0",
     "pi-web-access": "0.48.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "1.5.2",
-    "@earendil-works/pi-ai": "1.5.2",
-    "@earendil-works/pi-tui": "1.5.2"
+    "@earendil-works/pi-agent-core": "1.7.0",
+    "@earendil-works/pi-ai": "1.7.0",
+    "@earendil-works/pi-tui": "1.7.0"
   },
   "name": "codeflare-pi-preseed",
   "overrides": {
-    "@earendil-works/pi-coding-agent": "1.5.2",
-    "@hono/node-server": "2.1.8",
+    "@earendil-works/pi-coding-agent": "1.7.0",
+    "@hono/node-server": "2.1.11",
     "@modelcontextprotocol/client": "2.3.1",
     "@modelcontextprotocol/core": "2.3.1",
     "@modelcontextprotocol/sdk": "1.32.2",
@@ -33,10 +34,10 @@
     "body-parser": "2.4.0",
     "brace-expansion": "5.0.13",
     "fast-uri": "3.1.9",
-    "hono": "^4.13.18",
+    "hono": "^4.13.19",
     "ip-address": "10.7.6",
     "protobufjs": "7.6.6",
-    "undici": "8.12.4",
+    "undici": "8.13.1",
     "ws": "8.23.0"
   },
   "private": true

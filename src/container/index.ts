@@ -32,30 +32,39 @@ import { runOwnedUserCleanup, type CleanupResult } from '../lib/user-cleanup';
 import { Container } from '@cloudflare/containers';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
-import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
+import { PiSurfaceSchema, type Env, type ManagedResourcePolicy, type PiSurface, type SessionWorkspace, type TabConfig, type TerminalMode, type UserPreferences } from '../types';
+import { isPiWebEligible, isPiWebPath, matchesPiWebGeneration, PI_WEB_GENERATION_HEADER, piWebAppPrefix, piWebSessionId } from './pi-web';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
-import type { OperatorLoggingContext } from '../lib/container-helpers';
+import { getContainerId, type OperatorLoggingContext, type PiWebReadAuthority } from '../lib/container-helpers';
+import { readBoundedResponse } from '../lib/bounded-stream';
 import { getR2Config } from '../lib/r2-config';
+import { readCachedScopedR2Token } from '../lib/r2-admin';
+import { getOrImportKey } from '../lib/kv-crypto';
+import { getPreferencesKey } from '../lib/kv-keys';
+import { getCachedActiveManagedRelease } from '../lib/managed-release-active';
 import { createHash } from 'node:crypto';
 import { AGENTS_SEEDED_CONFIGS } from '../lib/agent-seed.generated';
-import { getBucketOwnerStub } from '../lib/access';
-import { SESSION_ID_PATTERN } from '../lib/constants';
-import { HermesRetention, type HermesAdmission, type HermesWriter } from '../lib/hermes-retention';
+import { getBucketOwnerStub, loadEnterpriseRouteConfig } from '../lib/access';
+import { isEnterpriseMode } from '../lib/subscription';
+import { mergeNeedsRetry, queuedStopTrigger, snapshotPattern, terminalFenced } from '../lib/session-shutdown';
+import { DEFAULT_ROUTE_CONTEXT_WINDOW, SESSION_ID_PATTERN } from '../lib/constants';
+import { HERMES_UPLOAD_HOST, HermesRetention, isHermesUploadKey, type HermesAdmission, type HermesWriter } from '../lib/hermes-retention';
+import { getR2Url } from '../lib/r2-client';
 import { HERMES_ADAPTER_KEY, hermesRetentionR2 } from '../lib/hermes-retention-r2';
 import { canonicalJson } from '../lib/reasoning-profiles';
 import { runSetupConfiguration, type SetupConfigurationInput } from '../routes/setup/index';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { performBucketMultipart, MULTIPART_PENDING_COMPLETION, type BucketMultipartOperation } from '../routes/storage/upload';
-import { advanceMigrationChunk, getRegimeState, getR2SsePolicyDisabled, regimeForPolicy } from '../lib/r2-migration';
+import { advanceMigrationChunk, getBucketStorageOwner, getRegimeState, getR2SsePolicyDisabled, regimeForPolicy } from '../lib/r2-migration';
 import { computeKeyMd5 } from '../lib/r2-sse';
 import { setRegimeState } from '../lib/r2-regime-state';
 import type { RegimeState } from '../lib/r2-regime-state';
 import { hasOwningSessionContainer } from '../lib/session-helpers';
-import { D1SessionRepository } from '../lib/session-repository';
+import { D1SessionRepository, type D1Session } from '../lib/session-repository';
 import { AppError, toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
-import { getPersonalPiSession, wireContainerInterception, type InterceptionHost } from './container-interception';
+import { getOrdinarySessionAuthority, getPersonalPiSession, wireContainerInterception, type InterceptionHost } from './container-interception';
 import { ownedBrowser, type BrowserOwnerReference, type BrowserOperation } from './container-browser';
 import type { OperatorPolicy } from '../operators/policy';
 import { parseOperatorPackageResourceProjection, verifyOperatorPackageResourceProjection,
@@ -82,7 +91,8 @@ import {
   ensureVaultKey as configEnsureVaultKey,
   type ContainerHost,
 } from './container-config';
-import { captureMetricsExecution, CONTAINER_POLL_BUDGET_MS, FINAL_SYNC_AUDIT_KEY, raceBudget, type MetricsPin } from './container-metrics';
+import { captureMetricsExecution, CONTAINER_POLL_BUDGET_MS, drainAgentEventsBeforeStop, FINAL_SYNC_AUDIT_KEY, FINAL_SYNC_BUDGET_MS, SHUTDOWN_REQUESTED_KEY,
+  raceBudget, type MetricsPin, type MetricsState } from './container-metrics';
 import { dispatchInternalRoute } from './container-router';
 import { bindReviewSessionHuman, openReviewSessionHuman } from './review-session-human';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -102,12 +112,21 @@ import {
   type LifecycleLogContext,
 } from './container-lifecycle';
 
+import { HERMES_MERGE_BUDGET_MS, mergeAfterFinalSave, verifiedHermesMerge } from './hermes-shutdown';
+import { acceptShutdown, advanceShutdownQueue, MERGE_READBACK_WINDOW_MS, raceAbort, transitionShutdown,
+  type ShutdownRequest, type ShutdownAcceptance } from './session-shutdown-queue';
+
 export { validateBucketNameInput };
 
 const SESSION_ID_KEY = '_sessionId';
 const TERMINAL_KEEPALIVE_MS = 15_000;
+const HERMES_DIRECT_GENERATION_KEY = 'hermes:direct-generation';
+const HERMES_WRITER_GENERATION_KEY = 'hermes:writer-generation';
+const SHUTDOWN_QUEUE_OWNER = 'shutdown:queue-owner';
+const SHUTDOWN_QUEUE_ALARM_MS = 15_000;
 const HERMES_DIRECT_LAYOUT_KEY = 'hermes:direct-layout';
 const HERMES_SETTLED_GENERATION_KEY = 'hermes:settled-generation';
+const HERMES_RETRY_GENERATION_KEY = 'hermes:retry-generation';
 const HERMES_MASTER_ADAPTER = '022e0ccae29f5235e4931829802e5656432111efe83f4c0c07b2cf22f1ca6a75'; // v196
 const HERMES_CHECKPOINT_ADAPTER = 'd6e0420a7a73120a48a457f38bce4a941a4c658fb7799ed89f8785f875735395'; // v197 and v198
 
@@ -128,7 +147,8 @@ const HERMES_CHECKPOINT_ADAPTER = 'd6e0420a7a73120a48a457f38bce4a941a4c658fb7799
 // each call site - the same pattern the previous metricsState getter used -
 // rather than an `implements` clause that would couple to the base class's
 // member modifiers.
-type ExitEvidence = { owner: string; session: string; generation: number; terminationIntentId?: string };
+type ExitEvidence = { owner: string; session: string; generation: number; terminationIntentId?: string;
+  nativeStopReason?: 'idle' | 'user'; monitorReason?: 'platform' | 'unknown'; awaitingAudit?: true };
 
 export class container extends Container<Env> implements ContainerEnvState {
   #sdkCredentialQueues = new Map<string, Promise<void>>();
@@ -137,8 +157,15 @@ export class container extends Container<Env> implements ContainerEnvState {
     cancellation: AbortController; startup: { ready: boolean }; completion: Promise<void>;
   };
   private sessionConfigurationInFlight?: Promise<Response>;
-  private sessionStopInFlight?: SessionStopRequest & { completion: Promise<void> };
+  private sessionStopInFlight?: SessionStopRequest & { completion: Promise<boolean> };
   private sessionKillInFlight?: SessionStopRequest & { completion: Promise<void> };
+
+  private hermesDirectGeneration?: number;
+  hermesUpload?: HermesWriter;
+  private hermesAttempt?: { generation: number; abort: AbortController };
+  private shutdownQueueInFlight?: Promise<void>;
+  private shutdownQueueDirty = false;
+  private readonly workspaceSockets = new Set<() => void>();
 
   // Port where the container's HTTP server listens
   // Terminal server handles all endpoints: WebSocket, health check, metrics
@@ -314,14 +341,13 @@ export class container extends Container<Env> implements ContainerEnvState {
       });
       if (!persisted) return;
       await this.reconcileObservedExit({ ownerKey: evidence.owner, sessionId: evidence.session,
-        generation: evidence.generation }, () => this._teardownEpoch === epoch, false, 'unknown');
+        generation: evidence.generation }, () => this._teardownEpoch === epoch, false, true);
     })();
     this.ctx.waitUntil(work);
     return work;
   }
 
   private async retryObservedExit(
-    reason: 'platform' | 'unknown' = 'unknown',
     onObservation?: (incidentId: string | null) => void,
     expected?: MetricsPin,
   ): Promise<boolean> {
@@ -353,11 +379,21 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
     const matchesExpected = !expected || (expected.ownerKey === owner
       && expected.sessionId === session && expected.generation === generation);
+    // Capture the shutdown job before exit confirmation lets the queue clear it.
+    let settlementRow: D1Session | null = null;
+    const exitReason = evidence.terminationIntentId !== undefined && evidence.nativeStopReason !== undefined
+      ? evidence.nativeStopReason : evidence.monitorReason ?? 'unknown';
     const confirmed = await confirmMonitoredExit(this.ctx, this.env, owner, session, generation,
-      matchesExpected ? reason : 'unknown', matchesExpected ? onObservation : undefined, evidence.terminationIntentId);
+      exitReason, (incidentId, row) => {
+        settlementRow = row;
+        if (matchesExpected) onObservation?.(incidentId);
+      }, evidence.terminationIntentId);
     let superseded = false;
+    let deleted = false;
     if (!confirmed) {
       const current = await new D1SessionRepository(this.env.USAGE_DB).getSession(owner, session);
+      deleted = current === null && evidence.terminationIntentId !== undefined;
+      // An already-stopped row may have lost the Retry job. It confirms exit, not writer identity.
       if (current?.lifecycleState !== 'stopped' || current.lifecycleGeneration !== generation) {
         superseded = evidence.terminationIntentId !== undefined && (!current
           || current.lifecycleGeneration !== generation || current.lifecycleState !== 'stopping'
@@ -369,11 +405,31 @@ export class container extends Container<Env> implements ContainerEnvState {
       const stored = await txn.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
       if (stored?.generation === generation && stored.owner === owner && stored.session === session
           && stored.terminationIntentId === evidence.terminationIntentId) {
+        // D1 already confirmed this validated exit; teardown may have cleared its operational keys.
+        const canSettle = confirmed
+          ? await txn.get<number>('lifecycleGeneration') === generation
+          : (!superseded || deleted) && await this.exitEvidenceIsCurrent(evidence, txn);
+        const stopped = settlementRow as D1Session | null;
+        const job = stopped?.shutdown;
+        const writerStop = confirmed && job?.teardownClaimed && job.phase.startsWith('finishing')
+          && job.sourceGeneration === undefined && job.hermesDisabledAtStartup !== true;
+        const exitIntent = evidence.terminationIntentId ?? (writerStop ? stopped?.terminationIntentId ?? undefined : undefined);
+        if (canSettle && exitIntent !== undefined) {
+          const audit = await txn.get<{ sessionId: string; lifecycleGeneration: number; terminationIntentId?: string }>(FINAL_SYNC_AUDIT_KEY);
+          if (audit?.sessionId !== session || audit.lifecycleGeneration !== generation || audit.terminationIntentId !== exitIntent) {
+            // A monitor can confirm exit before teardown publishes the audit. Bind the existing proof to this Stop.
+            if (evidence.terminationIntentId === undefined) {
+              await txn.put(container.EXIT_OBSERVED_KEY, { ...evidence, terminationIntentId: exitIntent, awaitingAudit: true });
+            }
+            return;
+          }
+        }
+        // Consume exit evidence and settle the writer atomically so interruption can replay both.
         await txn.delete(container.EXIT_OBSERVED_KEY);
+        if (canSettle) await this.writeHermesSettlement(txn, session, generation, settlementRow, exitIntent, deleted);
       }
     });
     if (superseded || await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
-    await this.recordHermesSettlement(session, generation);
     this.monitoredGeneration = generation;
     return true;
   }
@@ -383,7 +439,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     pin: MetricsPin | undefined,
     current: () => boolean,
     replaceSchedule = false,
-    reason?: 'platform' | 'unknown',
+    exitJustObserved = false,
   ): Promise<boolean> {
     let incidentId: string | null = null;
     let retry = false;
@@ -396,9 +452,9 @@ export class container extends Container<Env> implements ContainerEnvState {
           pin = { ownerKey: evidence.owner, sessionId: evidence.session, generation: evidence.generation };
         }
       }
-      if (await this.retryObservedExit(reason ?? 'unknown', observed => { incidentId = observed; }, pin)) return true;
+      if (await this.retryObservedExit(observed => { incidentId = observed; }, pin)) return true;
       const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
-      retry = reason !== undefined || (!!evidence && evidence.generation === pin?.generation);
+      retry = exitJustObserved || (!!evidence && evidence.generation === pin?.generation);
     } catch {
       this.logger.warn('Container exit confirmation retry failed', {
         sessionId: pin?.sessionId ?? null, lifecycleGeneration: pin?.generation ?? null,
@@ -419,7 +475,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       catch (error) {
         logFailure();
         // Preserve the existing warm monitor/metrics second chance for a transient scheduler failure.
-        if (current() && (replaceSchedule || reason !== undefined)) {
+        if (current() && (replaceSchedule || exitJustObserved)) {
           try { await schedule(); }
           catch (retryError) { logFailure(); throw retryError; }
         } else throw error;
@@ -455,10 +511,10 @@ export class container extends Container<Env> implements ContainerEnvState {
     this.monitoredGeneration = generation;
     const recordExit = (reason: 'platform' | 'unknown') => {
       if (this.pendingExit && this.pendingExit.generation > generation) return;
-      this.pendingExit = { owner, session, generation };
+      this.pendingExit = { owner, session, generation, monitorReason: reason };
       // Own finite work after positive exit observation, not the monitor's lifetime.
       this.ctx.waitUntil(this.reconcileObservedExit(
-        { ownerKey: owner, sessionId: session, generation }, current, false, reason));
+        { ownerKey: owner, sessionId: session, generation }, current, false, true));
     };
     try {
       const exit = runtime.monitor();
@@ -536,6 +592,57 @@ export class container extends Container<Env> implements ContainerEnvState {
     const owner = await this.ctx.storage.get<string>('storage:owner');
     if (owner && owner !== bucketName) throw new Error('Bucket storage owner mismatch');
     if (!owner) await this.ctx.storage.put('storage:owner', bucketName);
+  }
+
+  private requireShutdownCoordinator(bucket: string): void {
+    if (validateBucketNameInput({ bucketName: bucket })
+      || this.env.CONTAINER.idFromName(`storage:${bucket}`).toString() !== this.ctx.id.toString()) {
+      throw new Error('Shutdown coordinator address mismatch');
+    }
+  }
+
+  async enqueueHermesShutdown(input: ShutdownRequest): Promise<ShutdownAcceptance> {
+    this.requireShutdownCoordinator(input.bucket);
+    if (!isEnterpriseMode(this.env)) return { accepted: false };
+    await this.ctx.storage.put(SHUTDOWN_QUEUE_OWNER, input.bucket);
+    // Arm recovery before committing acceptance. A crash between D1 acceptance
+    // and the immediate kick must not require another browser request.
+    await this.ctx.storage.setAlarm(Date.now() + SHUTDOWN_QUEUE_ALARM_MS);
+    const accepted = await acceptShutdown(new D1SessionRepository(this.env.USAGE_DB), input);
+    if (accepted.accepted) this.kickShutdownQueue(input.bucket);
+    return accepted;
+  }
+
+  async wakeHermesShutdownQueue(bucket: string): Promise<void> {
+    this.requireShutdownCoordinator(bucket);
+    this.kickShutdownQueue(bucket);
+  }
+
+  private kickShutdownQueue(bucket: string): void {
+    this.shutdownQueueDirty = true;
+    if (this.shutdownQueueInFlight) return;
+    const completion = (async () => {
+      while (this.shutdownQueueDirty) {
+        this.shutdownQueueDirty = false;
+        await advanceShutdownQueue(this.env, bucket);
+      }
+    })().catch(() => {
+      this.logger.warn('Shutdown queue could not advance; durable state retained');
+    }).finally(() => { this.shutdownQueueInFlight = undefined; });
+    this.shutdownQueueInFlight = completion;
+    this.ctx.waitUntil(completion);
+  }
+
+  override async alarm(): Promise<void> {
+    const bucket = await this.ctx.storage.get<string>(SHUTDOWN_QUEUE_OWNER);
+    // storage:<bucket> does not use the Container SDK's native alarms. Every
+    // ordinary session still uses the existing SDK alarm/metrics machinery.
+    if (!bucket) { await super.alarm(); return; }
+    this.requireShutdownCoordinator(bucket);
+    const head = await new D1SessionRepository(this.env.USAGE_DB).shutdownHead(bucket);
+    if (!head) return;
+    await this.ctx.storage.setAlarm(Date.now() + SHUTDOWN_QUEUE_ALARM_MS);
+    this.kickShutdownQueue(bucket);
   }
 
   async runBucketMultipart(operation: BucketMultipartOperation | Request): Promise<Response> {
@@ -653,6 +760,11 @@ export class container extends Container<Env> implements ContainerEnvState {
       this._terminalMode = storedTerminalMode === 'herdr' ? 'herdr' : 'classic';
       this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
       const restoredGeneration = await this.ctx.storage.get<number>('lifecycleGeneration');
+      this.hermesDirectGeneration = await this.ctx.storage.get<number>(HERMES_DIRECT_GENERATION_KEY);
+      const writerGeneration = await this.ctx.storage.get<number>(HERMES_WRITER_GENERATION_KEY);
+      if (this._sessionId && writerGeneration !== undefined && writerGeneration === this.hermesDirectGeneration) {
+        this.hermesUpload = { sessionId: this._sessionId, generation: writerGeneration };
+      }
       this._observedLifecycleGeneration = restoredGeneration !== undefined && Number.isSafeInteger(restoredGeneration) && restoredGeneration >= 0
         ? restoredGeneration : null;
       const restoredPin = this._bucketName && this._sessionId && Number.isSafeInteger(restoredGeneration)
@@ -851,16 +963,34 @@ export class container extends Container<Env> implements ContainerEnvState {
   private mcpCleanupActive = false;
   private hermesRetention?: HermesRetention;
 
-  private async recordHermesSettlement(sessionId: string, generation: number): Promise<void> {
+  private async writeHermesSettlement(txn: DurableObjectTransaction, sessionId: string, generation: number,
+    row: D1Session | null, exitIntent?: string, deleted = false): Promise<void> {
+    if (!await txn.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) return;
+    const audit = await txn.get<{ outcome: string; sessionId: string; lifecycleGeneration: number;
+      terminationIntentId?: string; hermesWriter?: true }>(FINAL_SYNC_AUDIT_KEY);
+    if (audit?.outcome !== 'completed' || audit.sessionId !== sessionId || audit.lifecycleGeneration !== generation) return;
+    // After Delete, only positive native exit evidence joined to its teardown audit can settle a writer.
+    const matchingStop = exitIntent !== undefined && audit.terminationIntentId === exitIntent;
+    if (deleted && !matchingStop) return;
+    if (isEnterpriseMode(this.env)) {
+      if (row) {
+        if (row.lifecycleGeneration !== generation) return;
+        // A Retry launched before rollout may have no local generation marker.
+        const source = row.shutdown?.sourceGeneration;
+        if (source !== undefined && source < generation && !row.shutdown?.resumed) return;
+      } else if (!(matchingStop && audit.hermesWriter === true)
+        && await txn.get<number>(HERMES_WRITER_GENERATION_KEY) !== generation) return;
+    }
+    // Headless Retry never writes the session store. Keep the original writer’s proof.
+    if (await txn.get<number>(HERMES_RETRY_GENERATION_KEY) === generation) return;
+    if (generation > (await txn.get<number>(HERMES_SETTLED_GENERATION_KEY) ?? 0)) {
+      await txn.put(HERMES_SETTLED_GENERATION_KEY, generation);
+    }
+  }
+
+  private async recordHermesSettlement(sessionId: string, generation: number, row: D1Session): Promise<void> {
     try {
-      await this.ctx.storage.transaction(async txn => {
-        if (!await txn.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) return;
-        const audit = await txn.get<{ outcome: string; sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
-        if (audit?.outcome === 'completed' && audit.sessionId === sessionId && audit.lifecycleGeneration === generation
-          && generation > (await txn.get<number>(HERMES_SETTLED_GENERATION_KEY) ?? 0)) {
-          await txn.put(HERMES_SETTLED_GENERATION_KEY, generation);
-        }
-      });
+      await this.ctx.storage.transaction(txn => this.writeHermesSettlement(txn, sessionId, generation, row));
     } catch { /* Lack of a receipt defers retention, never ordinary lifecycle. */ }
   }
 
@@ -878,10 +1008,53 @@ export class container extends Container<Env> implements ContainerEnvState {
     const { sessionId, generation } = writer;
     if (!SESSION_ID_PATTERN.test(sessionId)
       || this.env.CONTAINER.idFromName(`${bucket}-${sessionId}`).toString() !== this.ctx.id.toString()) return false;
+    if (isEnterpriseMode(this.env)) {
+      const row = await new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, sessionId);
+      if (row?.shutdown && (row.shutdown.phase !== 'merged' || mergeNeedsRetry(row.shutdown))
+        && (row.lifecycleGeneration === generation || row.shutdown.sourceGeneration === generation)) return false;
+    }
     if (await this.ctx.storage.get<number>(HERMES_SETTLED_GENERATION_KEY) === generation) return true;
     const audit = await this.ctx.storage.get<{ outcome: string; sessionId: string; lifecycleGeneration: number }>(FINAL_SYNC_AUDIT_KEY);
     if (audit?.outcome !== 'completed' || audit.sessionId !== sessionId || audit.lifecycleGeneration !== generation) return false;
+    const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+    if (evidence?.awaitingAudit && evidence.owner === bucket && evidence.session === sessionId
+      && evidence.generation === generation && evidence.terminationIntentId !== undefined) {
+      await this.retryObservedExit().catch(() => false);
+      // Exit alone cannot authorize settlement while the matching Stop audit is outstanding.
+      return await this.ctx.storage.get<number>(HERMES_SETTLED_GENERATION_KEY) === generation;
+    }
     return this.hermesWriterExited(bucket, writer);
+  }
+
+  async hermesStoreRetained(bucket: string, sessionId: string): Promise<boolean> {
+    if (!SESSION_ID_PATTERN.test(sessionId)) throw new Error('Invalid Hermes session ID');
+    await this.verifyMcpOwner(bucket);
+    const retention = this.hermesRetention ??= new HermesRetention(this.ctx.storage);
+    const retained = await raceBudget(retention.hasStore(sessionId), CONTAINER_POLL_BUDGET_MS);
+    if (retained === null) throw new Error('Hermes retention check timed out');
+    return retained;
+  }
+
+  async putHermesObject(bucket: string, writer: HermesWriter, request: Request): Promise<Response> {
+    await this.verifyMcpOwner(bucket);
+    const { endpoint } = await getR2Config(this.env);
+    const url = new URL(request.url);
+    const prefix = `${new URL(getR2Url(endpoint, bucket)).pathname}/`;
+    const key = decodeURIComponent(url.pathname.slice(prefix.length));
+    if (request.method !== 'PUT' || !url.pathname.startsWith(prefix) || !isHermesUploadKey(writer.sessionId, key)
+      || (url.search !== '' && url.search !== '?x-id=PutObject') || request.headers.has('x-amz-copy-source')
+      || request.url !== getR2Url(endpoint, bucket, key) + url.search) {
+      return new Response(null, { status: 403 });
+    }
+    const retention = this.hermesRetention ??= new HermesRetention(this.ctx.storage);
+    const queued = new AbortController();
+    // Expire queued work, but don't cancel a dispatched PUT or release its fence early.
+    const upload = retention.withUpload(writer, () => fetch(request, { redirect: 'manual' }), queued.signal);
+    this.ctx.waitUntil(upload.catch(() => undefined));
+    try {
+      const result = await raceBudget(upload, CONTAINER_POLL_BUDGET_MS);
+      return result ?? new Response(null, { status: result === null ? 503 : 410 });
+    } finally { queued.abort(); }
   }
 
   async admitHermesStore(bucket: string, writer: HermesWriter, remoteCuration: boolean, deadline: number,
@@ -906,7 +1079,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     if (remoteCuration) {
       const installed = await r2.adapterDigest();
       if (installed === HERMES_MASTER_ADAPTER || installed === HERMES_CHECKPOINT_ADAPTER) {
-        if (hadDirectLayout || await retention.hasStore(writer.sessionId)
+        if (hadDirectLayout || await retention.hasStore(writer.sessionId, true)
           || (installed === HERMES_MASTER_ADAPTER
             && (writer.generation !== 1 || await r2.hasCheckpoint(writer.sessionId)))) return 'deferred';
         return await canAdmit() ? 'legacy' : 'deferred';
@@ -1084,14 +1257,90 @@ export class container extends Container<Env> implements ContainerEnvState {
     return configEnsureVaultKey(this.host);
   }
 
-  /** Low-level port forwarding cannot start a replacement or trust stale SDK state. */
+  private async workspaceFenced(): Promise<boolean> {
+    if (!isEnterpriseMode(this.env) || this.hermesDirectGeneration === undefined || !this._bucketName || !this._sessionId
+      || this._operatorContainerProfile) return false;
+    if (this.hermesAttempt) return true;
+    const row = await new D1SessionRepository(this.env.USAGE_DB).getSession(this._bucketName, this._sessionId);
+    return this.hermesAttempt !== undefined || terminalFenced(row?.shutdown);
+  }
+
+  /** Ordinary forwarding cannot invoke the private shutdown protocol. */
   async forwardExisting(request: Request, loggingContext?: OperatorLoggingContext): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    if (path === '/internal/hermes-merge' || request.headers.has('x-codeflare-hermes-merge')) {
+      return new Response(null, { status: 404 });
+    }
+    const canWrite = !['/health', '/activity', '/internal/runtime-observation'].includes(path)
+      && !(path === '/sessions' && request.method === 'GET');
+    if (canWrite && await this.workspaceFenced()) return new Response('Session is shutting down', { status: 409 });
+    return this.#forwardPrivatePort(request, loggingContext);
+  }
+
+  private async admitsPiWeb(url: URL, headers: Headers): Promise<boolean> {
+    const sessionId = piWebSessionId(url.pathname);
+    const bucket = this._bucketName;
+    const generation = Number(headers.get(PI_WEB_GENERATION_HEADER));
+    const epoch = this._teardownEpoch;
+    const stillOwned = () => this._bucketName === bucket && this._sessionId === sessionId
+      && !this._operatorContainerProfile && !this._operatorPolicy && this._teardownEpoch === epoch
+      && !this._shutdownStartedAt && !this.sessionStopInFlight && !this.sessionKillInFlight && !this.hermesAttempt;
+    if (!bucket || !sessionId || !stillOwned() || !Number.isSafeInteger(generation) || generation < 1
+      || headers.get(PI_WEB_GENERATION_HEADER) !== String(generation)
+      || !matchesPiWebGeneration(url.pathname, sessionId, generation)
+      || headers.get('X-Forwarded-Host') !== url.host
+      || headers.get('X-Forwarded-Proto') !== url.protocol.slice(0, -1)) return false;
+    const session = await new D1SessionRepository(this.env.USAGE_DB).getSession(bucket, sessionId);
+    if (!session || session.lifecycleState !== 'running' || session.lifecycleGeneration !== generation
+      || session.terminationIntentId || session.boundaryActivityId || terminalFenced(session.shutdown) || !isPiWebEligible(session)) return false;
+    const [storedGeneration, shutdown] = await Promise.all([
+      this.ctx.storage.get<number>('lifecycleGeneration'), this.ctx.storage.get(SHUTDOWN_REQUESTED_KEY),
+    ]);
+    return storedGeneration === generation && shutdown == null && stillOwned();
+  }
+
+  /** Parent-only passive app dispatch. The two authority checks still bracket I/O. */
+  async forwardPiWebRead(request: Request, authority: PiWebReadAuthority): Promise<Response> {
+    const url = new URL(request.url);
+    if (typeof authority?.bucket !== 'string' || typeof authority.sessionId !== 'string'
+      || typeof authority.email !== 'string' || !authority.email || !Number.isSafeInteger(authority.generation) || authority.generation < 1
+      || piWebSessionId(url.pathname) !== authority.sessionId
+      || !url.pathname.startsWith(piWebAppPrefix(authority.sessionId, authority.generation))
+      || request.headers.get(PI_WEB_GENERATION_HEADER) !== String(authority.generation)
+      || (request.method !== 'GET' && request.method !== 'HEAD') || request.headers.has('Upgrade')) {
+      return Response.json({ error: 'Invalid Pi web app read' }, { status: 400 });
+    }
+    const epoch = this._teardownEpoch;
+    const stillOwned = () => this._bucketName === authority.bucket && this._sessionId === authority.sessionId
+      && this._userEmail?.toLowerCase() === authority.email.toLowerCase() && this._teardownEpoch === epoch
+      && !this._operatorContainerProfile && !this._operatorPolicy && !this._shutdownStartedAt
+      && !this.sessionStopInFlight && !this.sessionKillInFlight;
+    try {
+      const ordinary = await getPersonalPiSession(this.interceptionHost, authority, true);
+      if (ordinary.generation !== authority.generation || !stillOwned()) {
+        return Response.json({ error: 'Pi web generation changed' }, { status: 409 });
+      }
+    } catch (error) {
+      if (error instanceof AppError) return Response.json(error.toJSON(), { status: error.statusCode });
+      throw error;
+    }
+    return this.#forwardPrivatePort(request, undefined, stillOwned);
+  }
+
+  /** Low-level port forwarding cannot start a replacement or trust stale SDK state. */
+  async #forwardPrivatePort(request: Request, loggingContext?: OperatorLoggingContext,
+    stillOwned?: () => boolean): Promise<Response> {
     const token = await this.ctx.storage.get<string>('containerAuthToken');
     if (!this.ctx.container || !token) return new Response('Existing container unavailable', { status: 503 });
     try {
+      request.signal.throwIfAborted();
       // The private port accepts HTTP only. Preserve the public request's path,
       // query, method and upgrade headers, but never forward its HTTPS origin.
       const url = new URL(request.url);
+      const piWeb = isPiWebPath(url.pathname);
+      if (piWeb && (!await this.admitsPiWeb(url, request.headers) || (stillOwned && !stillOwned()))) {
+        return Response.json({ error: 'Pi web lifecycle no longer authorized' }, { status: 409 });
+      }
       const privateUrl = new URL('http://container');
       privateUrl.pathname = url.pathname;
       privateUrl.search = url.search;
@@ -1113,6 +1362,15 @@ export class container extends Container<Env> implements ContainerEnvState {
       // `running` can itself transiently read false after DO reconstruction.
       // Only an answer from the existing private port proves it survived.
       const response = await this.ctx.container.getTcpPort(8080).fetch(forwarded);
+      if (piWeb && (!await this.admitsPiWeb(url, request.headers) || (stillOwned && !stillOwned()))) {
+        if (response.webSocket) {
+          response.webSocket.accept();
+          response.webSocket.close(1000, 'session-shutdown');
+        } else if (response.body) {
+          void response.body.cancel().catch(() => {});
+        }
+        return Response.json({ error: 'Pi web lifecycle no longer authorized' }, { status: 409 });
+      }
       if (response.ok && this.monitoredGeneration === null) {
         // A port answer can establish survival even while the SDK running flag
         // is stale. Attach exit observation without delaying the response.
@@ -1178,6 +1436,14 @@ export class container extends Container<Env> implements ContainerEnvState {
       }, TERMINAL_KEEPALIVE_MS);
     }
 
+    const disconnect = () => {
+      stopKeepalive();
+      closeQuietly(server, 1000, 'session-shutdown');
+      closeQuietly(containerWs, 1000, 'session-shutdown');
+    };
+    this.workspaceSockets.add(disconnect);
+    const release = () => { stopKeepalive(); this.workspaceSockets.delete(disconnect); };
+
     containerWs.addEventListener('message', event => { void forward(server, event.data); });
     server.addEventListener('message', event => { void forward(containerWs, event.data); });
     containerWs.addEventListener('close', event => {
@@ -1190,8 +1456,8 @@ export class container extends Container<Env> implements ContainerEnvState {
     containerWs.addEventListener('error', () => closeQuietly(server, 1011, 'container-socket-error'));
     server.addEventListener('error', () => closeQuietly(containerWs, 1011, 'client-socket-error'));
     for (const socket of [containerWs, server]) {
-      socket.addEventListener('close', stopKeepalive);
-      socket.addEventListener('error', stopKeepalive);
+      socket.addEventListener('close', release);
+      socket.addEventListener('error', release);
     }
 
     return new Response(null, { status: 101, webSocket: client, headers: containerResponse.headers });
@@ -1209,9 +1475,14 @@ export class container extends Container<Env> implements ContainerEnvState {
     // Stub.fetch has native WebSocket response transport; keep terminal and IDE
     // sockets on the same no-start private-port forwarding used for health probes.
     const pathname = new URL(request.url).pathname;
-    if ((pathname === '/terminal' || pathname.startsWith('/api/vscode/')) &&
-        request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+    if (isPiWebPath(pathname) || ((pathname === '/terminal' || pathname.startsWith('/api/vscode/')) &&
+        request.headers.get('Upgrade')?.toLowerCase() === 'websocket')) {
       const forwarded = await this.forwardExisting(request);
+      if (forwarded.webSocket && await this.workspaceFenced()) {
+        forwarded.webSocket.accept();
+        forwarded.webSocket.close(1000, 'session-shutdown');
+        return new Response('Session is shutting down', { status: 409 });
+      }
       return forwarded.webSocket ? this.relayWebSocket(forwarded, { terminalKeepalive: pathname === '/terminal' }) : forwarded;
     }
     if (pathname === '/_internal/setBucketName' && request.method === 'POST') {
@@ -1302,18 +1573,23 @@ export class container extends Container<Env> implements ContainerEnvState {
     await super.startAndWaitForPorts(...args);
   }
 
-  private async prepareNativeStart(): Promise<void> {
+  private async prepareNativeStart(hermesUpload?: HermesWriter): Promise<boolean> {
     await refreshMcpPortalConfiguration(this.host);
     this.updateEnvVars();
-    await wireContainerInterception(this.interceptionHost);
+    this.hermesUpload = hermesUpload;
+    return wireContainerInterception(this.interceptionHost);
   }
 
   private async configureSessionStart(request: Request): Promise<Response> {
     const conflict = () => Response.json({ error: 'Session configuration no longer authorized' }, { status: 412 });
     const value = request.headers.get('X-Codeflare-Start-Generation');
     if (value === null || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return conflict();
-    const body = await request.clone().json().catch(() => null) as { bucketName?: unknown; sessionId?: unknown } | null;
+    const body = await request.clone().json().catch(() => null) as {
+      bucketName?: unknown; sessionId?: unknown; surface?: unknown; sessionWorkspace?: SessionWorkspace; tabConfig?: TabConfig[]; terminalMode?: TerminalMode;
+    } | null;
     const { bucketName, sessionId } = body ?? {};
+    const surface = PiSurfaceSchema.optional().safeParse(body?.surface);
+    if (!surface.success) return Response.json({ error: 'Invalid Pi surface' }, { status: 400 });
     if (typeof bucketName !== 'string' || typeof sessionId !== 'string'
       || this.env.CONTAINER.idFromName(`${bucketName}-${sessionId}`).toString() !== this.ctx.id.toString()) return conflict();
     if (this.sessionConfigurationInFlight || this.sessionStartInFlight || this.sessionStopInFlight || this.sessionKillInFlight) return conflict();
@@ -1322,26 +1598,36 @@ export class container extends Container<Env> implements ContainerEnvState {
       const current = await repository.getSession(bucketName, sessionId);
       if (!current || current.lifecycleGeneration !== Number(value) || current.terminationIntentId
         || current.lifecycleState === 'starting' || current.lifecycleState === 'stopping'
+        || terminalFenced(current.shutdown) || (current.lifecycleState === 'stopped' && current.shutdown?.phase === 'queued')
         || this.sessionStopInFlight || this.sessionKillInFlight || this._operatorContainerProfile
         || (this._bucketName && this._bucketName !== bucketName) || (this._sessionId && this._sessionId !== sessionId)) return conflict();
+      if (surface.data && (current.boundaryActivityId || this._operatorPolicy || !isPiWebEligible(current)
+        || !body?.tabConfig || !isPiWebEligible({
+          agentType: current.agentType, workspace: body.sessionWorkspace, tabConfig: body.tabConfig, terminalMode: body.terminalMode,
+        }))) {
+        return conflict();
+      }
       if (current.lifecycleState === 'stopped') {
         if (this.ctx.container?.running) return conflict();
       } else if (!this._bucketName || await this.ctx.storage.get<number>('lifecycleGeneration') !== current.lifecycleGeneration) {
         return conflict();
       }
       if (this.sessionStopInFlight || this.sessionKillInFlight) return conflict();
-      const response = await dispatchInternalRoute(this.host, request)!;
+      // A fresh native start wires every hostname before the catch-all. Do not install it during configuration.
+      const response = await dispatchInternalRoute(this.host, request, current.lifecycleState !== 'stopped')!;
       if (current.lifecycleState !== 'stopped' || (response.status !== 200 && response.status !== 409)) return response;
       if (this._bucketName !== bucketName || this._sessionId !== sessionId) return conflict();
       // Keep configuration and the claim under the same reservation. A second
       // request for the previous generation cannot overwrite the winner's config.
       await this.ctx.storage.put(SESSION_LAUNCH_GENERATION_KEY, current.lifecycleGeneration + 1);
       if (this.sessionStopInFlight || this.sessionKillInFlight) return conflict();
-      const claimed = await repository.start(bucketName, sessionId, new Date().toISOString(), current.lifecycleGeneration);
+      const claimed = await repository.start(bucketName, sessionId, new Date().toISOString(), current.lifecycleGeneration, current.shutdown);
       if (!claimed) return conflict();
       // Own the launch before acknowledgement. It waits for this configuration
       // reservation to settle, but does not depend on its RPC caller returning.
-      void this.launchSession({ bucket: bucketName, sessionId, generation: claimed.lifecycleGeneration }).catch(() => {
+      void this.launchSession({ bucket: bucketName, sessionId, generation: claimed.lifecycleGeneration }, {
+        surface: surface.data, mergedSnapshot: claimed.mergedSnapshotId,
+      }).catch(() => {
         this.logger.warn('Session start not confirmed', { sessionId, lifecycleGeneration: claimed.lifecycleGeneration });
       });
       const headers = new Headers(response.headers);
@@ -1367,7 +1653,13 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
   }
 
-  private async launchSession(input: SessionStopRequest): Promise<void> {
+  private async launchSession(input: SessionStopRequest, {
+    surface, mergedSnapshot, retry,
+  }: {
+    surface?: PiSurface;
+    mergedSnapshot?: string;
+    retry?: { snapshotId: string; sourceGeneration: number; beforeStart(): Promise<void> };
+  }): Promise<void> {
     const { bucket, sessionId, generation } = input;
     if (this.env.CONTAINER.idFromName(`${bucket}-${sessionId}`).toString() !== this.ctx.id.toString()) {
       throw new Error('Session start address mismatch');
@@ -1388,23 +1680,46 @@ export class container extends Container<Env> implements ContainerEnvState {
     const completion = Promise.resolve().then(async () => {
       await configure;
       await stillAdmitted();
-      await this.prepareNativeStart();
-      if (this._sessionMode === 'advanced') {
+      const upload = !retry && this._sessionMode === 'advanced' ? { sessionId, generation } : undefined;
+      const uploadReady = await this.prepareNativeStart(upload);
+      if (retry) {
+        await this.ctx.storage.put({ [HERMES_DIRECT_GENERATION_KEY]: generation, [HERMES_RETRY_GENERATION_KEY]: generation });
+        this.hermesDirectGeneration = generation;
+        this.envVars = { ...this.envVars, CODEFLARE_HERMES_RETRY_SNAPSHOT: retry.snapshotId,
+          CODEFLARE_HERMES_RETRY_SOURCE_GENERATION: String(retry.sourceGeneration) };
+      } else if (this._sessionMode === 'advanced') {
         const budget = CONTAINER_POLL_BUDGET_MS;
         const deadline = Date.now() + budget;
-        const disposition = await raceBudget((async () => {
+        const disposition = uploadReady ? await raceBudget((async () => {
           const hadDirectLayout = (await this.ctx.storage.get<boolean>(HERMES_DIRECT_LAYOUT_KEY)) === true;
           return getBucketOwnerStub(this.env, bucket).admitHermesStore(bucket, { sessionId, generation },
             this._remoteCurationActive, deadline, hadDirectLayout);
-        })(), budget).catch(() => null);
-        if (disposition === 'new' || disposition === 'existing') {
+        })(), budget).catch(() => null) : null;
+        const direct = disposition === 'new' || disposition === 'existing';
+        if (direct) {
           await this.ctx.storage.put(HERMES_DIRECT_LAYOUT_KEY, true);
+          if (isEnterpriseMode(this.env)) {
+            await this.ctx.storage.put({ [HERMES_DIRECT_GENERATION_KEY]: generation, [HERMES_WRITER_GENERATION_KEY]: generation });
+            this.hermesDirectGeneration = generation;
+          }
         }
         this.envVars = { ...this.envVars, CODEFLARE_HERMES_PERSISTENCE: disposition ?? 'deferred',
-          CODEFLARE_HERMES_GENERATION: String(generation) };
+          CODEFLARE_HERMES_GENERATION: String(generation),
+          ...(direct ? { CODEFLARE_HERMES_UPLOAD_ENDPOINT: `https://${HERMES_UPLOAD_HOST}` } : {}),
+          ...(disposition === 'existing' && isEnterpriseMode(this.env) && mergedSnapshot && snapshotPattern.test(mergedSnapshot)
+            ? { CODEFLARE_HERMES_MERGED_SNAPSHOT: mergedSnapshot } : {}),
+        };
       }
       await stillAdmitted();
+      if (retry) {
+        await retry.beforeStart();
+        cancellation.signal.throwIfAborted();
+        if (this._teardownEpoch !== epoch) throw new Error('Session start superseded');
+      }
       if (this.ctx.container?.running) throw new Error('Unexpected existing session process');
+      if (surface) {
+        this.envVars = { ...this.envVars, CODEFLARE_PI_SURFACE: surface, CODEFLARE_PI_GENERATION: String(generation) };
+      }
       await super.startAndWaitForPorts({ cancellationOptions: { abort: cancellation.signal } });
       if (cancellation.signal.aborted || !startup.ready) throw new Error('Session start not confirmed');
     }).finally(() => { this.sessionStartInFlight = undefined; });
@@ -1453,7 +1768,11 @@ export class container extends Container<Env> implements ContainerEnvState {
           lifecycleGeneration: pin.generation, incidentId: null, errorClass: 'monitor_attachment_failed' });
       }
     }
+    const stop = { bucket: pin.ownerKey, sessionId: pin.sessionId, generation: pin.generation };
+    const hermesEligible = await this.canQueueHermesShutdown(stop);
     await lifecycleCollectMetrics(this.lifecycleHost, pin, { ...execution,
+      ...(hermesEligible && { queueIdleStop: () => getBucketStorageOwner(this.env, stop.bucket)
+        .enqueueHermesShutdown({ ...stop, delete: false, idle: true }) }),
       onHostResponse: () => this.monitorExistingRuntime(true, pin) });
   }
 
@@ -1467,17 +1786,306 @@ export class container extends Container<Env> implements ContainerEnvState {
     await this.destroyWithContext();
   }
 
-  private async destroyWithContext(context?: LifecycleLogContext, onNativeExit?: () => Promise<void>): Promise<void> {
+  private async destroyWithContext(context?: LifecycleLogContext, onNativeExit?: () => Promise<void>,
+    confirmedSave = false, finalEventsAttempted = false): Promise<void> {
     if (this.sessionKillInFlight) {
       await this.sessionKillInFlight.completion;
       return;
     }
     await lifecycleDestroy(this.lifecycleHost, context, onNativeExit,
-      (this.sessionStartInFlight || this.sessionConfigurationInFlight) ? () => this.quiesceSessionStart() : undefined);
+      (this.sessionStartInFlight || this.sessionConfigurationInFlight) ? () => this.quiesceSessionStart() : undefined, confirmedSave, finalEventsAttempted);
+  }
+
+  async canQueueHermesShutdown(input: SessionStopRequest): Promise<boolean> {
+    return isEnterpriseMode(this.env) && !this._operatorPolicy && !this._operatorContainerProfile
+      && this._bucketName === input.bucket && this._sessionId === input.sessionId
+      && this.hermesDirectGeneration === input.generation;
+  }
+
+  async saveAndMergeHermes(input: SessionStopRequest, intent: string, saveRetryAt: number): Promise<void> {
+    this.requireShutdownSession(input);
+    if (this.hermesAttempt || this.sessionKillInFlight) throw new Error('Another session shutdown is in progress');
+    const { bucket, sessionId, generation } = input;
+    const repository = new D1SessionRepository(this.env.USAGE_DB);
+    const abort = new AbortController();
+    this.hermesAttempt = { generation, abort };
+    let confirmedSave = false;
+    let confirmedSnapshot: string | undefined;
+    let saveRefused = false;
+    const assertCurrent = async (phase: 'saving' | 'consolidating') => {
+      const row = await repository.getSession(bucket, sessionId);
+      abort.signal.throwIfAborted();
+      if (!row || row.lifecycleGeneration !== generation || row.lifecycleState !== 'running' || row.terminationIntentId
+        || row.shutdown?.intent !== intent || row.shutdown.phase !== phase
+        || (phase === 'saving' && row.shutdown.deadline !== saveRetryAt)
+        || this.sessionKillInFlight || this.sessionStopInFlight) throw new Error('Hermes shutdown superseded');
+      return row;
+    };
+    try {
+      await assertCurrent('saving');
+      if (!await this.canQueueHermesShutdown(input)) throw new Error('Hermes shutdown is not eligible');
+      for (const disconnect of this.workspaceSockets) disconnect();
+      this.workspaceSockets.clear();
+      await this.quiesceSessionStart();
+      const saving = await assertCurrent('saving');
+      if (!saving.shutdown?.finalEventsAttempted) {
+        // REQ-SESSION-032: one independently bounded final notification
+        // attempt precedes the normal 120s save budget.
+        await raceAbort(abort.signal, () => drainAgentEventsBeforeStop(
+          this as unknown as MetricsState, this.ctx, this.env, CONTAINER_POLL_BUDGET_MS,
+        ));
+        if (!await transitionShutdown(repository, input, intent, 'saving', job => ({
+          ...job, finalEventsAttempted: true,
+        }))) throw new Error('Hermes shutdown superseded');
+      }
+      await mergeAfterFinalSave({
+        signal: abort.signal,
+        finalSyncBudgetMs: FINAL_SYNC_BUDGET_MS,
+        assertCurrent: async () => { await assertCurrent('saving'); },
+        forwardExisting: async request => {
+          const response = await raceAbort(request.signal, () => this.#forwardPrivatePort(request));
+          // The save and its acknowledgement share the same bounded lifetime.
+          const receipt = await readBoundedResponse(response, 4096, 'Final save acknowledgement', request.signal);
+          if (response.headers.get('Content-Type')?.includes('application/json')) {
+            const result = JSON.parse(new TextDecoder().decode(receipt)) as { synced?: unknown; reason?: unknown; syncDispatched?: unknown } | null;
+            // A disk blocker alone does not establish the outcome of a dispatched save.
+            saveRefused = result?.synced === false && (
+              (response.status === 409 && (result.reason === 'invalid-hermes-launch'
+                || (result.reason === 'disk-space-blocked' && result.syncDispatched === false)))
+              || (response.status === 503 && (result.reason === 'hermes-save-not-started'
+                || result.reason === 'hermes-merge-unavailable' || result.reason === 'daemon-not-running'))
+              || (response.status === 500 && result.reason === 'bisync-failed'));
+          }
+          return new Response(receipt, { status: response.status, headers: response.headers });
+        },
+        startupDisabled: async disabledGeneration => {
+          if (disabledGeneration !== generation) throw new Error('Hermes startup outcome is stale');
+          await assertCurrent('saving');
+          if (!await transitionShutdown(repository, input, intent, 'saving', job => ({
+            ...job, phase: 'finishing', deadline: undefined, hermesDisabledAtStartup: true,
+          }))) throw new Error('Hermes shutdown superseded');
+        },
+        merge: async ({ deadline, signal, snapshotId }) => {
+          confirmedSave = true;
+          confirmedSnapshot = snapshotId;
+          const pending = () => transitionShutdown(repository, input, intent, 'saving', job => ({
+            ...job, phase: 'finishing-pending', snapshotId, deadline: undefined,
+          }));
+          if (!snapshotId || !snapshotPattern.test(snapshotId)) { await pending(); return; }
+          await assertCurrent('saving');
+          signal.throwIfAborted();
+          if (!await transitionShutdown(repository, input, intent, 'saving', job => ({
+            ...job, phase: 'consolidating', snapshotId, deadline,
+          }))) throw new Error('Hermes shutdown superseded');
+          const row = await assertCurrent('consolidating');
+          const outcome = await this.#runHermesMerge(row, snapshotId, deadline, signal, abort.signal);
+          await transitionShutdown(repository, input, intent, 'consolidating', job => ({ ...job, ...outcome }));
+        },
+      });
+    } catch {
+      if (!abort.signal.aborted) {
+        this.logger.warn('Hermes shutdown did not settle normally; preserving saved state', { sessionId, generation });
+        if (confirmedSave) {
+          if (!await transitionShutdown(repository, input, intent, 'consolidating', job => ({
+            ...job, phase: 'finishing-pending',
+          }))) await transitionShutdown(repository, input, intent, 'saving', job => ({
+            ...job, phase: 'finishing-pending', snapshotId: confirmedSnapshot,
+          }));
+        } else {
+          await transitionShutdown(repository, input, intent, 'saving', job => ({
+            ...job, phase: 'save-failed', deadline: saveRefused ? undefined : saveRetryAt,
+          }));
+        }
+      }
+    } finally {
+      this.hermesAttempt = undefined;
+    }
+  }
+
+  async retrySavedHermes(input: SessionStopRequest, intent: string): Promise<void> {
+    this.requireShutdownSession(input);
+    const { bucket, sessionId, generation } = input;
+    const repository = new D1SessionRepository(this.env.USAGE_DB);
+    const row = await repository.getSession(bucket, sessionId);
+    const job = row?.shutdown;
+    if (!row || row.lifecycleState !== 'stopped' || row.lifecycleGeneration !== generation || job?.intent !== intent
+      || job.phase !== 'queued' || !job.snapshotId || !snapshotPattern.test(job.snapshotId) || job.sourceGeneration === undefined) return;
+    const { snapshotId, sourceGeneration } = job;
+    const deadline = Date.now() + HERMES_MERGE_BUDGET_MS;
+    const abort = new AbortController();
+    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(HERMES_MERGE_BUDGET_MS)]);
+    let snapshotUnavailable = false;
+    const checkSnapshot = async (checkSignal = signal) => {
+      const retained = await raceAbort(checkSignal, () => getBucketOwnerStub(this.env, bucket).hermesStoreRetained(bucket, sessionId));
+      snapshotUnavailable = !retained;
+      return retained;
+    };
+    const checkAfterFailure = async () => {
+      if (snapshotUnavailable || abort.signal.aborted) return;
+      const checkSignal = AbortSignal.any([abort.signal, AbortSignal.timeout(CONTAINER_POLL_BUDGET_MS)]);
+      // A failed lookup does not establish eviction; the merge deadline is not the status lookup's budget.
+      await checkSnapshot(checkSignal).catch(() => {});
+    };
+    const failBeforeStart = () => transitionShutdown(repository, input, intent, 'queued', current => ({
+      ...current, phase: 'memory-not-merged', ...(snapshotUnavailable ? { snapshotUnavailable: true } : {}),
+    }));
+    let active: SessionStopRequest | undefined;
+    try {
+      const email = this._userEmail;
+      if (!email || this._operatorPolicy || this._operatorContainerProfile || this.ctx.container?.running
+        || this.hermesAttempt || this.sessionConfigurationInFlight || this.sessionStartInFlight || this.sessionKillInFlight) {
+        await failBeforeStart();
+        return;
+      }
+      const [regime, r2, credentials, release, preferences, strict] = await raceAbort(signal, () => Promise.all([
+        getRegimeState(this.env, bucket), getR2Config(this.env),
+        getOrImportKey(this.env).then(key => readCachedScopedR2Token(this.env.KV, email, bucket, key)),
+        getCachedActiveManagedRelease(this.env), this.env.KV.get<UserPreferences>(getPreferencesKey(bucket), 'json'),
+        hasStrictGatewayEgress(this.env),
+      ]));
+      const strictEgress = strict || this._strictEgress;
+      const resourcePolicy = release?.resourcePolicy ?? 'mutable';
+      const applied = preferences?.managedEnvironmentApplied;
+      const pathsDigest = applied?.managedPathsDigest;
+      if (!credentials || regime.status !== 'ready' || (regime.regime === 'sse-c' && (!this.env.ENCRYPTION_KEY
+        || regime.keyMd5 && computeKeyMd5(this.env.ENCRYPTION_KEY) !== regime.keyMd5))
+        || (resourcePolicy !== 'mutable' && (!strictEgress || !this.env.EGRESS
+          || applied?.digest !== release?.digest || !/^[0-9a-f]{64}$/.test(pathsDigest ?? '')))) {
+        await failBeforeStart();
+        return;
+      }
+      if (!await checkSnapshot()) {
+        await failBeforeStart();
+        return;
+      }
+      await this.ctx.storage.put(SESSION_LAUNCH_GENERATION_KEY, generation + 1);
+      const claimed = await repository.beginShutdownRetry(row, { ...job, phase: 'consolidating', deadline });
+      if (!claimed) return;
+      active = { bucket, sessionId, generation: claimed.lifecycleGeneration };
+      this.hermesAttempt = { generation: active.generation, abort };
+      const current = await getRegimeState(this.env, bucket);
+      if (current.status !== 'ready' || current.generation !== regime.generation || current.regime !== regime.regime) {
+        throw new Error('Hermes storage regime changed');
+      }
+      signal.throwIfAborted();
+      this._strictEgress = strictEgress;
+      if (strictEgress) this.enableInternet = false;
+      await this.setBucketName(bucket, {
+        sessionId, r2AccessKeyId: credentials.accessKeyId, r2SecretAccessKey: credentials.secretAccessKey,
+        r2AccountId: r2.accountId, r2Endpoint: r2.endpoint, sessionMode: 'advanced', workspaceSyncEnabled: false,
+        r2SseDisabled: regime.regime === 'plain', encryptionKey: this.env.ENCRYPTION_KEY,
+        remoteCurationActive: !!release, remoteCurationReleaseDigest: release?.digest,
+        managedResourcePolicy: resourcePolicy, managedResourcePathsDigest: resourcePolicy === 'mutable' ? undefined : pathsDigest,
+      });
+      signal.throwIfAborted();
+      const currentAttempt = active;
+      await raceAbort(signal, () => this.launchSession(currentAttempt, { retry: {
+        snapshotId, sourceGeneration,
+        beforeStart: async () => { if (!await checkSnapshot()) throw new Error('Hermes snapshot unavailable'); },
+      } }));
+      const running = await repository.getSession(bucket, sessionId);
+      signal.throwIfAborted();
+      if (!running || running.lifecycleGeneration !== active.generation || running.lifecycleState !== 'running'
+        || running.shutdown?.intent !== intent || running.shutdown.phase !== 'consolidating') throw new Error('Hermes retry superseded');
+      const outcome = await this.#runHermesMerge(running, snapshotId, deadline, signal, abort.signal);
+      if (outcome.phase === 'finishing-pending') await checkAfterFailure();
+      abort.signal.throwIfAborted();
+      await transitionShutdown(repository, active, intent, 'consolidating', state => ({
+        ...state, ...outcome, ...(snapshotUnavailable ? { snapshotUnavailable: true } : {}),
+      }));
+    } catch {
+      if (!active) await failBeforeStart();
+      else if (!abort.signal.aborted) {
+        await checkAfterFailure();
+        if (abort.signal.aborted) return;
+        await transitionShutdown(repository, active, intent, 'consolidating', current => ({
+          ...current, phase: 'finishing-pending', ...(snapshotUnavailable ? { snapshotUnavailable: true } : {}),
+        }));
+      }
+    } finally {
+      if (this.hermesAttempt?.abort === abort) this.hermesAttempt = undefined;
+    }
+  }
+
+  async #runHermesMerge(row: D1Session, snapshotId: string, deadline: number, signal: AbortSignal,
+    cancel: AbortSignal) {
+    const email = this._userEmail;
+    if (!email) return { phase: 'finishing-pending' as const };
+    const config = await raceAbort(signal, async () => {
+      const { groups, generation } = await getOrdinarySessionAuthority(this.interceptionHost,
+        { bucket: row.ownerKey, sessionId: row.sessionId, email });
+      if (generation !== row.lifecycleGeneration) throw new Error('Hermes owner generation changed');
+      return loadEnterpriseRouteConfig(this.env, groups, true);
+    });
+    const allowPersonalPiProviders = config.allowPersonalPiProviders === true;
+    const model = config.defaultRoute;
+    const gateway = model ? { model, reasoning: config.defaultReasoning || undefined,
+      contextWindow: config.routeContextWindows[model] ?? DEFAULT_ROUTE_CONTEXT_WINDOW,
+      reasoningLevels: config.routeReasoningLevels[model] } : undefined;
+    // The Host verifies the saved delta even without a model. Only a nonempty
+    // change needs authorized inference.
+    signal.throwIfAborted();
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('Hermes merge deadline expired');
+    // Write deadline remains in Host; the extra window is readback only.
+    const observation = AbortSignal.any([cancel, AbortSignal.timeout(remaining + MERGE_READBACK_WINDOW_MS)]);
+    const body = JSON.stringify({ intent: row.shutdown?.intent, snapshotId, deadline, allowPersonalPiProviders, gateway });
+    const result = await raceAbort(observation, async () => {
+      const response = await this.#forwardPrivatePort(new Request('http://localhost/internal/hermes-merge', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: observation, body,
+      }));
+      if (!response.ok) throw new Error('Hermes merge acknowledgement unavailable');
+      return JSON.parse(new TextDecoder().decode(await readBoundedResponse(
+        response, 4096, 'Hermes merge acknowledgement', observation,
+      ))) as { status?: unknown; receipt?: unknown } | null;
+    });
+    cancel.throwIfAborted();
+    const mergeVerified = result?.status === 'merged' && verifiedHermesMerge(result.receipt, row, snapshotId);
+    const phase = mergeVerified || result?.status === 'skipped' ? 'finishing' : 'finishing-pending';
+    return { phase, ...(mergeVerified ? { mergeVerified: true as const } : {}) } as const;
+  }
+
+  private requireShutdownSession(input: SessionStopRequest): void {
+    if (!isEnterpriseMode(this.env)
+      || this.env.CONTAINER.idFromName(getContainerId(input.bucket, input.sessionId)).toString() !== this.ctx.id.toString()) {
+      throw new Error('Hermes shutdown session address mismatch');
+    }
+  }
+
+  async finishHermesShutdown(input: SessionStopRequest, intent: string): Promise<void> {
+    this.requireShutdownSession(input);
+    const row = await new D1SessionRepository(this.env.USAGE_DB).getSession(input.bucket, input.sessionId);
+    if (row?.lifecycleGeneration === input.generation && row.shutdown?.intent === intent
+      && row.shutdown.phase.startsWith('finishing') && !this.sessionKillInFlight) await this.stopOwnedSession(input, intent);
+  }
+
+  private async revokeHermesShutdown(input: SessionStopRequest): Promise<boolean> {
+    if (!isEnterpriseMode(this.env)) return false;
+    const repository = new D1SessionRepository(this.env.USAGE_DB);
+    for (;;) {
+      const row = await repository.getSession(input.bucket, input.sessionId);
+      const job = row?.shutdown;
+      if (!row || row.lifecycleGeneration !== input.generation || !job || job.phase === 'merged'
+        || job.phase === 'memory-not-merged' || job.phase === 'uncertain') return false;
+      if (job.phase.startsWith('killing')) return true;
+      const uncertain = job.phase === 'consolidating' || job.phase === 'finishing-uncertain';
+      // A confirmed no-op has no outstanding merge to retry after Kill.
+      const skipped = job.phase === 'finishing' && !job.mergeVerified && job.revision === undefined;
+      if (await repository.updateShutdown(row, { ...job, delete: false, phase: uncertain ? 'killing-uncertain' : 'killing',
+        ...(skipped && { snapshotId: undefined }),
+      })) {
+        if (this.hermesAttempt?.generation === input.generation) this.hermesAttempt.abort.abort();
+        return true;
+      }
+    }
   }
 
   /** Own claim through confirmation even if the invoking Worker disconnects. */
-  async stopSession(input: SessionStopRequest): Promise<void> {
+  async stopSession(input: SessionStopRequest): Promise<boolean> {
+    return this.stopOwnedSession(input);
+  }
+
+  private async stopOwnedSession(input: SessionStopRequest, shutdownIntent?: string): Promise<boolean> {
     if (this.env.CONTAINER.idFromName(`${input.bucket}-${input.sessionId}`).toString() !== this.ctx.id.toString()) {
       throw new Error('Session stop address mismatch');
     }
@@ -1486,29 +2094,44 @@ export class container extends Container<Env> implements ContainerEnvState {
       if (pending.bucket !== input.bucket || pending.sessionId !== input.sessionId || pending.generation !== input.generation) {
         throw new Error('Another session stop generation is in progress');
       }
-      await pending.completion;
-      return;
+      const completed = await pending.completion;
+      if (completed || input.expectedLifecycleState) return completed;
+      // An unguarded Stop may proceed after a conditional Delete was refused.
+      return this.stopOwnedSession(input, shutdownIntent);
     }
     // Capture authority before ownership I/O: even a delayed old D1 reply
     // cannot authorize teardown after KILL or a replacement start supersedes it.
     const epoch = this._teardownEpoch;
     // Register the entire operation before any I/O, including its claim.
-    const completion: Promise<void> = Promise.resolve().then(() =>
+    const completion = Promise.resolve().then(() =>
       lifecycleStopSession(this.env, input, async owned => {
-        if (this._teardownEpoch !== epoch) throw new Error('Session stop superseded');
+        if (this._teardownEpoch !== epoch || (shutdownIntent && this.sessionKillInFlight)) throw new Error('Session stop superseded');
+        if (shutdownIntent) {
+          const repository = new D1SessionRepository(this.env.USAGE_DB);
+          if (!owned.shutdown?.phase.startsWith('finishing') || owned.shutdown.intent !== shutdownIntent
+            || !await transitionShutdown(repository, input, shutdownIntent, owned.shutdown.phase, job => ({ ...job, teardownClaimed: true }))
+            || this.sessionKillInFlight) throw new Error('Graceful teardown superseded');
+        }
+        const job = owned.shutdown;
+        const hermesWriter = shutdownIntent !== undefined && job?.hermesDisabledAtStartup !== true
+          && job?.sourceGeneration === undefined;
+        const stopReason = queuedStopTrigger(job, shutdownIntent) ?? 'user';
         await this.destroyWithContext({ sessionId: owned.sessionId, lifecycleGeneration: owned.lifecycleGeneration,
-          incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined, reason: 'user' }, () => this.recordNativeStopExit({
+          incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined,
+          reason: stopReason,
+          ...(hermesWriter ? { hermesWriter: true as const } : {}) }, () => this.recordNativeStopExit({
             owner: input.bucket, session: input.sessionId, generation: input.generation,
-            terminationIntentId: owned.terminationIntentId!,
-          }));
-        await this.recordHermesSettlement(input.sessionId, input.generation);
-      })
+            terminationIntentId: owned.terminationIntentId!, nativeStopReason: stopReason,
+          }), shutdownIntent !== undefined && owned.shutdown?.hermesDisabledAtStartup !== true,
+          shutdownIntent !== undefined && owned.shutdown?.finalEventsAttempted === true);
+        await this.recordHermesSettlement(input.sessionId, input.generation, owned);
+      }, shutdownIntent)
     ).finally(() => {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;
     });
     this.sessionStopInFlight = { ...input, completion };
     this.ctx.waitUntil(completion);
-    await completion;
+    return completion;
   }
 
   /** A caller-independent force lane, separate from any blocked graceful Stop. */
@@ -1524,9 +2147,19 @@ export class container extends Container<Env> implements ContainerEnvState {
       await pending.completion;
       return;
     }
-    const completion: Promise<void> = Promise.resolve().then(() =>
-      lifecycleKillSession(this.lifecycleHost, input, () => this.quiesceSessionStart()))
-      .then(() => {
+    const completion: Promise<void> = Promise.resolve().then(async () => {
+      let revoked = await this.revokeHermesShutdown(input);
+      await lifecycleKillSession(this.lifecycleHost, input, async () => {
+        // A queue acceptance racing Kill's D1 claim must not survive Kill.
+        revoked = await this.revokeHermesShutdown(input) || revoked;
+        await this.quiesceSessionStart();
+      });
+      if (revoked) {
+        this.ctx.waitUntil(getBucketStorageOwner(this.env, input.bucket).wakeHermesShutdownQueue(input.bucket).catch(() => {
+          this.logger.warn('Could not wake shutdown queue after Kill');
+        }));
+      }
+    }).then(() => {
         const stop = this.sessionStopInFlight;
         if (stop?.bucket === input.bucket && stop.sessionId === input.sessionId && stop.generation === input.generation) {
           this.sessionStopInFlight = undefined;

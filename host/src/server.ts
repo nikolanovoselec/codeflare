@@ -33,6 +33,10 @@ import { getPrewarmConfig } from './prewarm-config.js';
 import { handlePrewarmOrphanExpiry } from './prewarm-readiness.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
 import { shutdownPiMemoryOwners } from './pi-memory-shutdown.js';
+import { createPiWebProxy } from './pi-web-proxy.js';
+import { createPiWebRuntime } from './pi-web-runtime.js';
+import { createHermesShutdownRuntime } from './hermes-shutdown-runtime.js';
+import { SYNC_RUNTIME_DIR } from './runtime-paths.js';
 import { createOperatorPiService } from './operator-pi-service.js';
 import { createOperatorInferenceOwnerResolver } from './operator-inference-owner.js';
 import { createOperatorSyncService } from './operator-sync-service.js';
@@ -299,17 +303,44 @@ const operatorInference = !process.env.CODEFLARE_OPERATOR_SESSION
     agentDir: process.env.PI_CODING_AGENT_DIR ?? '/home/user/.pi/agent' })
   : null;
 
+const headlessHermesRetry = process.env.ENTERPRISE_MODE === 'active' && !!process.env.CODEFLARE_HERMES_RETRY_SNAPSHOT;
+if (headlessHermesRetry) sessionManager.quiesceForHermesMerge();
+let hermesShutdown: ReturnType<typeof createHermesShutdownRuntime>;
+try { hermesShutdown = createHermesShutdownRuntime(process.env, SYNC_RUNTIME_DIR); }
+catch { log('warn', 'Hermes shutdown merge storage configuration is unavailable'); }
+
+const initialPiSurface = process.env.CODEFLARE_PI_SURFACE;
+const piGeneration = Number(process.env.CODEFLARE_PI_GENERATION);
+const piSessionId = process.env.SESSION_ID ?? '';
+const piWebRuntime = !headlessHermesRetry && !process.env.CODEFLARE_OPERATOR_SESSION && SESSION_WORKSPACE === 'terminal' && TERMINAL_MODE === 'classic'
+  && /^[a-z0-9]{8,24}$/.test(piSessionId) && Number.isSafeInteger(piGeneration) && piGeneration > 0
+  && (initialPiSurface === 'chat' || initialPiSurface === 'terminal')
+  ? createPiWebRuntime({
+    sessionId: piSessionId, generation: piGeneration, initialSurface: initialPiSurface, terminalMode: TERMINAL_MODE,
+    cwd: WORKSPACE_DEFAULT, home: process.env.HOME ?? '/home/user',
+    runtimeDir: `${process.env.CODEFLARE_RUNTIME_ROOT ?? '/run/codeflare'}/pi-web`,
+    profileRestored: () => initFlagObserved,
+    cloneRestored: () => !!process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE
+      && fs.existsSync(process.env.CODEFLARE_CLONE_RESTORE_FLAG_FILE),
+  }) : undefined;
+const piWeb = piWebRuntime && createPiWebProxy({
+  sessionId: piSessionId, runtime: piWebRuntime, recordInput: () => state.activityTracker.recordInput(),
+});
+
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
+  piWeb,
   ...(operatorInference ? { operatorInference } : {}),
   ...(operatorPacket ? { operatorPacket } : {}),
   ...(operatorPi ? { operatorPi } : {}),
   ...(operatorSync ? { operatorSync } : {}),
+  hermesShutdown,
   sessionManager,
   wsEventLog: state.wsEventLog,
   activityTracker: state.activityTracker,
   log,
   serverStartTime: SERVER_START_TIME,
+  prepareTranscriptSync: piWeb?.close,
   prepareFinalSync: deadline => shutdownPiMemoryOwners('/home/user/.cache/pi-hermes-memory/owners', deadline),
   readiness: () => ({ prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut, startupPolicyError }),
   silverbullet: SILVERBULLET,
@@ -351,6 +382,7 @@ attachTerminalConnectionHandler(wss, {
 
 const upgradeDispatcher = createUpgradeDispatcher({
   terminalWss: wss,
+  piWeb,
   activityTracker: state.activityTracker,
   log,
   silverbullet: SILVERBULLET,
@@ -417,7 +449,9 @@ function waitForInitFlag(): Promise<void> {
 
 // Start server
 server.listen(PORT, '0.0.0.0', async () => {
-  log('info', 'Terminal server listening', { port: PORT });
+  const address = server.address();
+  log('info', 'Terminal server listening', { port: address && typeof address !== 'string' ? address.port : PORT });
+  if (headlessHermesRetry) return;
   log('info', 'Workspace config', { workspace: WORKSPACE_DEFAULT, workingDir: getWorkingDirectory(), keepAliveSec: PTY_KEEPALIVE_MS / 1000 });
 
   // Start periodic cleanup of dead sessions
@@ -459,6 +493,7 @@ server.listen(PORT, '0.0.0.0', async () => {
   // (non-tab-1) sessions created from here on also read the final .bashrc
   // because waitForInitFlag has already resolved.
   terminalServiceReady = true;
+  void piWebRuntime?.initialize().catch(() => log('warn', 'Chat startup not confirmed'));
   if (HERDR_SOCKET_PATH) {
     herdrAgentStatusMonitor = new HerdrAgentStatusMonitor({
       socketPath: HERDR_SOCKET_PATH,
@@ -541,12 +576,14 @@ server.listen(PORT, '0.0.0.0', async () => {
 
   prewarmSession.orphanTimeout = setTimeout(() => {
     if (sessionManager.sessions.has(state.prewarmSessionId)) {
-      log('warn', 'Pre-warm session expired without adoption, killing');
       const bootstrapDone = !requiresHerdrBootstrap || fs.existsSync(herdrBootstrapDone);
+      // Chat intentionally has no terminal browser to adopt the managed
+      // primary. Keep its live ticket consumer without recording activity.
+      const retainManagedPrimary = !!piWebRuntime && !piWebRuntime.legacyHerdr && prewarmSession.isPtyAlive();
       if (requiresHerdrBootstrap && !bootstrapDone) {
         log('error', 'Expired Herdr pre-warm never completed bootstrap; terminating terminal server');
       }
-      handlePrewarmOrphanExpiry(TERMINAL_MODE, bootstrapDone, {
+      const expiry = handlePrewarmOrphanExpiry(TERMINAL_MODE, bootstrapDone, {
         disposeDataListener: () => {
           if (prewarmDataListener) {
             prewarmDataListener.dispose();
@@ -560,9 +597,11 @@ server.listen(PORT, '0.0.0.0', async () => {
           }
         },
         deleteSession: () => {
+          log('warn', 'Pre-warm session expired without adoption, killing');
           sessionManager.delete(state.prewarmSessionId);
         },
-      });
+      }, retainManagedPrimary);
+      if (expiry === 'retained') log('info', 'Retained the managed Pi primary for surface handoff');
       prewarmReady = true;
     }
   }, PREWARM_ORPHAN_MS);
@@ -574,6 +613,8 @@ async function shutdown(signal: string): Promise<void> {
   // Fence private Pi authentication before awaiting owned SDK cancellation.
   try { await operatorPi?.stop(); }
   catch { log('warn', 'Owned Pi shutdown cancellation uncertain'); }
+  try { await piWeb?.close(); }
+  catch { log('warn', 'Chat shutdown not confirmed'); }
   herdrAgentStatusMonitor?.stop();
   herdrAgentStatusMonitor = null;
   // M2: Kill all active sessions before exit to avoid orphaned PTY processes

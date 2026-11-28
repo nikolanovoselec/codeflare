@@ -25,7 +25,7 @@ const layouts = [
   {
     path: 'src/observation/notification.ts',
     pristine: '0ab98564669390039910c6761c4f21cbede133f56231c126302fab6c86babe47',
-    prepared: '9756b0a6b0f15922044b9fd70636adf0bce342535d685ddc4b934fa16990207e',
+    prepared: 'ddea13a2d28394e25e11b37b4013ce89cba526c514d48cfea71c1e97f57342f1',
     replacements: [
       [`  // pi.sendMessage is fire-and-forget: while the parent's agent run is active,
   // a followUp is handed to a queue the extension cannot recall, yet it is only
@@ -75,6 +75,15 @@ const layouts = [
   }
 
   private emitIndividualNudge(record: Subagent, deliverAs: "steer" | "followUp" = "followUp"): void {`],
+      [`        customType: "subagent-notification",
+        content: notification + pointerLines,
+        display: true,`,
+        `        customType: "subagent-notification",
+        content: notification + pointerLines,
+        // Keep routine success in model context without displaying its raw payload.
+        display: record.status !== "completed" || Boolean(
+          record.pendingQuestion || record.resumeRefusal || record.workspaceNotice || record.runUpdates.length
+        ),`],
       [`      { deliverAs: "followUp", triggerTurn: true },
     );
   }

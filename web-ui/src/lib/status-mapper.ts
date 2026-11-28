@@ -64,6 +64,7 @@ export function mapStartupDetailsToProgress(status: StartupStatusResponse): Init
   return {
     stage: status.stage,
     ...(status.details?.repositoryRestore ? { repositoryRestore: status.details.repositoryRestore } : {}),
+    ...(status.details?.repositoryRestoreRepos?.length ? { repositoryRestoreRepos: status.details.repositoryRestoreRepos } : {}),
     progress: status.progress,
     message: status.message,
     details,

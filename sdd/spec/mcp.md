@@ -245,3 +245,25 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 **Status:** Implemented
 
 ---
+
+### REQ-AGENT-281: Bundled MCP Manager registration retirement
+
+**Intent:** Keep restored bundled Pi Web registrations from competing with Codeflare’s managed MCP adapter.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Successful managed package reconciliation retires the exact image-bundled Pi Web MCP Manager registration from restored settings without deleting package files or removing unrelated entries as part of that retirement. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-281: startup retires the exact bundled Pi Web MCP Manager registration) --> <!-- @test: scripts/ci/smoke-pi-web-services.mjs (preserves bundled MCP Manager files during registration retirement) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-217](#req-agent-217-lossless-pi-mcp-adapter-migration)
+
+**Verification:** Automated: [Restored package inventory](../../host/__tests__/pi-settings-packages.test.js), [Bundled-file preservation smoke](../../scripts/ci/smoke-pi-web-services.mjs)
+
+**Status:** Implemented
+
+---

@@ -54,6 +54,19 @@ export function getRepositoryRestoreStatus(): 'pending' | 'restoring' | 'complet
   return undefined;
 }
 
+/** Display names from the launch directive, independent of refreshed inventory. */
+export function getRepositoryRestoreRepos(): string[] | undefined {
+  const targets = process.env.GIT_CLONE_TARGETS || process.env.GIT_CLONE_REPO;
+  if (!targets) return undefined;
+  const repos = new Set<string>();
+  for (const target of targets.trim().split(/\s+/)) {
+    const repo = target.split('#', 1)[0];
+    if (/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(repo) && !/\/\.{1,2}$/.test(repo)) repos.add(repo);
+    if (repos.size === 21) break;
+  }
+  return repos.size ? [...repos] : undefined;
+}
+
 /**
  * REQ-GITHUB-015 AC1: report the GitHub repositories checked out at the top of
  * the workspace, whichever way they arrived (session clone, repository panel, or

@@ -81,7 +81,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Acceptance Criteria:**
 
-1. On model-routable requests other than GET/HEAD, catalog handles, including allowed pre-prefixed dynamic/<route> handles, map to dynamic/<route>; absent or unknown handles resolve to the eligible scope default. <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-007 AC1: %s on an inference path retains method and query without a model body) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (fails safe to the default route on an unknown handle) --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (assigns the eligible scope default when a JSON inference body omits model) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (retains an allowed pre-prefixed route distinct from the default on %s) -->
+1. On model-routable requests other than GET/HEAD, catalog handles, including allowed pre-prefixed dynamic/<route> handles, map to dynamic/<route>. Ordinary requests with absent or unknown handles use the eligible scope default; [shutdown inference](#req-enterprise-100-exact-inference-route-for-hermes-shutdown-merge) refuses default drift. <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-007 AC1: %s on an inference path retains method and query without a model body) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (fails safe to the default route on an unknown handle) --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (assigns the eligible scope default when a JSON inference body omits model) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (retains an allowed pre-prefixed route distinct from the default on %s) -->
 2. Sanctioned model-routable requests require an eligible catalog before upstream I/O. Requests other than GET/HEAD also require valid JSON; the separately Administration-permitted personal path cannot rescue stale sanctioned selectors. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (denies an empty catalog without forwarding an agent model) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (rejects non-JSON inference bodies that cannot be assigned an eligible route) -->
 
 **Constraints:**
@@ -343,6 +343,32 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 **Verification:** Automated: [personal-pi-policy.test.ts](../../src/__tests__/lib/personal-pi-policy.test.ts), [personal-pi-interception.test.ts](../../src/__tests__/personal-pi-interception.test.ts), [terminal-native-pi-authority.test.ts](../../src/__tests__/routes/terminal-native-pi-authority.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-100: Exact inference route for Hermes shutdown merge
+
+**Intent:** Graceful shutdown and explicit retry can use the owner's authorized model after interactive Pi exits without reopening terminal inference.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Use the exact saved Pi provider and model if current Administration policy permits native inference, never a temporary session model. If configuration has no eligible saved native default, use only the owner's authorized Gateway default. <!-- @impl: host/src/hermes-shutdown-inference.ts::runHermesShutdownInference --> <!-- @test: host/__tests__/hermes-shutdown-inference.test.js (REQ-ENTERPRISE-100: native policy uses the saved Pi default via the existing provider) -->
+2. After terminal closure, interactive Pi exit and confirmed save, the current merge attempt uses the owning container’s existing inference access. No additional credential, permission or process authentication is introduced. <!-- @impl: src/container/hermes-shutdown.ts::mergeAfterFinalSave --> <!-- @test: host/__tests__/hermes-shutdown-inference.test.js (REQ-ENTERPRISE-100: failed, unconfirmed or superseded saves do not dispatch a merge) -->
+3. Revoked routes, invalid configuration and unavailable authentication leave the merge pending without substituting another model or provider. A Gateway Dynamic or managed Native target remains on the selected managed transport. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-100 AC3: exact-model requests never fall back after the selected Gateway route is revoked) --> <!-- @test: host/__tests__/hermes-shutdown-inference.test.js (REQ-ENTERPRISE-100: rejected native authentication does not substitute the configured Gateway) -->
+4. Non-interactive inference receives the fixed merge inputs without loading foreground context or offering tools. The model only supplies candidates; validation and publication stay with the worker. <!-- @impl: host/src/hermes-shutdown-inference.ts::runHermesShutdownInference --> <!-- @test: host/__tests__/hermes-shutdown-inference.test.js (REQ-ENTERPRISE-100: headless Pi sends the exact managed route) -->
+5. Cancel active inference on Kill, expiry or replacement; a late response cannot become a merge candidate. <!-- @impl: host/src/hermes-shutdown-inference.ts::runHermesShutdownInference --> <!-- @test: host/__tests__/hermes-shutdown-inference.test.js (REQ-ENTERPRISE-100: a response received after cancellation does not become a candidate) --> <!-- @impl: src/container/index.ts::killSession --> <!-- @impl: src/container/hermes-shutdown.ts::mergeAfterFinalSave --> <!-- @test: src/__tests__/routes/session-shutdown.test.ts (REQ-SESSION-043: Kill during inference retains the session, rejects a late receipt and allows the next writer only after exit) --> <!-- @test: host/__tests__/hermes-shutdown-merge.test.js (REQ-MEM-044: input loading, inference, and repair share the original 20-minute budget) -->
+
+**Constraints:** No Operator, public inference route, browser authorization exception, or change to non-Enterprise inference.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-090](#req-enterprise-090-native-pi-forwarding-under-current-administration-permission)
+
+**Verification:** Automated: [headless inference](../../host/__tests__/hermes-shutdown-inference.test.js), [merge deadline](../../host/__tests__/hermes-shutdown-merge.test.js), [Gateway route refusal](../../src/__tests__/llm-interceptor.test.ts), [lifecycle handoff](../../src/__tests__/routes/session-shutdown.test.ts)
+
+**Status:** Planned
 
 ---
 
