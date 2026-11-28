@@ -1766,8 +1766,11 @@ export class container extends Container<Env> implements ContainerEnvState {
           lifecycleGeneration: pin.generation, incidentId: null, errorClass: 'monitor_attachment_failed' });
       }
     }
+    const stop = { bucket: pin.ownerKey, sessionId: pin.sessionId, generation: pin.generation };
+    const hermesEligible = await this.canQueueHermesShutdown(stop);
     await lifecycleCollectMetrics(this.lifecycleHost, pin, { ...execution,
-      idleCompetesWithHermes: await this.canQueueHermesShutdown({ bucket: pin.ownerKey, sessionId: pin.sessionId, generation: pin.generation }),
+      ...(hermesEligible && { queueIdleStop: () => getBucketStorageOwner(this.env, stop.bucket)
+        .enqueueHermesShutdown({ ...stop, delete: false, idle: true }) }),
       onHostResponse: () => this.monitorExistingRuntime(true, pin) });
   }
 

@@ -6,7 +6,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-28: Graceful shutdown and repository recovery
 
-- [Graceful shutdown](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) retains ownership through idle ticks. A [verified no-op](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) does not need a model; a missing snapshot disables Retry without disabling Resume.
+- For eligible sessions, idle timeout requests the same [graceful Stop](session-lifecycle.md#req-session-043-queued-graceful-shutdown-and-memory-recovery) as the Stop button, including Hermes consolidation. A [verified no-op](memory.md#req-mem-044-consolidate-hermes-on-graceful-shutdown) does not need a model; a missing snapshot disables Retry without disabling Resume.
 
 - [Optional GitHub counts](github.md#req-github-324-dashboard-repository-loading-during-github-app-renewal) do not start credential renewal; repository listing retains its request-bound refresh and transient-error recovery.
 

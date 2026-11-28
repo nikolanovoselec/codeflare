@@ -25,22 +25,15 @@ vi.mock('@cloudflare/containers', () => ({
     }
     async destroy() { await this.ctx.container?.destroy(); }
     async stop(signal: string | number = 'SIGTERM') { this.ctx.container?.signal(signal === 'SIGTERM' ? 15 : Number(signal)); }
-    private get scheduled() {
-      return (this.ctx as unknown as { fixtureSchedules: Map<string, { delay: number; payload: unknown }> }).fixtureSchedules;
-    }
-    async schedule(delay: number, callback: string, payload: unknown) {
-      (this.ctx as unknown as { beforeSchedule: () => void }).beforeSchedule();
-      this.scheduled.set(callback, { delay, payload });
+    async schedule(delay: number, callback: string) {
       return { taskId: crypto.randomUUID(), callback, type: 'delayed', time: Math.floor(Date.now() / 1000) + delay, delayInSeconds: delay };
     }
-    deleteSchedules(callback: string) { this.scheduled.delete(callback); }
+    deleteSchedules() {}
     renewActivityTimeout() {}
   },
 }));
 
-import { CONTAINER_POLL_BUDGET_MS } from '../../container/container-metrics';
 import { HERMES_MERGE_BUDGET_MS } from '../../container/hermes-shutdown';
-import { acceptShutdown } from '../../container/session-shutdown-queue';
 import { container as SessionContainer } from '../../container/index';
 import lifecycle from '../../routes/session/lifecycle';
 import crud from '../../routes/session/crud';
@@ -90,9 +83,6 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const other = `shutdown-${crypto.randomUUID()}`;
   const states = new Map<string, { ready: Promise<void>; instance: SessionContainer; restoreExit: (evidence: object, withoutRetryMarker: boolean, failCleanup: boolean | 'settlement') => void }>();
   const processes = new Map<string, ReturnType<typeof processFixture>>();
-  const persisted = new Map<string, { records: Map<string, unknown>; schedules: Map<string, {
-    delay: number; payload: Parameters<SessionContainer['collectMetrics']>[0];
-  }> }>();
   const retained = new Map<string, Record<string, { generation: number }>>();
   const evictAtLaunch = new Set<string>();
   const trace: string[] = [];
@@ -103,14 +93,12 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
 
   function processFixture(label: string, initiallyRunning: boolean, hasSnapshot: boolean, directGeneration: boolean, idle: boolean) {
     let running = initiallyRunning;
-    let failPostSignalAlarm = false;
     // Model exit confirmation independently of the running hint. The fixture
     // uses awaited native destroy as its source of positive exit evidence.
     const monitorExit = raceMonitor ? gate<void>(undefined) : undefined;
     const monitor = monitorExit?.promise ?? new Promise<void>(() => {});
     const save = gate<'saved' | 'failed' | 'ambiguous' | 'timed-out' | 'pi-shutdown-unconfirmed' | 'pi-shutdown-timeout'
       | 'missing-reason' | 'not-started' | 'disk-refused' | 'disk-without-dispatch-proof' | { disabledGeneration: number }>('saved');
-    const idleSaveEntered = gate<void>(undefined);
     let firstSave = true;
     let disabledAtStartup = false;
     const exit = gate<void | 'failed'>(undefined);
@@ -156,14 +144,6 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         });
         if (path === '/internal/final-sync') {
           trace.push(`${label}:save`);
-          if (idle) {
-            if (firstSave) {
-              firstSave = false;
-              idleSaveEntered.release();
-              await save.promise;
-            }
-            return Response.json({ synced: true });
-          }
           const result = firstSave ? await save.promise : 'saved';
           firstSave = false;
           if (typeof result === 'object') {
@@ -210,15 +190,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
         return Response.json({ error: `Unexpected fixture Host path ${path}` }, { status: 404 });
       } }),
     };
-    return { native, monitorExit, directGeneration, idle, idleSaveEntered,
-      failNextPostSignalAlarm: () => { running = false; failPostSignalAlarm = true; },
-      beforeSchedule: () => {
-        if (failPostSignalAlarm && trace.includes(`${label}:sigterm`)) {
-          failPostSignalAlarm = false;
-          throw new Error('Post-signal alarm unavailable');
-        }
-      },
-      get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
+    return { native, monitorExit, directGeneration, idle, get token() { return token; }, save, exit, merge, retryResult, retryDestroy, get mergeRequest() { return mergeRequest; } };
   }
 
   const idFromName = (name: string) => ({ toString: () => name, equals: (id: DurableObjectId) => id.toString() === name });
@@ -226,7 +198,7 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
     if (!states.has(address)) {
       const process = processes.get(address);
       const first = address.lastIndexOf('-');
-      const records = persisted.get(address)?.records ?? new Map<string, unknown>(process ? [
+      const records = new Map<string, unknown>(process ? [
         ['bucketName', address.slice(0, first)], ['_sessionId', address.slice(first + 1)],
         ['lifecycleGeneration', 1], ['containerAuthToken', process.token], ['workspaceSyncEnabled', workspaceSyncEnabled],
         ['sessionMode', 'advanced'], ['hermes:direct-layout', true],
@@ -239,8 +211,6 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
           outcome: raceMonitor === 'stale successful audit' ? 'completed' : 'errored',
         }] as const] : []),
       ] : []);
-      const schedules = persisted.get(address)?.schedules ?? new Map();
-      persisted.set(address, { records, schedules });
       let failExitCleanup: boolean | 'settlement' = false;
       const retentionOwner = address.startsWith('bucket-owner:') ? address.slice('bucket-owner:'.length) : undefined;
       if (retentionOwner) records.set('bucketOwnerEmail', 'test@example.com');
@@ -317,7 +287,6 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
       };
       let ready = Promise.resolve();
       const instance = new SessionContainer({ id: idFromName(address), container: process?.native, storage,
-        fixtureSchedules: schedules, beforeSchedule: () => process?.beforeSchedule(),
         // Native startup wires both mandatory Enterprise transports. This fixture
         // stops at the Host boundary; any use of those transports is unexpected.
         exports: Object.fromEntries(['OperatorOwnerInferenceAuthority', 'LlmInterceptor'].map(name =>
@@ -385,24 +354,18 @@ function rig(enterprise = true, workspaceSyncEnabled = true, preRolloutRetry = f
   const kill = (id: string) => app().request(`${path(id)}/kill`, { method: 'POST' });
   const retry = (id: string, bucket = owner) => app(bucket).request(`${path(id)}/retry-memory-consolidation`, { method: 'POST' });
   const session = (id: string) => getByName(`${owner}-${id}`);
-  const reconstruct = (id: string) => { states.delete(`${owner}-${id}`); };
-  const metricsTasks = (id: string) => {
-    session(id);
-    return persisted.get(`${owner}-${id}`)!.schedules;
-  };
-  const nextMetrics = (id: string) => metricsTasks(id).get('collectMetrics');
-  const deliverMetrics = async (id: string) => {
-    const task = nextMetrics(id);
-    if (!task) throw new Error('No scheduled metrics delivery');
-    metricsTasks(id).delete('collectMetrics');
-    await session(id).collectMetrics(task.payload);
+  const idleTick = (id: string) => session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation: 1 });
+  const deliverQueueAlarm = async () => {
+    const address = `storage:${owner}`;
+    if (!alarms.delete(address)) throw new Error('No scheduled shutdown queue alarm');
+    await getByName(address).alarm();
   };
   const replayExit = async (id: string, generation: number, terminationIntentId: string, withoutRetryMarker = false, failCleanup: boolean | 'settlement' = false) => {
     states.get(`${owner}-${id}`)!.restoreExit({ owner, session: id, generation, terminationIntentId }, withoutRetryMarker, failCleanup);
     await session(id).collectMetrics({ ownerKey: owner, sessionId: id, generation });
   };
-  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, cleanup, latestWriterWork: () => lastWriterWork!,
-    publishDelayedAudit: () => publishDelayedAudit!(), wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session, nextMetrics, deliverMetrics, reconstruct,
+  return { owner, other, app, path, create, batch, stop, remove, kill, retry, trace, replayExit, idleTick, deliverQueueAlarm, cleanup, latestWriterWork: () => lastWriterWork!,
+    publishDelayedAudit: () => publishDelayedAudit!(), wake: () => getByName(`storage:${owner}`).wakeHermesShutdownQueue(owner), session,
     evictSnapshot: (id: string) => { delete retained.get(owner)![id]; },
     evictWhilePreparingRetry: (id: string) => { evictAtLaunch.add(id); } };
 }
@@ -411,140 +374,66 @@ const a = 'sessionaaa1';
 const b = 'sessionbbb1';
 const c = 'sessionccc1';
 
-it.each(['graceful', 'idle'] as const)(
-  'REQ-SESSION-043: only the first %s shutdown claim can own the same running generation', async first => {
-    const f = rig();
-    await f.create(a);
-    const observed = await repository.getSession(f.owner, a);
-    if (!observed) throw new Error('Expected a running fixture session');
-    const graceful = () => acceptShutdown(repository, { bucket: f.owner, sessionId: a, generation: 1, delete: true });
-    const idle = () => repository.claimIdleStop(observed, 'idle-test-intent', stamp);
-    if (first === 'graceful') {
-      expect(await graceful()).toMatchObject({ accepted: true });
-      expect(await idle()).toBe(false);
-      expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'running',
-        shutdown: { phase: 'queued', delete: true } });
-    } else {
-      expect(await idle()).toBe(true);
-      expect(await graceful()).toEqual({ accepted: false });
-      expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'stopping',
-        terminationIntentId: 'idle-test-intent', terminationGeneration: 1 });
-    }
-  },
-);
-
-it('REQ-SESSION-043: the next metrics tick continues an idle claim that committed after its deadline', async () => {
+it.each(['idle', 'manual'] as const)('REQ-SESSION-043: %s Stop shares one save, consolidation and exit with the other trigger', async first => {
   const f = rig();
-  const process = await f.create(a, { idle: true });
+  const process = await f.create(a, { idle: true, holdMerge: true });
+  if (first === 'idle') await f.idleTick(a);
+  else await expectAccepted(f.stop(a));
+  await vi.waitFor(() => expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`]));
+  if (first === 'idle') expect((await f.stop(a)).status).toBe(202);
+  await f.idleTick(a);
+  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`]);
   process.save.release('saved');
-  const claimReached = gate<void>(undefined);
-  const allowCommit = gate<void>(undefined);
-  const committed = gate<boolean>(false);
-  const originalClaim = D1SessionRepository.prototype.claimIdleStop;
-  const hold = vi.spyOn(D1SessionRepository.prototype, 'claimIdleStop').mockImplementationOnce(async function (this: D1SessionRepository, ...args) {
-    claimReached.release();
-    await allowCommit.promise;
-    const won = await originalClaim.apply(this, args);
-    committed.release(won);
-    return won;
-  });
-  const session = f.session(a);
-  const pin = { ownerKey: f.owner, sessionId: a, generation: 1 };
-  try {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const first = session.collectMetrics(pin);
-    await Promise.race([claimReached.promise, first.then(() => { throw new Error('Idle claim never reached D1'); })]);
-    expect(f.nextMetrics(a)).toMatchObject({ payload: pin });
-    await vi.advanceTimersByTimeAsync(CONTAINER_POLL_BUDGET_MS);
-    await first;
-    expect(f.trace).not.toContain(`${a}:save`);
-    expect(f.trace).not.toContain(`${a}:sigterm`);
-    expect(f.nextMetrics(a)).toMatchObject({ delay: 5, payload: pin });
-    allowCommit.release();
-    expect(await committed.promise).toBe(true);
-    expect(await repository.getSession(f.owner, a)).toMatchObject({ lifecycleState: 'stopping', terminationGeneration: 1 });
-    vi.useRealTimers();
-    f.reconstruct(a);
-    await f.deliverMetrics(a);
-    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
-  } finally {
-    vi.useRealTimers();
-    allowCommit.release();
-    hold.mockRestore();
-  }
+  await vi.waitFor(() => expect(process.mergeRequest).toMatchObject({ snapshotId }));
+  expect((await f.batch())[a]).toMatchObject({ shutdownPhase: 'consolidating', pendingDelete: false });
+  process.merge.release('merged');
+  await vi.waitFor(async () => expect((await f.batch())[a]).toMatchObject({ shutdownPhase: 'finishing' }));
+  expect(f.trace).not.toContain(`${a}:exit`);
+  process.exit.release();
+  await vi.waitFor(async () => expect(await repository.getSession(f.owner, a)).toMatchObject({
+    lifecycleState: 'stopped', shutdown: { phase: 'merged', mergeVerified: true },
+  }));
+  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:saved`, `${a}:merge`, `${a}:sigterm`, `${a}:exit`]);
 });
 
-it('REQ-SESSION-026: an overlapping idle retry cannot repeat the final drain or stop signal', async () => {
+it('REQ-SESSION-043: the shutdown queue alarm advances idle Stop after acceptance acknowledgement is lost', async () => {
   const f = rig();
   const process = await f.create(a, { idle: true });
-  const pin = { ownerKey: f.owner, sessionId: a, generation: 1 };
-  const first = f.session(a).collectMetrics(pin);
+  const updateShutdown = D1SessionRepository.prototype.updateShutdown;
+  const loseAcknowledgement = vi.spyOn(D1SessionRepository.prototype, 'updateShutdown')
+    .mockImplementationOnce(async function (this: D1SessionRepository, ...args) {
+      if (!await updateShutdown.apply(this, args)) throw new Error('Fixture did not commit Stop');
+      throw new Error('Queue acceptance acknowledgement lost');
+    });
   try {
-    await Promise.race([process.idleSaveEntered.promise, first.then(() => { throw new Error('Idle save was not dispatched'); })]);
-    await f.session(a).onError(new Error('network connection lost'));
-    expect(f.nextMetrics(a)).toMatchObject({ delay: 5, payload: pin });
-    await f.deliverMetrics(a);
-    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`]);
-    expect(f.nextMetrics(a)).toMatchObject({ payload: pin });
-  } finally {
+    await f.idleTick(a);
+    expect((await f.batch())[a]).toMatchObject({ shutdownPhase: 'queued', pendingDelete: false });
+    expect(f.trace).toEqual([]);
     process.save.release('saved');
-    await first;
-  }
-  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
+    process.exit.release();
+    await f.deliverQueueAlarm();
+    await vi.waitFor(async () => expect((await f.batch())[a]?.status).toBe('stopped'));
+    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:saved`, `${a}:merge`, `${a}:sigterm`, `${a}:exit`]);
+  } finally { loseAcknowledgement.mockRestore(); }
 });
 
-it('REQ-SESSION-026: a lost idle signal acceptance write retries recording without resending', async () => {
+it('REQ-SESSION-043: a later idle tick does not retry a refused save', async () => {
   const f = rig();
   const process = await f.create(a, { idle: true });
-  process.save.release('saved');
-  const record = vi.spyOn(D1SessionRepository.prototype, 'recordTerminationSignal')
-    .mockRejectedValueOnce(new Error('Acceptance write unavailable'));
-  try {
-    await f.session(a).collectMetrics({ ownerKey: f.owner, sessionId: a, generation: 1 });
-    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
-    expect((await repository.getSession(f.owner, a))?.terminationSignalAcceptedAt).toBeUndefined();
-    await f.deliverMetrics(a);
-    expect((await repository.getSession(f.owner, a))?.terminationSignalAcceptedAt).toEqual(expect.any(String));
-    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
-  } finally { record.mockRestore(); }
-});
-
-it('REQ-SESSION-026: a failed alarm after native idle SIGTERM does not cause a resend', async () => {
-  const f = rig();
-  const process = await f.create(a, { idle: true });
-  const first = f.session(a).collectMetrics({ ownerKey: f.owner, sessionId: a, generation: 1 });
-  try {
-    await Promise.race([process.idleSaveEntered.promise, first.then(() => { throw new Error('Idle save was not dispatched'); })]);
-    process.failNextPostSignalAlarm();
-  } finally { process.save.release('saved'); }
-  await expect(first).rejects.toThrow('Post-signal alarm unavailable');
-  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
-  expect((await repository.getSession(f.owner, a))?.terminationSignalAcceptedAt).toBeUndefined();
-  await f.deliverMetrics(a);
-  expect((await repository.getSession(f.owner, a))?.terminationSignalAcceptedAt).toEqual(expect.any(String));
-  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
-});
-
-it('REQ-SESSION-026: reconstruction does not replay an idle attempt with uncertain dispatch', async () => {
-  const f = rig();
-  const process = await f.create(a, { idle: true });
-  process.save.release('saved');
-  const record = vi.spyOn(D1SessionRepository.prototype, 'recordTerminationSignal')
-    .mockRejectedValueOnce(new Error('Acceptance write unavailable'));
-  try {
-    await f.session(a).collectMetrics({ ownerKey: f.owner, sessionId: a, generation: 1 });
-    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
-    f.reconstruct(a);
-    await f.deliverMetrics(a);
-    const row = await repository.getSession(f.owner, a);
-    expect(row?.lifecycleState).toBe('stopping');
-    expect(row?.terminationSignalAcceptedAt).toBeUndefined();
-    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
-    if (!row?.terminationIntentId) throw new Error('Expected retained idle ownership');
-    await f.replayExit(a, 1, row.terminationIntentId);
-    expect((await repository.getSession(f.owner, a))?.lifecycleState).toBe('stopped');
-    expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:sigterm`]);
-  } finally { record.mockRestore(); }
+  process.save.release('not-started');
+  await f.idleTick(a);
+  await vi.waitFor(() => expect(f.trace).toContain(`${a}:save-failed`));
+  await vi.waitFor(async () => expect(await repository.getSession(f.owner, a)).toMatchObject({
+    lifecycleState: 'running', shutdown: { phase: 'save-failed' },
+  }));
+  await f.idleTick(a);
+  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:save-failed`]);
+  expect((await f.batch())[a]?.status).not.toBe('stopped');
+  process.exit.release();
+  expect((await f.stop(a)).status).toBe(202);
+  await vi.waitFor(async () => expect((await f.batch())[a]?.status).toBe('stopped'));
+  expect(f.trace).toEqual([`${a}:final-events`, `${a}:save`, `${a}:save-failed`,
+    `${a}:save`, `${a}:saved`, `${a}:merge`, `${a}:sigterm`, `${a}:exit`]);
 });
 
 it.each([true, false])('REQ-SESSION-043: accepts overlapping Stop/Delete in owner order across client reload without duplicating a generation or blocking another owner (workspace sync %s)', async workspaceSyncEnabled => {

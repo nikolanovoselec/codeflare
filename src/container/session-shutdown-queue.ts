@@ -4,7 +4,7 @@ import { D1SessionRepository } from '../lib/session-repository';
 import { mergeNeedsRetry, shutdownProjection, snapshotPattern, type SessionShutdown, type ShutdownPhase } from '../lib/session-shutdown';
 import type { SessionStopRequest } from './container-lifecycle';
 
-export type ShutdownRequest = SessionStopRequest & { delete: boolean; retry?: true };
+export type ShutdownRequest = SessionStopRequest & { delete: boolean; retry?: true; idle?: true };
 export type ShutdownAcceptance = { accepted: false } | { accepted: true; projection: ReturnType<typeof shutdownProjection> };
 interface ShutdownSession {
   saveAndMergeHermes(input: SessionStopRequest, intent: string, saveRetryAt: number): Promise<void>;
@@ -22,6 +22,8 @@ export async function acceptShutdown(repository: D1SessionRepository, input: Shu
     const row = await repository.getSession(input.bucket, input.sessionId);
     if (!row || row.lifecycleGeneration !== input.generation) return { accepted: false };
     const job = row.shutdown;
+    // A timer requests Stop once; only an explicit action may retry a failed save.
+    if (input.idle && job) return { accepted: false };
     if (input.retry) {
       if (row.lifecycleState !== 'stopped' || !job?.snapshotId || job.snapshotUnavailable
         || !snapshotPattern.test(job.snapshotId)) return { accepted: false };

@@ -39,7 +39,7 @@ export interface MetricsState {
 
 /** Callbacks provided by the Container class for idle detection + scheduling. */
 export interface MetricsCallbacks {
-  stop: (signal: number | string, onSignalAccepted?: () => void) => Promise<void>;
+  stop: (signal: number | string) => Promise<void>;
   schedule: (delaySec: number, method: string) => Promise<unknown>;
   /** Cached value from class field. collectMetrics re-reads storage as the
    *  authoritative source on every tick to avoid drift from stale caches. */
@@ -61,7 +61,7 @@ export interface MetricsExecution extends MetricsPin {
   readonly authToken: string | null;
   readonly isCurrent: () => boolean;
   readonly onHostResponse?: () => Promise<void>;
-  readonly idleCompetesWithHermes?: boolean;
+  readonly queueIdleStop?: () => Promise<unknown>;
   /** Already observed for this generation; absence never triggers a logging lookup. */
   readonly incidentId?: string | null;
 }
@@ -376,14 +376,6 @@ type AgentEventDeliveryState = {
 const agentEventDeliveryStates = new WeakMap<MetricsState, AgentEventDeliveryState>();
 // Diagnostic state only; activity/timestamps cannot create an ordinary event every tick.
 const idlePolicyObservations = new WeakMap<MetricsState, string>();
-// This marker consumes the automatic effect attempt, not the D1 claim or exit proof.
-const IDLE_STOP_ATTEMPT_KEY = 'idleStopAttempt';
-// A warm coordinator serializes retries and can record a signal it saw accepted.
-const idleStopContinuations = new WeakMap<MetricsState, MetricsPin & {
-  runtime: MetricsExecution['runtime'];
-  active: boolean;
-  signalSentAt?: string;
-}>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -1152,73 +1144,6 @@ export async function collectMetrics(
     if (retry) await schedule(5);
     return;
   }
-  const idleIntent = `idle-stop-${generation}`;
-  const ownsIdle = (current: D1Session | null): current is D1Session => sameGeneration(current)
-    && current.lifecycleState === 'stopping' && current.terminationGeneration === generation
-    && current.terminationIntentId === idleIntent && !current.boundaryActivityId;
-  const readUnsignaledIdle = async () => {
-    const current = await readCurrent().catch(() => null);
-    return ownsIdle(current) && !current.terminationSignalAcceptedAt;
-  };
-  // Leave time for a bounded drain and ownership checks before the recovery
-  // alarm can take over from an abandoned invocation.
-  const armIdleRecovery = () => schedule(Math.ceil((FINAL_SYNC_BUDGET_MS + 5 * CONTAINER_POLL_BUDGET_MS) / 1000));
-  const continueIdleStop = async (recovering: boolean) => {
-    if (!execution.isCurrent()) return;
-    const existing = idleStopContinuations.get(state);
-    const continuation = existing?.generation === generation && existing.runtime === runtime
-      && existing.ownerKey === ownerKey && existing.sessionId === sessionId
-      ? existing : { ownerKey, sessionId, generation, runtime, active: false, signalSentAt: undefined };
-    if (continuation.active) {
-      // This delivery may have consumed the active attempt's only retry.
-      await armIdleRecovery();
-      return;
-    }
-    continuation.active = true;
-    idleStopContinuations.set(state, continuation);
-    try {
-      if (recovering) await armIdleRecovery();
-      if (!await readUnsignaledIdle()) return;
-      if (!continuation.signalSentAt) {
-        // Consume the automatic drain and signal before either begins. A late
-        // storage commit is not dispatch authority, and a cold retry must not
-        // replay potentially dispatched effects. Stop/Kill can still recover.
-        const started = await raceBudget(ctx.storage.transaction(async txn => {
-          const previous = await txn.get<MetricsPin>(IDLE_STOP_ATTEMPT_KEY);
-          if (previous?.ownerKey === ownerKey && previous.sessionId === sessionId && previous.generation === generation) return false;
-          if (await txn.get('bucketName') !== ownerKey || await txn.get(SESSION_ID_KEY) !== sessionId
-            || await txn.get('lifecycleGeneration') !== generation
-            || typeof await txn.get(SHUTDOWN_REQUESTED_KEY) === 'number' || !execution.isCurrent()) return false;
-          await txn.put(IDLE_STOP_ATTEMPT_KEY, { ownerKey, sessionId, generation });
-          return true;
-        }), CONTAINER_POLL_BUDGET_MS);
-        if (started !== true || !execution.isCurrent()) return;
-        await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
-        if (!execution.isCurrent()) return;
-        await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext(), execution.isCurrent, readUnsignaledIdle);
-        if (!await readUnsignaledIdle() || !execution.isCurrent()) return;
-        await callbacks.stop('SIGTERM', () => { continuation.signalSentAt = new Date().toISOString(); });
-      }
-      if (!continuation.signalSentAt || !execution.isCurrent()) return;
-      await raceBudget(repository.recordTerminationSignal(ownerKey, sessionId, generation,
-        idleIntent, continuation.signalSentAt), CONTAINER_POLL_BUDGET_MS).catch(() => null);
-    } finally {
-      try { await schedule(5); }
-      finally { continuation.active = false; }
-    }
-  };
-  if (execution.idleCompetesWithHermes) {
-    // A committed claim remains actionable even if its original acknowledgement
-    // was lost, and no longer depends on a successful Host activity probe.
-    let current: D1Session | null;
-    try { current = await readCurrent(); }
-    catch { await schedule(5); return; }
-    if (ownsIdle(current)) {
-      if (!current.terminationSignalAcceptedAt) await continueIdleStop(true);
-      else await schedule(5);
-      return;
-    }
-  }
   // These existing keys are retry diagnostics only. D1 is re-read before
   // acting on an incident; no deadline or termination authority lives here.
   let incident: D1Session | null = null;
@@ -1433,17 +1358,12 @@ export async function collectMetrics(
       }
       if (canEnforceIdle && idleMs > sleepMs && execution.isCurrent()) {
         const candidate = await readIdleCandidate();
-        if (candidate && execution.idleCompetesWithHermes) {
-          // Arm before D1: the claim can commit after this tick loses its reply.
-          await armIdleRecovery();
-          if (!execution.isCurrent()) return;
-          const claimed = await raceBudget(repository.claimIdleStop(candidate, idleIntent,
-            new Date().toISOString()), CONTAINER_POLL_BUDGET_MS).catch(() => null);
-          if (claimed === null) { await schedule(5); return; }
-          if (claimed) {
-            requiredStopInProgress = true;
-            await continueIdleStop(false);
-            return;
+        if (execution.queueIdleStop) {
+          if (candidate?.lifecycleState === 'running' && !candidate.shutdown) {
+            // The bucket queue owns acceptance, final save, merge, and exit.
+            // An unavailable acknowledgement never authorizes a direct stop.
+            const result = await raceBudget(execution.queueIdleStop(), CONTAINER_POLL_BUDGET_MS).catch(() => null);
+            if (result === null) logger.warn('collectMetrics: idle Stop acceptance unavailable', finalSyncLogContext());
           }
         } else if (candidate && execution.isCurrent()) {
           logger.info('collectMetrics: idle exceeded threshold, stopping', { ...finalSyncLogContext(), reason: 'idle', idleMs, sleepMs, idleTimeoutPref, referenceTime });

@@ -394,15 +394,14 @@ export async function collectMetrics(host: LifecycleHost, delivered?: MetricsPin
     && (!host._sessionId || host._sessionId === assigned.sessionId) };
   const pin = { ownerKey: execution.ownerKey, sessionId: execution.sessionId, generation: execution.generation };
   const callbacks: MetricsCallbacks = {
-    stop: async (signal: number | string, onSignalAccepted?: () => void) => {
+    stop: async (signal: number | string) => {
       if (!execution.isCurrent()) return;
-      if (execution.runtime.running && !onSignalAccepted) {
+      if (execution.runtime.running) {
         await host.stop(signal as number);
       } else {
-        // A responding host can outlive the SDK hint. For a claimed idle stop,
-        // record native acceptance before the independent reconciliation alarm.
+        // A responding host can outlive the SDK hint. Its idle/quota stop must
+        // reach the native runtime, then retain the pinned reconciliation alarm.
         execution.runtime.signal(signal === 'SIGTERM' ? 15 : signal as number);
-        onSignalAccepted?.();
         if (execution.isCurrent()) {
           try { await callbacks.schedule(5, 'collectMetrics'); }
           catch (error) {
